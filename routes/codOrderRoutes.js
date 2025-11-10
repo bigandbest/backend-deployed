@@ -6,13 +6,12 @@ import {
   getUserCodOrders,
   getCodOrderById,
   deleteCodOrder,
-  getCodOrdersStats
+  getCodOrdersStats,
 } from "../controller/codOrderController.js";
 
 const router = express.Router();
 
 // COD Orders Routes
-console.log('Setting up COD Orders routes...');
 
 // Create COD order
 router.post("/create", createCodOrder);
@@ -34,7 +33,5 @@ router.delete("/:id", deleteCodOrder);
 
 // Get user's COD orders
 router.get("/user/:user_id", getUserCodOrders);
-
-console.log('COD Orders routes configured successfully');
 
 export default router;
