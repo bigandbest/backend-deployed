@@ -81,11 +81,21 @@ const allowedOrigins = [
   "https://big-best-admin.vercel.app", // Production frontend
   "http://localhost:5173", // Development frontend
   "http://localhost:3000", // Alternative dev port
+  "https://frontend-deployed-hazel.vercel.app", // Vercel frontend
 ];
 
 app.use(
   cors({
-    origin: "*", // Temporarily allow all origins for debugging
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      } else {
+        return callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true, // Allow credentials
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: [
@@ -99,7 +109,12 @@ app.use(
 
 // Handle preflight globally - removed invalid pattern
 app.options("*", (req, res) => {
-  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  const origin = req.headers.origin;
+  if (!origin || allowedOrigins.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin || allowedOrigins[0]);
+  } else {
+    res.header("Access-Control-Allow-Origin", allowedOrigins[0]); // Default to first allowed
+  }
   res.header(
     "Access-Control-Allow-Methods",
     "GET, POST, PUT, DELETE, PATCH, OPTIONS"
@@ -127,7 +142,12 @@ app.use("/api/warehouse", warehouseRoute);
 
 // Add CORS middleware specifically for these problematic routes
 app.use("/api/warehouses", (req, res, next) => {
-  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  const origin = req.headers.origin;
+  if (!origin || allowedOrigins.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin || allowedOrigins[0]);
+  } else {
+    res.header("Access-Control-Allow-Origin", allowedOrigins[0]);
+  }
   res.header(
     "Access-Control-Allow-Methods",
     "GET, POST, PUT, DELETE, PATCH, OPTIONS"
@@ -170,7 +190,12 @@ app.use("/api/stores", storeRoutes);
 app.use("/api/sub-stores", subStoreRoutes);
 app.use("/api/you-may-like-products", YouMayLikeProductRoutes);
 app.use("/api/banner", (req, res, next) => {
-  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  const origin = req.headers.origin;
+  if (!origin || allowedOrigins.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin || allowedOrigins[0]);
+  } else {
+    res.header("Access-Control-Allow-Origin", allowedOrigins[0]);
+  }
   res.header(
     "Access-Control-Allow-Methods",
     "GET, POST, PUT, DELETE, PATCH, OPTIONS"
@@ -208,7 +233,12 @@ app.use("/api/video-cards", videoCardRoutes);
 app.use("/api/product-sections", productSectionRoutes);
 app.use("/api/promo-banner", promoBannerRoutes);
 app.use("/api/store-section-mappings", (req, res, next) => {
-  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  const origin = req.headers.origin;
+  if (!origin || allowedOrigins.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin || allowedOrigins[0]);
+  } else {
+    res.header("Access-Control-Allow-Origin", allowedOrigins[0]);
+  }
   res.header(
     "Access-Control-Allow-Methods",
     "GET, POST, PUT, DELETE, PATCH, OPTIONS"
@@ -365,7 +395,12 @@ app.use((error, req, res, next) => {
   console.error("Global error handler:", error.message);
 
   // Ensure CORS headers are set for all errors
-  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  const origin = req.headers.origin;
+  if (!origin || allowedOrigins.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin || allowedOrigins[0]);
+  } else {
+    res.header("Access-Control-Allow-Origin", allowedOrigins[0]);
+  }
   res.header(
     "Access-Control-Allow-Methods",
     "GET, POST, PUT, DELETE, PATCH, OPTIONS"
