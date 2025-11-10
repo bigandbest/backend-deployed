@@ -283,7 +283,7 @@ app.get("/api", (req, res) => {
 });
 
 // 404 handler for API routes
-app.use("/api/*", (req, res) => {
+app.use("/api", (req, res) => {
   console.log(`404 - Route not found: ${req.method} ${req.originalUrl}`);
   res.status(404).json({
     success: false,
