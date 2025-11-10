@@ -17,6 +17,8 @@ try {
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+let supabase;
+
 if (!supabaseUrl || !supabaseKey) {
   console.error("❌ Missing Supabase environment variables");
   console.error("SUPABASE_URL:", supabaseUrl ? "present" : "missing");
@@ -24,9 +26,12 @@ if (!supabaseUrl || !supabaseKey) {
     "SUPABASE_SERVICE_ROLE_KEY:",
     supabaseKey ? "present" : "missing"
   );
-  throw new Error("Missing required Supabase environment variables");
+  console.error(
+    "⚠️  Supabase client will not be initialized. Some routes may fail."
+  );
+  supabase = null;
+} else {
+  supabase = createClient(supabaseUrl, supabaseKey);
 }
-
-const supabase = createClient(supabaseUrl, supabaseKey);
 
 export { supabase };
