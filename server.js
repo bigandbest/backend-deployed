@@ -82,7 +82,8 @@ const allowedOrigins = [
   "https://big-best-frontend.onrender.com", // Render.com deployment - IMPORTANT for production
   "https://admin-eight-ruddy.vercel.app",
   "https://big-best-frontend.vercel.app",
-  "https://frontend-deployed-hazel.vercel.app/" // Vercel deployment
+  "https://frontend-deployed-hazel.vercel.app", // Vercel deployment without trailing slash
+  "https://frontend-deployed-hazel.vercel.app/" // Vercel deployment with trailing slash
 ];
 
 const corsOptions = {
