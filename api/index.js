@@ -262,6 +262,16 @@ app.get("/api/warehouses-test", (req, res) => {
   });
 });
 
+// Health check route
+app.get("/api/health", (req, res) => {
+  res.status(200).json({
+    status: "OK",
+    message: "Server is healthy",
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || "development",
+  });
+});
+
 // API documentation route
 app.get("/api", (req, res) => {
   res.status(200).json({
