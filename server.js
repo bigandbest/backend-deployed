@@ -84,7 +84,7 @@ const allowedOrigins = [
   "https://big-best-frontend.vercel.app",
   "https://frontend-deployed-hazel.vercel.app", // Vercel deployment without trailing slash
   "https://frontend-deployed-hazel.vercel.app/", // Vercel deployment with trailing slash
-  "https://driven-temple-readings-hwy.trycloudflare.com"
+  "https://tech-washer-cycling-addition.trycloudflare.com"
 ];
 
 const corsOptions = {
