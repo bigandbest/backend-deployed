@@ -65,6 +65,9 @@ import bulkWholesaleRoutes from "./routes/bulkWholesaleRoutes.js";
 import codOrderRoutes from "./routes/codOrderRoutes.js";
 import stockRoutes from "./routes/stockRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
+import productGridSettingsRoutes from "./routes/productGridSettingsRoutes.js";
+import adminProductRoutes from "./routes/adminProductRoutes.js";
+import enquiriesRoutes from "./routes/enquiriesRoutes.js";
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -111,6 +114,7 @@ const corsOptions = {
     "Origin",
     "Cache-Control",
     "X-File-Name",
+    "X-Client-Info",
   ],
   credentials: true,
 };
@@ -137,6 +141,7 @@ app.use(
       "Origin",
       "Cache-Control",
       "X-File-Name",
+      "X-Client-Info",
     ],
     credentials: true,
   })
@@ -214,6 +219,9 @@ app.use(
 app.use("/api/zones", zoneRoutes);
 app.use("/api/stock", stockRoutes);
 app.use("/api/upload", uploadRoutes);
+app.use("/api/product-grid-settings", productGridSettingsRoutes);
+app.use("/api/admin", adminProductRoutes);
+app.use("/api/enquiries", enquiriesRoutes);
 
 // Health check route
 app.get("/api/health", (req, res) => {
