@@ -77,27 +77,9 @@ import adminAuthRoutes from "../routes/adminAuthRoutes.js";
 
 const app = express();
 
-// Simple CORS configuration - Allow specific origins
-const allowedOrigins = [
-  "https://big-best-admin.vercel.app", // Production frontend
-  "http://localhost:5173", // Development frontend
-  "http://localhost:3000", // Alternative dev port
-  "https://frontend-deployed-hazel.vercel.app", // Vercel frontend
-  "https://admin-deployed.vercel.app", // Admin panel
-];
-
 app.use(
   cors({
-    origin: function (origin, callback) {
-      // Allow requests with no origin (like mobile apps or curl requests)
-      if (!origin) return callback(null, true);
-
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      } else {
-        return callback(new Error("Not allowed by CORS"));
-      }
-    },
+    origin: true, // Allow all origins
     credentials: true, // Allow credentials
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: [

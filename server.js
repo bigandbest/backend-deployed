@@ -73,52 +73,6 @@ import enquiriesRoutes from "./routes/enquiriesRoutes.js";
 
 const app = express();
 const PORT = process.env.PORT || 8000;
-const allowedOrigins = [
-  "http://localhost:3000", // Next.js frontend
-  "http://localhost:3001", // Next.js frontend (alternative port)
-  "http://localhost:5173", // Vite dev server
-  "http://localhost:5174", // Vite dev server (alternative)
-  "https://big-best-admin.vercel.app", // Admin panel (without trailing slash)
-  "https://big-best-admin.vercel.app/", // Admin panel (with trailing slash)
-  "https://admin-deployed.vercel.app", // Admin panel (current deployment with trailing slash)
-  "https://www.bigbestmart.com",
-  "https://api.amitdev.tech/",
-];
-
-const corsOptions = {
-  origin: function (origin, callback) {
-    console.log(`🔍 CORS check - Origin: ${origin || "no origin"}`);
-
-    // allow requests with no origin like mobile apps or curl
-    if (!origin) {
-      console.log("✅ No origin - allowing request");
-      return callback(null, true);
-    }
-
-    if (allowedOrigins.includes(origin)) {
-      console.log(`✅ Origin allowed: ${origin}`);
-      return callback(null, true);
-    } else {
-      console.log(`❌ Origin BLOCKED: ${origin}`);
-      console.log(`📋 Allowed origins: ${allowedOrigins.join(", ")}`);
-      // Return null, false instead of throwing error to avoid 500 status
-      return callback(null, false);
-    }
-  },
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  exposedHeaders: ["Authorization"],
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-    "X-Requested-With",
-    "Accept",
-    "Origin",
-    "Cache-Control",
-    "X-File-Name",
-    "X-Client-Info",
-  ],
-  credentials: true,
-};
 
 app.use(
   cors({
@@ -276,8 +230,7 @@ if (missingEnvVars.length > 0) {
 }
 
 // Log CORS configuration for debugging
-console.log(`🌐 CORS configured for ${allowedOrigins.length} origins:`);
-allowedOrigins.forEach((origin) => console.log(`   - ${origin}`));
+console.log(`🌐 CORS configured to allow all origins`);
 
 // Export the app for Vercel
 export default app;
