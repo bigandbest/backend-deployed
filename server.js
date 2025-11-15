@@ -103,6 +103,12 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
+// Request logging middleware
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.originalUrl}`);
+  next();
+});
+
 app.use("/api/business", authRoutes);
 app.use("/api/admin-auth", adminAuthRoutes);
 app.use("/api/print-requests", printRequestRoutes);
@@ -184,6 +190,15 @@ app.get("/api/health", (req, res) => {
     message: "Server is healthy",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || "development",
+  });
+});
+
+// Test route for debugging
+app.get("/api/test", (req, res) => {
+  res.status(200).json({
+    message: "Server is working",
+    timestamp: new Date().toISOString(),
+    port: PORT
   });
 });
 
