@@ -6,6 +6,8 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import authRoutes from "./routes/authRoute.js";
+import adminAuthRoutes from "./routes/adminAuthRoutes.js";
+import printRequestRoutes from "./routes/printRequestRoutes.js";
 import geoAddressRoute from "./routes/geoAddressRoute.js";
 import warehouseRoute from "./routes/warehouseRoute.js";
 import productWarehouseRoute from "./routes/productWarehouseRoutes.js";
@@ -152,6 +154,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 app.use("/api/business", authRoutes);
+app.use("/api/admin-auth", adminAuthRoutes);
+app.use("/api/print-requests", printRequestRoutes);
 app.use("/api/geo-address", geoAddressRoute);
 app.use("/api/warehouses", warehouseRoute);
 app.use("/api/productwarehouse", productWarehouseRoute);
