@@ -91,14 +91,9 @@ app.use(
   })
 );
 
-// Handle preflight globally - removed invalid pattern
+// Handle preflight globally
 app.options("*", (req, res) => {
-  const origin = req.headers.origin;
-  if (!origin || allowedOrigins.includes(origin)) {
-    res.header("Access-Control-Allow-Origin", origin || allowedOrigins[0]);
-  } else {
-    res.header("Access-Control-Allow-Origin", allowedOrigins[0]); // Default to first allowed
-  }
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.header(
     "Access-Control-Allow-Methods",
     "GET, POST, PUT, DELETE, PATCH, OPTIONS"
@@ -126,12 +121,7 @@ app.use("/api/warehouse", warehouseRoute);
 
 // Add CORS middleware specifically for these problematic routes
 app.use("/api/warehouses", (req, res, next) => {
-  const origin = req.headers.origin;
-  if (!origin || allowedOrigins.includes(origin)) {
-    res.header("Access-Control-Allow-Origin", origin || allowedOrigins[0]);
-  } else {
-    res.header("Access-Control-Allow-Origin", allowedOrigins[0]);
-  }
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.header(
     "Access-Control-Allow-Methods",
     "GET, POST, PUT, DELETE, PATCH, OPTIONS"
@@ -174,12 +164,7 @@ app.use("/api/stores", storeRoutes);
 app.use("/api/sub-stores", subStoreRoutes);
 app.use("/api/you-may-like-products", YouMayLikeProductRoutes);
 app.use("/api/banner", (req, res, next) => {
-  const origin = req.headers.origin;
-  if (!origin || allowedOrigins.includes(origin)) {
-    res.header("Access-Control-Allow-Origin", origin || allowedOrigins[0]);
-  } else {
-    res.header("Access-Control-Allow-Origin", allowedOrigins[0]);
-  }
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.header(
     "Access-Control-Allow-Methods",
     "GET, POST, PUT, DELETE, PATCH, OPTIONS"
@@ -217,12 +202,7 @@ app.use("/api/video-cards", videoCardRoutes);
 app.use("/api/product-sections", productSectionRoutes);
 app.use("/api/promo-banner", promoBannerRoutes);
 app.use("/api/store-section-mappings", (req, res, next) => {
-  const origin = req.headers.origin;
-  if (!origin || allowedOrigins.includes(origin)) {
-    res.header("Access-Control-Allow-Origin", origin || allowedOrigins[0]);
-  } else {
-    res.header("Access-Control-Allow-Origin", allowedOrigins[0]);
-  }
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.header(
     "Access-Control-Allow-Methods",
     "GET, POST, PUT, DELETE, PATCH, OPTIONS"
@@ -380,12 +360,7 @@ app.use((error, req, res, next) => {
   console.error("Global error handler:", error.message);
 
   // Ensure CORS headers are set for all errors
-  const origin = req.headers.origin;
-  if (!origin || allowedOrigins.includes(origin)) {
-    res.header("Access-Control-Allow-Origin", origin || allowedOrigins[0]);
-  } else {
-    res.header("Access-Control-Allow-Origin", allowedOrigins[0]);
-  }
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.header(
     "Access-Control-Allow-Methods",
     "GET, POST, PUT, DELETE, PATCH, OPTIONS"
