@@ -122,16 +122,7 @@ const corsOptions = {
 
 app.use(
   cors({
-    origin: function (origin, callback) {
-      // allow requests with no origin like mobile apps or curl
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      } else {
-        // Return null, false instead of throwing error to avoid 500 status
-        return callback(null, false);
-      }
-    },
+    origin: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     exposedHeaders: ["Authorization"],
     allowedHeaders: [
