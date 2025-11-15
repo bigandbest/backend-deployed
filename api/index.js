@@ -73,6 +73,7 @@ import storeSectionMappingRoutes from "../routes/storeSectionMappingRoutes.js";
 import bulkWholesaleRoutes from "../routes/bulkWholesaleRoutes.js";
 import codOrderRoutes from "../routes/codOrderRoutes.js";
 import zoneRoutes from "../routes/zoneRoutes.js";
+import adminAuthRoutes from "../routes/adminAuthRoutes.js";
 
 const app = express();
 
@@ -82,6 +83,7 @@ const allowedOrigins = [
   "http://localhost:5173", // Development frontend
   "http://localhost:3000", // Alternative dev port
   "https://frontend-deployed-hazel.vercel.app", // Vercel frontend
+  "https://admin-deployed.vercel.app", // Admin panel
 ];
 
 app.use(
@@ -254,6 +256,7 @@ app.use("/api/store-section-mappings", (req, res, next) => {
 app.use("/api/store-section-mappings", storeSectionMappingRoutes);
 app.use("/api/bulk-wholesale", bulkWholesaleRoutes);
 app.use("/api/cod-orders", codOrderRoutes);
+app.use("/api/admin-auth", adminAuthRoutes);
 
 // Add CORS middleware specifically for zones route
 app.use("/api/zones", (req, res, next) => {
