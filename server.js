@@ -80,8 +80,7 @@ const allowedOrigins = [
   "http://localhost:5174", // Vite dev server (alternative)
   "https://big-best-admin.vercel.app", // Admin panel (without trailing slash)
   "https://big-best-admin.vercel.app/", // Admin panel (with trailing slash)
-  "https://admin-deployed.vercel.app", // Admin panel (current deployment)
-  "https://admin-deployed.vercel.app/", // Admin panel (current deployment with trailing slash)
+  "https://admin-deployed.vercel.app", // Admin panel (current deployment with trailing slash)
   "https://www.bigbestmart.com",
   "https://api.amitdev.tech/",
 ];
