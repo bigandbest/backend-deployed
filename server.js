@@ -76,7 +76,13 @@ const PORT = process.env.PORT || 8000;
 
 app.use(
   cors({
-    origin: true,
+    origin: [
+      "https://admin-deployed.vercel.app",
+      "http://localhost:3000",
+      "http://localhost:5173",
+      "https://api.amitdev.tech",
+      "https://www.bigbestmart.com"
+    ],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     exposedHeaders: ["Authorization"],
     allowedHeaders: [
@@ -232,21 +238,30 @@ if (missingEnvVars.length > 0) {
 // Log CORS configuration for debugging
 console.log(`🌐 CORS configured to allow all origins`);
 
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+// 404 handler
+app.use('*', (req, res) => {
+  res.status(404).json({ error: 'Route not found' });
+});
+
 // Export the app for Vercel
 export default app;
 
-// Only listen if not in production (for local development)
-if (process.env.NODE_ENV !== "production") {
-  app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
-    console.log(
-      `💳 Razorpay Mode: ${
-        process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
-      }`
-    );
-    console.log(
-      `🔗 Supabase URL: ${process.env.SUPABASE_URL || "Not configured"}`
-    );
-  });
-}
+// Always listen (AWS requires this)
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
+  console.log(
+    `💳 Razorpay Mode: ${
+      process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
+    }`
+  );
+  console.log(
+    `🔗 Supabase URL: ${process.env.SUPABASE_URL || "Not configured"}`
+  );
+});
