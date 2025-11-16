@@ -96,8 +96,8 @@ export const createRefundRequest = async (req, res) => {
       refundData.bank_name = bankDetails.bankName;
       refundData.refund_mode = "bank_transfer";
     } else {
-      // Default to wallet refund if no bank details
-      refundData.refund_mode = "wallet";
+      // Default to bank transfer refund if no bank details
+      refundData.refund_mode = "bank_transfer";
     }
 
     const { data: refundRequest, error: refundError } = await supabase
@@ -280,16 +280,6 @@ export const updateRefundRequestStatus = async (req, res) => {
       });
     }
 
-    // If refund is completed and mode is wallet, add money to user's wallet
-    if (status === "completed" && refundRequest.refund_mode === "wallet") {
-      await processWalletRefund(
-        refundRequest.user_id,
-        refundRequest.refund_amount,
-        refundRequest.order_id,
-        adminId
-      );
-    }
-
     // Create notification for user
     try {
       await createRefundNotification(
@@ -312,57 +302,6 @@ export const updateRefundRequestStatus = async (req, res) => {
       success: false,
       error: "Internal server error",
     });
-  }
-};
-
-// Helper function to process wallet refund
-const processWalletRefund = async (userId, amount, orderId, adminId) => {
-  try {
-    // Get current wallet balance
-    const { data: wallet, error: walletError } = await supabase
-      .from("user_wallets")
-      .select("*")
-      .eq("user_id", userId)
-      .single();
-
-    if (walletError) {
-      console.error("Error fetching wallet for refund:", walletError);
-      return;
-    }
-
-    const currentBalance = parseFloat(wallet.balance);
-    const refundAmount = parseFloat(amount);
-    const newBalance = currentBalance + refundAmount;
-
-    // Update wallet balance
-    const { error: updateError } = await supabase
-      .from("user_wallets")
-      .update({
-        balance: newBalance,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("user_id", userId);
-
-    if (updateError) {
-      console.error("Error updating wallet balance for refund:", updateError);
-      return;
-    }
-
-    // Record transaction
-    await supabase.from("wallet_transactions").insert({
-      user_id: userId,
-      transaction_type: "credit",
-      amount: refundAmount,
-      balance_before: currentBalance,
-      balance_after: newBalance,
-      description: `Refund for cancelled order #${orderId}`,
-      reference_type: "refund",
-      reference_id: orderId,
-      admin_id: adminId,
-      status: "completed",
-    });
-  } catch (error) {
-    console.error("Process wallet refund error:", error);
   }
 };
 

@@ -45,7 +45,6 @@ import uniqueSectionRoutes from "./routes/uniqueSectionRoutes.js";
 import uniqueSectionProductRoutes from "./routes/uniqueSectionProductRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
 import returnOrderRoutes from "./routes/returnOrderRoutes.js";
-import walletRoutes from "./routes/walletRoutes.js";
 import refundRoutes from "./routes/refundRoutes.js";
 import debugRoutes from "./routes/debugRoutes.js";
 import quickFixRoutes from "./routes/quickFixRoutes.js";
@@ -136,7 +135,6 @@ app.use("/api/unique-sections", uniqueSectionRoutes);
 app.use("/api/unique-sections-products", uniqueSectionProductRoutes);
 app.use("/api/user", profileRoutes);
 app.use("/api/return-orders", returnOrderRoutes);
-app.use("/api/wallet", walletRoutes);
 app.use("/api/refund", refundRoutes);
 app.use("/api/debug", debugRoutes);
 app.use("/api/quick-fix", quickFixRoutes);
@@ -171,7 +169,7 @@ app.use("/api/product-grid-settings", productGridSettingsRoutes);
 app.use("/api/admin", adminProductRoutes);
 app.use("/api/enquiries", enquiriesRoutes);
 
-// Health check 
+// Health check
 app.get("/api/health", (req, res) => {
   res.status(200).json({
     status: "OK",

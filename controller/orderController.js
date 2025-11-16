@@ -433,7 +433,7 @@ export const cancelOrder = async (req, res) => {
           refund_type: "order_cancellation",
           payment_method: order.payment_method,
           original_payment_id: order.razorpay_payment_id,
-          refund_mode: "wallet", // Default to wallet refund for auto-created requests
+          refund_mode: "bank_transfer", // Default to bank transfer refund for auto-created requests
           status: "pending",
         };
 
