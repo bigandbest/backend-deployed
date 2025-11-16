@@ -171,7 +171,7 @@ app.use("/api/product-grid-settings", productGridSettingsRoutes);
 app.use("/api/admin", adminProductRoutes);
 app.use("/api/enquiries", enquiriesRoutes);
 
-// Health check route
+// Health check 
 app.get("/api/health", (req, res) => {
   res.status(200).json({
     status: "OK",
