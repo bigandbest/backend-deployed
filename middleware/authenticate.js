@@ -39,23 +39,31 @@ export const authenticateToken = async (req, res, next) => {
 };
 
 // For Admin JWT - checks for Bearer token in Authorization header
-export const authenticateAdmin = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  const token = authHeader && authHeader.split(" ")[1];
-
-  if (!token) {
-    return res.status(401).json({ error: "Access token required" });
-  }
-
+export const authenticateAdmin = async (req, res, next) => {
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (decoded.role !== "admin") {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(" ")[1];
+
+    if (!token) {
+      return res.status(401).json({ error: "Access token required" });
+    }
+
+    // Verify Supabase JWT token
+    const { data: user, error } = await supabase.auth.getUser(token);
+
+    if (error || !user) {
+      return res.status(401).json({ error: "Invalid token" });
+    }
+
+    // Check if user has admin role in user_metadata
+    if (user.user.user_metadata?.role !== "admin") {
       return res.status(403).json({ error: "Admin access required" });
     }
-    req.user = decoded;
+
+    req.user = user.user;
     next();
-  } catch (err) {
-    res.status(401).json({ error: "Invalid token" });
+  } catch (error) {
+    return res.status(401).json({ error: "Authentication failed" });
   }
 };
 

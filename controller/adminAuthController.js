@@ -5,30 +5,20 @@ export async function adminLogin(req, res) {
   try {
     const { email, password } = req.body;
 
-    // For simplicity, hardcode admin credentials (in production, use proper auth)
-    if (email === "admin@gmail.com" && password === "admin123") {
-      const payload = {
-        _id: "690a497b61316fae052f181b",
-        email: email,
-        role: "admin",
-      };
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-      const token = jwt.sign(
-        payload,
-        process.env.JWT_SECRET || "your-secret-key",
-        { expiresIn: "24h" }
-      );
-
-      res.json({
-        success: true,
-        user: payload,
-        session: { access_token: token },
-      });
-    } else {
-      return res
-        .status(400)
-        .json({ success: false, error: "Invalid credentials" });
+    if (error) {
+      return res.status(400).json({ success: false, error: error.message });
     }
+
+    res.json({
+      success: true,
+      user: data.user,
+      session: data.session,
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
