@@ -69,6 +69,8 @@ import uploadRoutes from "./routes/uploadRoutes.js";
 import productGridSettingsRoutes from "./routes/productGridSettingsRoutes.js";
 import adminProductRoutes from "./routes/adminProductRoutes.js";
 import enquiriesRoutes from "./routes/enquiriesRoutes.js";
+import walletRoutes from "./routes/walletRoutes.js";
+import adminWalletRoutes from "./routes/adminWalletRoutes.js";
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -168,6 +170,8 @@ app.use("/api/upload", uploadRoutes);
 app.use("/api/product-grid-settings", productGridSettingsRoutes);
 app.use("/api/admin", adminProductRoutes);
 app.use("/api/enquiries", enquiriesRoutes);
+app.use("/api/wallet", walletRoutes);
+app.use("/api/admin/wallets", adminWalletRoutes);
 
 // Health check
 app.get("/api/health", (req, res) => {
