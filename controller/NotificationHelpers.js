@@ -304,3 +304,26 @@ export const createAdminCancelNotification = async (
     "admin"
   );
 };
+
+/**
+ * Create a generic admin notification
+ * @param {string} heading - Notification title
+ * @param {string} description - Notification message
+ * @param {string} related_type - Type of notification
+ * @param {string} related_id - Related entity ID
+ */
+export const createAdminNotification = async (
+  heading,
+  description,
+  related_type,
+  related_id
+) => {
+  return await createNotificationHelper(
+    null,
+    heading,
+    description,
+    related_type,
+    related_id,
+    "admin"
+  );
+};
