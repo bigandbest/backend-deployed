@@ -814,6 +814,46 @@ const addProductToWarehouse = async (req, res) => {
       });
     }
 
+    // Get warehouse details to check type and parent
+    const { data: warehouse, error: warehouseError } = await supabase
+      .from("warehouses")
+      .select("id, type, parent_warehouse_id")
+      .eq("id", id)
+      .single();
+
+    if (warehouseError || !warehouse) {
+      return res.status(404).json({
+        success: false,
+        error: "Warehouse not found",
+      });
+    }
+
+    // For division warehouses, validate that product exists in parent zonal warehouse
+    if (warehouse.type === "division" && warehouse.parent_warehouse_id) {
+      const { data: parentStock, error: parentError } = await supabase
+        .from("product_warehouse_stock")
+        .select("product_id")
+        .eq("warehouse_id", warehouse.parent_warehouse_id)
+        .eq("product_id", product_id)
+        .eq("is_active", true)
+        .single();
+
+      if (parentError && parentError.code !== "PGRST116") {
+        return res.status(500).json({
+          success: false,
+          error: "Error validating parent warehouse stock",
+          details: parentError.message,
+        });
+      }
+
+      if (!parentStock) {
+        return res.status(400).json({
+          success: false,
+          error: "Product must be added to parent zonal warehouse first",
+        });
+      }
+    }
+
     // Check if product already exists in warehouse
     const { data: existingStock, error: checkError } = await supabase
       .from("product_warehouse_stock")
@@ -1432,6 +1472,104 @@ const findWarehouseForOrder = async (req, res) => {
   }
 };
 
+// Get available products for warehouse (respects hierarchy)
+const getAvailableProductsForWarehouse = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get warehouse details
+    const { data: warehouse, error: warehouseError } = await supabase
+      .from("warehouses")
+      .select("id, type, parent_warehouse_id")
+      .eq("id", id)
+      .single();
+
+    if (warehouseError || !warehouse) {
+      return res.status(404).json({
+        success: false,
+        error: "Warehouse not found",
+      });
+    }
+
+    let availableProducts;
+
+    if (warehouse.type === "division" && warehouse.parent_warehouse_id) {
+      // For division warehouses, only show products from parent zonal warehouse
+      const { data: parentProducts, error: parentError } = await supabase
+        .from("product_warehouse_stock")
+        .select(
+          `
+          product_id,
+          products (
+            id,
+            name,
+            price,
+            image
+          )
+        `
+        )
+        .eq("warehouse_id", warehouse.parent_warehouse_id)
+        .eq("is_active", true);
+
+      if (parentError) {
+        return res.status(500).json({
+          success: false,
+          error: "Failed to fetch parent warehouse products",
+          details: parentError.message,
+        });
+      }
+
+      availableProducts = parentProducts?.map(p => p.products).filter(Boolean) || [];
+    } else {
+      // For zonal warehouses, show all products
+      const { data: allProducts, error: productsError } = await supabase
+        .from("products")
+        .select("id, name, price, image")
+        .eq("is_active", true);
+
+      if (productsError) {
+        return res.status(500).json({
+          success: false,
+          error: "Failed to fetch products",
+          details: productsError.message,
+        });
+      }
+
+      availableProducts = allProducts || [];
+    }
+
+    // Filter out products already in this warehouse
+    const { data: existingProducts, error: existingError } = await supabase
+      .from("product_warehouse_stock")
+      .select("product_id")
+      .eq("warehouse_id", id)
+      .eq("is_active", true);
+
+    if (existingError) {
+      return res.status(500).json({
+        success: false,
+        error: "Failed to check existing products",
+        details: existingError.message,
+      });
+    }
+
+    const existingProductIds = new Set(existingProducts?.map(p => p.product_id) || []);
+    const filteredProducts = availableProducts.filter(p => !existingProductIds.has(p.id));
+
+    res.status(200).json({
+      success: true,
+      products: filteredProducts,
+      count: filteredProducts.length,
+    });
+  } catch (error) {
+    console.error("Server error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};
+
 export {
   getWarehouses,
   createWarehouse,
@@ -1451,4 +1589,5 @@ export {
   removeWarehousePincode,
   getZonalWarehousePincodes,
   findWarehouseForOrder,
+  getAvailableProductsForWarehouse,
 };

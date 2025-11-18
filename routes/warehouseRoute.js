@@ -17,6 +17,7 @@ import {
   removeWarehousePincode,
   getZonalWarehousePincodes,
   findWarehouseForOrder,
+  getAvailableProductsForWarehouse,
 } from "../controller/warehouseController.js";
 
 // RESTful warehouse routes
@@ -26,6 +27,7 @@ router.get("/hierarchy", getWarehouseHierarchy);
 router.get("/:id", getSingleWarehouse);
 router.get("/:id/children", getChildWarehouses);
 router.get("/:id/products", getWarehouseProducts);
+router.get("/:id/available-products", getAvailableProductsForWarehouse);
 router.post("/:id/products", addProductToWarehouse);
 router.put("/:id/products/:productId", updateWarehouseProduct);
 router.delete("/:id/products/:productId", removeProductFromWarehouse);
