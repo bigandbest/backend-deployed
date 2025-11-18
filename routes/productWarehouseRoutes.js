@@ -10,6 +10,8 @@ import {
   createProductWithWarehouse,
   distributeProductToZones,
   getProductStockSummary,
+  getZoneProductVisibility,
+  getProductVisibilityMatrix,
 } from "../controller/productWarehouseController.js";
 
 // Enhanced product creation with warehouse management
@@ -20,6 +22,8 @@ router.post("/products/:product_id/distribute", distributeProductToZones);
 
 // Get comprehensive stock summary for a product
 router.get("/products/:product_id/stock-summary", getProductStockSummary);
+router.get("/products/:product_id/visibility", getProductVisibilityMatrix);
+router.get("/zones/:zone_id/visibility", getZoneProductVisibility);
 
 // Map a single product to warehouse (by ID)
 router.post("/map", mapProductToWarehouse);

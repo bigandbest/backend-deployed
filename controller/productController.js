@@ -28,6 +28,57 @@ export const getAllProducts = async (req, res) => {
       return res.status(500).json({ error: error.message });
     }
 
+    const productIds = data?.map((product) => product.id) || [];
+    const assignmentsByProduct = new Map();
+
+    if (productIds.length > 0) {
+      const { data: assignmentRows, error: assignmentError } = await supabase
+        .from("product_warehouse_stock")
+        .select(
+          `
+          product_id,
+          warehouse_id,
+          stock_quantity,
+          reserved_quantity,
+          warehouses (
+            id,
+            name,
+            type,
+            parent_warehouse_id,
+            location
+          )
+        `
+        )
+        .in("product_id", productIds)
+        .eq("is_active", true);
+
+      if (assignmentError) {
+        console.error(
+          "Failed to load product warehouse assignments:",
+          assignmentError
+        );
+      } else {
+        assignmentRows?.forEach((row) => {
+          const assignments =
+            assignmentsByProduct.get(row.product_id) || [];
+          assignments.push({
+            warehouse_id: row.warehouse_id,
+            warehouse_name: row.warehouses?.name,
+            warehouse_type: row.warehouses?.type,
+            parent_warehouse_id: row.warehouses?.parent_warehouse_id,
+            stock_quantity: row.stock_quantity,
+            reserved_quantity: row.reserved_quantity || 0,
+            available_quantity: Math.max(
+              row.stock_quantity - (row.reserved_quantity || 0),
+              0
+            ),
+            warehouse_pincode: row.warehouses?.location || null,
+          });
+          assignmentsByProduct.set(row.product_id, assignments);
+        });
+      }
+    }
+
     // Transform the data to match frontend expectations
     const transformedProducts = data.map((product) => {
       // Find default variant if exists
@@ -55,6 +106,7 @@ export const getAllProducts = async (req, res) => {
         brand: product.brand_name || "BigandBest",
         shipping_amount: product.shipping_amount || 0,
         created_at: product.created_at,
+        delivery_type: product.delivery_type || "nationwide",
         // ✅ Keep variants separate - DON'T let them override main product data
         hasVariants: product.product_variants?.length > 0,
         variants: product.product_variants || [],
@@ -65,7 +117,8 @@ export const getAllProducts = async (req, res) => {
         originalStock: product.stock_quantity || product.stock || 0,
         // ✅ Ensure main product data is never overridden
         cardPrice: product.price,
-        cardOldPrice: product.old_price
+        cardOldPrice: product.old_price,
+        warehouse_assignments: assignmentsByProduct.get(product.id) || [],
       };
     });
 

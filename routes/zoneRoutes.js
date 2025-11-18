@@ -11,6 +11,7 @@ import {
   downloadSampleExcel,
   getZoneStatistics,
 } from "../controller/zoneController.js";
+import { getZoneProductVisibility } from "../controller/productWarehouseController.js";
 
 const router = express.Router();
 
@@ -56,6 +57,7 @@ router.get("/sample-csv", downloadSampleExcel); // Backward compatibility
 // Zone CRUD Operations
 router.get("/statistics", getZoneStatistics);
 router.get("/", getAllZones);
+router.get("/:zoneId/product-visibility", getZoneProductVisibility);
 router.get("/:id", getZoneById);
 router.post("/", createZone);
 router.put("/:id", updateZone);

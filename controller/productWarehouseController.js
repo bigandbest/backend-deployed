@@ -503,6 +503,445 @@ export const getProductStockSummary = async (req, res) => {
   }
 };
 
+// Get visibility for every zone served by a specific product
+export const getProductVisibilityMatrix = async (req, res) => {
+  try {
+    const productId =
+      req.params.product_id || req.params.productId || req.params.id;
+
+    if (!productId) {
+      return res.status(400).json({
+        success: false,
+        error: "Product ID is required",
+      });
+    }
+
+    const { data: product, error: productError } = await supabase
+      .from("products")
+      .select("id, name, delivery_type, price, image")
+      .eq("id", productId)
+      .single();
+
+    if (productError || !product) {
+      return res.status(404).json({
+        success: false,
+        error: "Product not found",
+      });
+    }
+
+    // Map zonal warehouse -> zone details
+    const { data: zoneMappings, error: zoneMappingError } = await supabase
+      .from("warehouse_zones")
+      .select(
+        `
+        warehouse_id,
+        zone_id,
+        is_active,
+        delivery_zones (
+          id,
+          name,
+          display_name
+        )
+      `
+      )
+      .eq("is_active", true);
+
+    if (zoneMappingError) {
+      return res.status(500).json({
+        success: false,
+        error: "Failed to load warehouse zone mappings",
+      });
+    }
+
+    const zonalToZoneMap = new Map();
+    zoneMappings?.forEach((mapping) => {
+      if (mapping.delivery_zones) {
+        zonalToZoneMap.set(mapping.warehouse_id, {
+          zone_id: mapping.delivery_zones.id,
+          zone_name:
+            mapping.delivery_zones.display_name || mapping.delivery_zones.name,
+        });
+      }
+    });
+
+    const { data: stockRows, error: stockError } = await supabase
+      .from("product_warehouse_stock")
+      .select(
+        `
+        warehouse_id,
+        stock_quantity,
+        reserved_quantity,
+        warehouses (
+          id,
+          name,
+          type,
+          parent_warehouse_id
+        )
+      `
+      )
+      .eq("product_id", productId)
+      .eq("is_active", true);
+
+    if (stockError) {
+      return res.status(500).json({
+        success: false,
+        error: "Failed to load product warehouse assignments",
+      });
+    }
+
+    const zoneVisibility = new Map();
+
+    const ensureZoneEntry = (zone) => {
+      if (!zoneVisibility.has(zone.zone_id)) {
+        zoneVisibility.set(zone.zone_id, {
+          zone_id: zone.zone_id,
+          zone_name: zone.zone_name,
+          zone_assignment: null,
+          division_assignments: [],
+        });
+      }
+      return zoneVisibility.get(zone.zone_id);
+    };
+
+    stockRows?.forEach((row) => {
+      const warehouse = row.warehouses;
+      if (!warehouse) return;
+
+      let zoneInfo = null;
+      if (warehouse.type === "zonal") {
+        zoneInfo = zonalToZoneMap.get(warehouse.id);
+      } else if (
+        warehouse.type === "division" &&
+        warehouse.parent_warehouse_id
+      ) {
+        zoneInfo = zonalToZoneMap.get(warehouse.parent_warehouse_id);
+      }
+
+      if (!zoneInfo) {
+        return;
+      }
+
+      const entry = ensureZoneEntry(zoneInfo);
+      const availableQuantity =
+        row.stock_quantity - (row.reserved_quantity || 0);
+
+      if (warehouse.type === "zonal") {
+        if (
+          !entry.zone_assignment ||
+          availableQuantity > entry.zone_assignment.available_quantity
+        ) {
+          entry.zone_assignment = {
+            warehouse_id: warehouse.id,
+            warehouse_name: warehouse.name,
+            stock_quantity: row.stock_quantity,
+            reserved_quantity: row.reserved_quantity || 0,
+            available_quantity: Math.max(availableQuantity, 0),
+          };
+        }
+      } else if (warehouse.type === "division") {
+        entry.division_assignments.push({
+          warehouse_id: warehouse.id,
+          warehouse_name: warehouse.name,
+          parent_warehouse_id: warehouse.parent_warehouse_id,
+          stock_quantity: row.stock_quantity,
+          reserved_quantity: row.reserved_quantity || 0,
+          available_quantity: Math.max(availableQuantity, 0),
+        });
+      }
+    });
+
+    const zones = Array.from(zoneVisibility.values())
+      .map((entry) => {
+        const divisionAvailable = entry.division_assignments.filter(
+          (division) => division.available_quantity > 0
+        );
+
+        let visibility = "unavailable";
+        if (entry.zone_assignment?.available_quantity > 0) {
+          visibility = "zone_available";
+        } else if (divisionAvailable.length > 0) {
+          visibility = "division_only";
+        }
+
+        return {
+          zone_id: entry.zone_id,
+          zone_name: entry.zone_name,
+          zone_assignment: entry.zone_assignment,
+          division_assignments: entry.division_assignments,
+          division_available: divisionAvailable,
+          visibility,
+        };
+      })
+      .sort((a, b) => a.zone_name.localeCompare(b.zone_name));
+
+    res.status(200).json({
+      success: true,
+      product,
+      zones,
+      summary: {
+        total_zones: zones.length,
+        zone_available: zones.filter(
+          (zone) => zone.visibility === "zone_available"
+        ).length,
+        division_only: zones.filter(
+          (zone) => zone.visibility === "division_only"
+        ).length,
+      },
+    });
+  } catch (error) {
+    console.error("Error in getProductVisibilityMatrix:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};
+
+// Get products available for a specific zone with division fallback
+export const getZoneProductVisibility = async (req, res) => {
+  try {
+    const zoneId = req.params.zone_id || req.params.zoneId || req.params.id;
+
+    if (!zoneId) {
+      return res.status(400).json({
+        success: false,
+        error: "Zone ID is required",
+      });
+    }
+
+    const { data: zone, error: zoneError } = await supabase
+      .from("delivery_zones")
+      .select("id, name, display_name")
+      .eq("id", zoneId)
+      .single();
+
+    if (zoneError || !zone) {
+      return res.status(404).json({
+        success: false,
+        error: "Zone not found",
+      });
+    }
+
+    const { data: zoneWarehouseMappings, error: warehouseMappingError } =
+      await supabase
+        .from("warehouse_zones")
+        .select(
+          `
+        warehouse_id,
+        is_active,
+        warehouses (
+          id,
+          name,
+          type,
+          parent_warehouse_id,
+          is_active
+        )
+      `
+        )
+        .eq("zone_id", zoneId)
+        .eq("is_active", true);
+
+    if (warehouseMappingError) {
+      return res.status(500).json({
+        success: false,
+        error: "Failed to fetch zonal warehouses",
+      });
+    }
+
+    const zonalWarehouseIds =
+      zoneWarehouseMappings
+        ?.filter(
+          (mapping) =>
+            mapping.warehouses?.type === "zonal" &&
+            mapping.warehouses?.is_active
+        )
+        .map((mapping) => mapping.warehouse_id) || [];
+
+    if (zonalWarehouseIds.length === 0) {
+      return res.status(200).json({
+        success: true,
+        zone: {
+          id: zone.id,
+          name: zone.display_name || zone.name,
+        },
+        products: [],
+        summary: {
+          total_products: 0,
+          zone_available: 0,
+          division_only: 0,
+        },
+        message: "No active zonal warehouses configured for this zone",
+      });
+    }
+
+    const { data: divisionWarehouses, error: divisionError } = await supabase
+      .from("warehouses")
+      .select("id, name, parent_warehouse_id, is_active")
+      .eq("type", "division")
+      .eq("is_active", true)
+      .in("parent_warehouse_id", zonalWarehouseIds);
+
+    if (divisionError) {
+      return res.status(500).json({
+        success: false,
+        error: "Failed to fetch division warehouses",
+      });
+    }
+
+    const divisionIds = divisionWarehouses?.map((warehouse) => warehouse.id) || [];
+    const warehouseIds = [...zonalWarehouseIds, ...divisionIds];
+
+    if (warehouseIds.length === 0) {
+      return res.status(200).json({
+        success: true,
+        zone: {
+          id: zone.id,
+          name: zone.display_name || zone.name,
+        },
+        products: [],
+        summary: {
+          total_products: 0,
+          zone_available: 0,
+          division_only: 0,
+        },
+        message: "No active warehouses are linked to this zone",
+      });
+    }
+
+    const { data: stockRows, error: stockError } = await supabase
+      .from("product_warehouse_stock")
+      .select(
+        `
+        product_id,
+        warehouse_id,
+        stock_quantity,
+        reserved_quantity,
+        products (
+          id,
+          name,
+          price,
+          image,
+          delivery_type
+        ),
+        warehouses (
+          id,
+          name,
+          type,
+          parent_warehouse_id
+        )
+      `
+      )
+      .in("warehouse_id", warehouseIds)
+      .eq("is_active", true);
+
+    if (stockError) {
+      return res.status(500).json({
+        success: false,
+        error: "Failed to fetch product visibility for this zone",
+      });
+    }
+
+    const productMap = new Map();
+
+    const assignZoneEntry = (row) => {
+      if (!row.products) return null;
+      if (!productMap.has(row.product_id)) {
+        productMap.set(row.product_id, {
+          product: row.products,
+          zone_assignment: null,
+          division_assignments: [],
+        });
+      }
+      return productMap.get(row.product_id);
+    };
+
+    stockRows?.forEach((row) => {
+      const warehouse = row.warehouses;
+      if (!warehouse) return;
+      const entry = assignZoneEntry(row);
+      if (!entry) return;
+
+      const availableQuantity =
+        row.stock_quantity - (row.reserved_quantity || 0);
+
+      if (warehouse.type === "zonal") {
+        if (
+          !entry.zone_assignment ||
+          availableQuantity > entry.zone_assignment.available_quantity
+        ) {
+          entry.zone_assignment = {
+            warehouse_id: warehouse.id,
+            warehouse_name: warehouse.name,
+            stock_quantity: row.stock_quantity,
+            reserved_quantity: row.reserved_quantity || 0,
+            available_quantity: Math.max(availableQuantity, 0),
+          };
+        }
+      } else if (warehouse.type === "division") {
+        entry.division_assignments.push({
+          warehouse_id: warehouse.id,
+          warehouse_name: warehouse.name,
+          parent_warehouse_id: warehouse.parent_warehouse_id,
+          stock_quantity: row.stock_quantity,
+          reserved_quantity: row.reserved_quantity || 0,
+          available_quantity: Math.max(availableQuantity, 0),
+        });
+      }
+    });
+
+    const products = Array.from(productMap.values())
+      .map((entry) => {
+        const divisionAvailable = entry.division_assignments.filter(
+          (division) => division.available_quantity > 0
+        );
+
+        let visibility = "unavailable";
+        if (entry.zone_assignment?.available_quantity > 0) {
+          visibility = "zone_available";
+        } else if (divisionAvailable.length > 0) {
+          visibility = "division_only";
+        }
+
+        return {
+          id: entry.product.id,
+          name: entry.product.name,
+          price: entry.product.price,
+          image: entry.product.image,
+          delivery_type: entry.product.delivery_type,
+          zone_assignment: entry.zone_assignment,
+          division_assignments: entry.division_assignments,
+          division_available: divisionAvailable,
+          visibility,
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    res.status(200).json({
+      success: true,
+      zone: {
+        id: zone.id,
+        name: zone.display_name || zone.name,
+      },
+      products,
+      summary: {
+        total_products: products.length,
+        zone_available: products.filter(
+          (product) => product.visibility === "zone_available"
+        ).length,
+        division_only: products.filter(
+          (product) => product.visibility === "division_only"
+        ).length,
+      },
+    });
+  } catch (error) {
+    console.error("Error in getZoneProductVisibility:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};
+
 // Helper function to get central warehouse
 async function getCentralWarehouse() {
   const { data, error } = await supabase
