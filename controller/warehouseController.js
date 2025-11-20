@@ -1524,8 +1524,7 @@ const getAvailableProductsForWarehouse = async (req, res) => {
       // For zonal warehouses, show all products
       const { data: allProducts, error: productsError } = await supabase
         .from("products")
-        .select("id, name, price, image")
-        .eq("is_active", true);
+        .select("id, name, price, image");
 
       if (productsError) {
         return res.status(500).json({
