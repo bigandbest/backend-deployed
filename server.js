@@ -71,6 +71,7 @@ import adminProductRoutes from "./routes/adminProductRoutes.js";
 import enquiriesRoutes from "./routes/enquiriesRoutes.js";
 import walletRoutes from "./routes/walletRoutes.js";
 import adminWalletRoutes from "./routes/adminWalletRoutes.js";
+import productAvailabilityRoutes from "./routes/productAvailabilityRoutes.js";
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -172,6 +173,7 @@ app.use("/api/admin", adminProductRoutes);
 app.use("/api/enquiries", enquiriesRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/admin/wallets", adminWalletRoutes);
+app.use("/api/product-availability", productAvailabilityRoutes);
 
 // Health check
 app.get("/api/health", (req, res) => {
