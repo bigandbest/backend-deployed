@@ -1,0 +1,18 @@
+-- Add missing fields to products table
+ALTER TABLE products ADD COLUMN IF NOT EXISTS weight_value VARCHAR(50) DEFAULT '';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS weight_unit VARCHAR(10) DEFAULT 'kg';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS weight_display VARCHAR(50) DEFAULT '';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS warehouse_mapping_type VARCHAR(20) DEFAULT 'nationwide';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS assigned_warehouse_ids INTEGER[] DEFAULT '{}';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS primary_warehouses INTEGER[] DEFAULT '{}';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS fallback_warehouses INTEGER[] DEFAULT '{}';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS enable_fallback BOOLEAN DEFAULT true;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS warehouse_notes TEXT DEFAULT '';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS portion VARCHAR(100) DEFAULT '';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS quantity VARCHAR(50) DEFAULT '';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS faq JSONB DEFAULT '[]';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS images TEXT[] DEFAULT '{}';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS group_id INTEGER;
+
+-- Fix stock_movements table
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();

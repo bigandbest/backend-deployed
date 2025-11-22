@@ -16,6 +16,8 @@ export const createProductWithWarehouse = async (req, res) => {
       discount,
       stock,
       category_id,
+      subcategory_id,
+      group_id,
       description,
       specifications,
       rating,
@@ -29,6 +31,10 @@ export const createProductWithWarehouse = async (req, res) => {
       weight_unit,
       weight_display,
       brand_name,
+      portion,
+      quantity,
+      faq,
+      images,
       store_id,
       delivery_type = "nationwide",
       // Warehouse management fields
@@ -54,19 +60,29 @@ export const createProductWithWarehouse = async (req, res) => {
       });
     }
 
+    // Auto-calculate discount if old_price is provided
+    let calculatedDiscount = discount || 0;
+    if (old_price && old_price > price) {
+      calculatedDiscount = Math.round(((old_price - price) / old_price) * 100);
+    }
+
     // Step 1: Create the product
     const productData = {
       name,
       price,
       old_price: old_price || 0,
-      discount: discount || 0,
+      discount: calculatedDiscount,
       category_id,
+      subcategory_id: subcategory_id || null,
+      group_id: group_id || null,
       description: description || "",
       specifications: specifications || "",
       rating: rating || 4.0,
       review_count: review_count || 0,
       featured: featured || false,
       popular: popular || false,
+      stock: stock || initial_stock || 100,
+      stock_quantity: stock || initial_stock || 100,
       in_stock: in_stock !== false,
       active: active !== false,
       shipping_amount: shipping_amount || 0,
@@ -74,6 +90,10 @@ export const createProductWithWarehouse = async (req, res) => {
       weight_unit: weight_unit || "kg",
       weight_display: weight_display || "",
       brand_name: brand_name || "BigandBest",
+      portion: portion || "",
+      quantity: quantity || "",
+      faq: faq || [],
+      images: images || [],
       store_id: store_id || null,
       delivery_type,
       warehouse_mapping_type,
