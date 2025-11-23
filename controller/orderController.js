@@ -45,10 +45,10 @@ const findWarehouseForProduct = async (productId, pincode, productType) => {
 
 /** Get all orders (admin usage) */
 export const getAllOrders = async (req, res) => {
-  const { page = 1, limit = 10 } = req.query;
+  const { page = 1, limit = 10, payment_method = 'prepaid' } = req.query;
   const offset = (page - 1) * limit;
 
-  const { data, error, count } = await supabase
+  let query = supabase
     .from("orders")
     .select(
       `
@@ -66,8 +66,14 @@ export const getAllOrders = async (req, res) => {
     `,
       { count: "exact" }
     )
-    .order("created_at", { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order("created_at", { ascending: false });
+
+  // Filter by payment method unless 'all' is specified
+  if (payment_method && payment_method !== 'all') {
+    query = query.eq('payment_method', payment_method);
+  }
+
+  const { data, error, count } = await query.range(offset, offset + limit - 1);
 
   if (error)
     return res.status(500).json({ success: false, error: error.message });

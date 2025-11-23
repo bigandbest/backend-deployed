@@ -14,7 +14,18 @@
     "build": "echo \"No build step required\"",
     "seed": "node seed-database.js",
     "seed:product-sections": "node scripts/seed-product-sections.js",
-    "verify:product-sections": "node scripts/verify-product-sections.js"
+    "verify:product-sections": "node scripts/verify-product-sections.js",
+    "start:cluster": "CLUSTER_MODE=true node server.js",
+    "start:single": "CLUSTER_MODE=false node server.js",
+    "pm2:start": "pm2 start ecosystem.config.cjs --env production",
+    "pm2:dev": "pm2 start ecosystem.config.cjs --env development",
+    "pm2:stop": "pm2 stop bigandbest-api",
+    "pm2:restart": "pm2 restart bigandbest-api",
+    "pm2:reload": "pm2 reload bigandbest-api",
+    "pm2:delete": "pm2 delete bigandbest-api",
+    "pm2:logs": "pm2 logs bigandbest-api",
+    "pm2:monit": "pm2 monit",
+    "pm2:status": "pm2 status"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -46,8 +57,12 @@
   },
   "jest": {
     "testEnvironment": "node",
-    "setupFilesAfterEnv": ["<rootDir>/test/setup.js"],
-    "testMatch": ["**/test/**/*.test.js"],
+    "setupFilesAfterEnv": [
+      "<rootDir>/test/setup.js"
+    ],
+    "testMatch": [
+      "**/test/**/*.test.js"
+    ],
     "collectCoverageFrom": [
       "controller/**/*.js",
       "services/**/*.js",
