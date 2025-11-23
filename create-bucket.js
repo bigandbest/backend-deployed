@@ -3,6 +3,12 @@ import { supabase } from "./config/supabaseClient.js";
 async function createBuckets() {
   const buckets = [
     {
+      name: "product-images",
+      public: true,
+      allowedMimeTypes: ["image/png", "image/jpeg", "image/jpg", "image/webp"],
+      fileSizeLimit: 5242880, // 5MB
+    },
+    {
       name: "profile-images",
       public: true,
       allowedMimeTypes: ["image/png", "image/jpeg", "image/jpg", "image/webp"],

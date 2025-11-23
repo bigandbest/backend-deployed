@@ -3,6 +3,7 @@ import {
   getAllProductsForAdmin,
   updateProductWarehouseMapping,
   getProductForAdmin,
+  deleteProductForAdmin,
 } from "../controller/adminProductController.js";
 
 const router = express.Router();
@@ -18,5 +19,8 @@ router.put(
   "/products/:productId/warehouse-mapping",
   updateProductWarehouseMapping
 );
+
+// DELETE /api/admin/products/:productId - Delete product for admin
+router.delete("/products/:productId", deleteProductForAdmin);
 
 export default router;
