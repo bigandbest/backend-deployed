@@ -3,14 +3,19 @@ import { supabase } from "../config/supabaseClient.js";
 
 const authenticate = (req, res, next) => {
   const token = req.cookies?.token;
-  if (!token) return res.status(401).json({ error: "Not authorized" });
+  if (!token) {
+    console.log("No cookie token found");
+    return next(new Error("No cookie token"));
+  }
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded;
+    console.log("Cookie auth successful");
     next();
   } catch (err) {
-    res.status(401).json({ error: "Invalid token" });
+    console.log("Cookie token verification failed:", err.message);
+    next(new Error("Invalid cookie token"));
   }
 };
 
@@ -20,21 +25,31 @@ export const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(" ")[1];
 
+    console.log("Token auth - authHeader:", authHeader);
+    console.log(
+      "Token auth - extracted token:",
+      token ? "Token present" : "No token"
+    );
+
     if (!token) {
-      return res.status(401).json({ error: "Access token required" });
+      console.log("No authorization token found");
+      return next(new Error("No authorization token"));
     }
 
     // Verify Supabase JWT token
     const { data: user, error } = await supabase.auth.getUser(token);
 
     if (error || !user) {
-      return res.status(401).json({ error: "Invalid token" });
+      console.log("Token verification failed:", error?.message);
+      return next(new Error("Invalid token"));
     }
 
+    console.log("Token auth successful for user:", user.user.email);
     req.user = user.user;
     next();
   } catch (error) {
-    return res.status(401).json({ error: "Authentication failed" });
+    console.log("Token authentication error:", error.message);
+    return next(new Error("Authentication failed"));
   }
 };
 
