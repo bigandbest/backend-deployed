@@ -271,6 +271,21 @@ export const createWalletTopupOrder = async (req, res) => {
         .json({ success: false, error: "Maximum topup amount is ₹50,000" });
     }
 
+    // Validate Razorpay credentials
+    if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+      console.error("Razorpay credentials not configured");
+      return res.status(500).json({
+        success: false,
+        error: "Payment gateway not configured. Please contact support.",
+      });
+    }
+
+    console.log("Razorpay credentials check:", {
+      key_id_present: !!process.env.RAZORPAY_KEY_ID,
+      key_id_prefix: process.env.RAZORPAY_KEY_ID?.substring(0, 8),
+      key_secret_present: !!process.env.RAZORPAY_KEY_SECRET,
+    });
+
     // Get user wallet
     const { data: wallet, error: walletError } = await supabase
       .from("wallets")
@@ -292,12 +307,27 @@ export const createWalletTopupOrder = async (req, res) => {
     }
 
     // Create Razorpay order
+    // Generate short receipt ID (max 40 chars for Razorpay)
+    const userIdHash = crypto
+      .createHash("md5")
+      .update(user.id)
+      .digest("hex")
+      .substring(0, 8);
+    const timestamp = Date.now().toString().slice(-10);
+    const receipt = `wlt_${userIdHash}_${timestamp}`;
+
     const razorpayOrderOptions = {
       amount: Math.round(topupAmount * 100), // Convert to paisa
       currency: "INR",
-      receipt: `wallet_topup_${user.id}_${Date.now()}`,
+      receipt: receipt, // Format: wlt_12ab34cd_1234567890 (max 28 chars)
       payment_capture: 1,
     };
+
+    console.log("Creating Razorpay order with options:", {
+      amount: razorpayOrderOptions.amount,
+      currency: razorpayOrderOptions.currency,
+      receipt: razorpayOrderOptions.receipt,
+    });
 
     const razorpayOrder = await razorpay.orders.create(razorpayOrderOptions);
 
@@ -333,6 +363,37 @@ export const createWalletTopupOrder = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in createWalletTopupOrder:", error);
+    
+    // Log detailed Razorpay error information
+    if (error.statusCode) {
+      console.error("Razorpay API Error Details:", {
+        statusCode: error.statusCode,
+        error: error.error,
+        description: error.error?.description,
+        code: error.error?.code,
+        field: error.error?.field,
+        source: error.error?.source,
+        step: error.error?.step,
+        reason: error.error?.reason,
+      });
+      
+      // Provide user-friendly error messages
+      if (error.statusCode === 401) {
+        return res.status(500).json({
+          success: false,
+          error: "Payment gateway authentication failed. Please contact support.",
+          details: "Invalid Razorpay credentials configured on the server.",
+        });
+      }
+      
+      if (error.statusCode === 400) {
+        return res.status(400).json({
+          success: false,
+          error: error.error?.description || "Invalid payment request",
+        });
+      }
+    }
+    
     res
       .status(500)
       .json({ success: false, error: "Failed to create topup order" });
