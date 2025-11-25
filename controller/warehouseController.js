@@ -1605,9 +1605,9 @@ console.log("...................................................................
         details: existingError.message,
       });
     }
-    console.log("......................................................")
-console.log(existingProducts)
-console.log("........................................................................................")
+//     console.log("......................................................")
+// console.log(existingProducts)
+// console.log("........................................................................................")
 
     const existingProductIds = new Set(existingProducts?.map(p => p.product_id) || []);
     const filteredProducts = availableProducts.filter(p => !existingProductIds.has(p.id));

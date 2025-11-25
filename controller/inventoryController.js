@@ -141,47 +141,18 @@ const checkProductAvailability = async (req, res) => {
     const { pincode, productId } = req.params;
     const { variantId } = req.query;
 
-    // First, check if the pincode is served by checking zone_pincodes
-    const { data: pincodeCheck, error: pincodeError } = await supabase
-      .from("zone_pincodes")
-      .select(
-        `
-        pincode,
-        delivery_zones!inner(
-          is_active,
-          is_nationwide
-        )
-      `
-      )
-      .eq("pincode", pincode)
-      .eq("is_active", true)
-      .eq("delivery_zones.is_active", true);
-
-    if (pincodeError) {
-      console.error("Pincode check error:", pincodeError);
-      return res.status(500).json({
+    if (!productId || !pincode) {
+      return res.status(400).json({
         success: false,
-        message: "Error checking pincode",
-        error: pincodeError.message,
+        error: "Product ID and pincode are required",
       });
     }
 
-    if (!pincodeCheck || pincodeCheck.length === 0) {
-      return res.json({
-        success: true,
-        data: {
-          is_available: false,
-          message: "Delivery not available in this area",
-        },
-      });
-    }
-
-    // Check if product exists and is active
+    // Get product details
     const { data: product, error: productError } = await supabase
       .from("products")
-      .select("id, name, active")
+      .select("id, name, delivery_type")
       .eq("id", productId)
-      .eq("active", true)
       .single();
 
     if (productError || !product) {
@@ -189,31 +160,152 @@ const checkProductAvailability = async (req, res) => {
         success: true,
         data: {
           is_available: false,
-          message: "Product not found or inactive",
+          message: "Product not found",
         },
       });
     }
 
-    // For now, assume all active products are available in all served pincodes
-    // In a real implementation, you would check warehouse inventory
-    // This is a simplified version until warehouse management is fully set up
+    // Check if pincode exists in division warehouse (faster delivery)
+    const { data: divisionWarehouse, error: divisionError } = await supabase
+      .from("warehouse_pincodes")
+      .select(
+        `
+        pincode,
+        city,
+        state,
+        warehouses (
+          id,
+          name,
+          type,
+          parent_warehouse_id
+        )
+      `
+      )
+      .eq("pincode", pincode)
+      .eq("is_active", true)
+      .single();
 
-    // Simulate stock availability (you can enhance this with real inventory logic later)
-    const simulatedStock = Math.floor(Math.random() * 100) + 1; // Random stock between 1-100
-    const isAvailable = simulatedStock > 0;
+    if (!divisionError && divisionWarehouse) {
+      // Check if product is available in this division warehouse
+      const { data: divisionStock, error: stockError } = await supabase
+        .from("product_warehouse_stock")
+        .select("stock_quantity, reserved_quantity")
+        .eq("product_id", productId)
+        .eq("warehouse_id", divisionWarehouse.warehouses.id)
+        .eq("is_active", true)
+        .single();
 
-    res.json({
+      if (!stockError && divisionStock) {
+        const availableQty =
+          divisionStock.stock_quantity - (divisionStock.reserved_quantity || 0);
+
+        if (availableQty > 0) {
+          return res.json({
+            success: true,
+            data: {
+              is_available: true,
+              warehouse_type: "division",
+              warehouse_id: divisionWarehouse.warehouses.id,
+              warehouse_name: divisionWarehouse.warehouses.name,
+              delivery_time: "1 Day Delivery",
+              delivery_days: 1,
+              message: "Available for delivery in 1 day",
+              available_quantity: availableQty,
+              pincode_info: {
+                pincode: divisionWarehouse.pincode,
+                city: divisionWarehouse.city,
+                state: divisionWarehouse.state,
+              },
+            }
+          });
+        }
+      }
+    }
+
+    // Check if pincode is served by any zonal warehouse
+    const { data: zonePincode, error: zoneError } = await supabase
+      .from("zone_pincodes")
+      .select(
+        `
+        pincode,
+        city,
+        state,
+        zone_id,
+        delivery_zones (
+          id,
+          name,
+          warehouse_zones (
+            warehouse_id,
+            warehouses (
+              id,
+              name,
+              type
+            )
+          )
+        )
+      `
+      )
+      .eq("pincode", pincode)
+      .single();
+
+    if (!zoneError && zonePincode && zonePincode.delivery_zones) {
+      // Get zonal warehouses serving this zone
+      const zonalWarehouses =
+        zonePincode.delivery_zones.warehouse_zones?.filter(
+          (wz) => wz.warehouses?.type === "zonal"
+        ) || [];
+
+      for (const warehouseZone of zonalWarehouses) {
+        const { data: zonalStock, error: zonalStockError } = await supabase
+          .from("product_warehouse_stock")
+          .select("stock_quantity, reserved_quantity")
+          .eq("product_id", productId)
+          .eq("warehouse_id", warehouseZone.warehouse_id)
+          .eq("is_active", true)
+          .single();
+
+        if (!zonalStockError && zonalStock) {
+          const availableQty =
+            zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0);
+
+          if (availableQty > 0) {
+            return res.json({
+              success: true,
+              data: {
+                is_available: true,
+                warehouse_type: "zonal",
+                warehouse_id: warehouseZone.warehouse_id,
+                warehouse_name: warehouseZone.warehouses.name,
+                delivery_time: "3-4 Days Delivery",
+                delivery_days: 3,
+                message: "Available for delivery in 3-4 days",
+                available_quantity: availableQty,
+                pincode_info: {
+                  pincode: zonePincode.pincode,
+                  city: zonePincode.city,
+                  state: zonePincode.state,
+                },
+              }
+            });
+          }
+        }
+      }
+    }
+
+    // Product not available in any warehouse for this pincode
+    return res.json({
       success: true,
       data: {
-        is_available: isAvailable,
-        total_stock: simulatedStock,
-        delivery_time: "2-3 business days",
-        message: isAvailable
-          ? "Available for delivery"
-          : "Out of stock in your area",
-      },
+        is_available: false,
+        warehouse_type: null,
+        message: "Not available for delivery to this pincode",
+        pincode_info: {
+          pincode: pincode,
+        },
+      }
     });
   } catch (error) {
+    console.error("Error in checkProductAvailability:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
