@@ -25,11 +25,11 @@ export const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(" ")[1];
 
-    console.log("Token auth - authHeader:", authHeader);
-    console.log(
-      "Token auth - extracted token:",
-      token ? "Token present" : "No token"
-    );
+    // console.log("Token auth - authHeader:", authHeader);
+    // console.log(
+    //   "Token auth - extracted token:",
+    //   token ? "Token present" : "No token"
+    // );
 
     if (!token) {
       console.log("No authorization token found");

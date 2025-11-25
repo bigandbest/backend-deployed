@@ -651,6 +651,7 @@ const updateWarehouse = async (req, res) => {
       contact_phone,
       contact_email,
       zone_ids,
+      pincode_assignments, // Destructure this to prevent it from going into otherUpdates
       ...otherUpdates
     } = req.body;
 
@@ -736,6 +737,46 @@ const updateWarehouse = async (req, res) => {
           success: false,
           error: "Warehouse updated but failed to map zones",
         });
+      }
+    }
+
+    // If division warehouse, update pincode assignments
+    if (type === "division" && pincode_assignments && Array.isArray(pincode_assignments)) {
+      // 1. Remove existing pincode assignments
+      const { error: deletePincodeError } = await supabase
+        .from("warehouse_pincodes")
+        .delete()
+        .eq("warehouse_id", id);
+
+      if (deletePincodeError) {
+        console.error("Failed to delete existing pincode assignments:", deletePincodeError);
+        return res.status(500).json({
+          success: false,
+          error: "Warehouse updated but failed to update pincode assignments",
+        });
+      }
+
+      // 2. Create new pincode assignments
+      if (pincode_assignments.length > 0) {
+        const pincodeMappings = pincode_assignments.map((assignment) => ({
+          warehouse_id: parseInt(id),
+          pincode: assignment.pincode,
+          city: assignment.city || null,
+          state: assignment.state || null,
+          is_active: true,
+        }));
+
+        const { error: insertPincodeError } = await supabase
+          .from("warehouse_pincodes")
+          .insert(pincodeMappings);
+
+        if (insertPincodeError) {
+          console.error("Failed to create pincode mappings:", insertPincodeError);
+          return res.status(500).json({
+            success: false,
+            error: "Warehouse updated but failed to assign pincodes",
+          });
+        }
       }
     }
 
@@ -1489,8 +1530,9 @@ const getAvailableProductsForWarehouse = async (req, res) => {
         success: false,
         error: "Warehouse not found",
       });
-    }
-
+    }console.log("......................................................")
+console.log(warehouse)
+console.log("........................................................................................")
     let availableProducts;
 
     if (warehouse.type === "division" && warehouse.parent_warehouse_id) {
@@ -1511,6 +1553,18 @@ const getAvailableProductsForWarehouse = async (req, res) => {
         .eq("warehouse_id", warehouse.parent_warehouse_id)
         .eq("is_active", true);
 
+      // Debugging
+      console.log("Parent Warehouse ID:", warehouse.parent_warehouse_id, typeof warehouse.parent_warehouse_id);
+      const { data: debugStock, error: debugError } = await supabase
+        .from("product_warehouse_stock")
+        .select("*")
+        .eq("warehouse_id", warehouse.parent_warehouse_id);
+      console.log("Debug Stock (raw):", debugStock?.length, debugStock ? debugStock[0] : "No data");
+      if (debugError) console.error("Debug Error:", debugError);
+
+      console.log("......................................................")
+      console.log("Parent Products Query Result:", parentProducts?.length)
+      console.log("........................................................................................")
       if (parentError) {
         return res.status(500).json({
           success: false,
@@ -1551,6 +1605,9 @@ const getAvailableProductsForWarehouse = async (req, res) => {
         details: existingError.message,
       });
     }
+    console.log("......................................................")
+console.log(existingProducts)
+console.log("........................................................................................")
 
     const existingProductIds = new Set(existingProducts?.map(p => p.product_id) || []);
     const filteredProducts = availableProducts.filter(p => !existingProductIds.has(p.id));

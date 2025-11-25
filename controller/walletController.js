@@ -280,11 +280,11 @@ export const createWalletTopupOrder = async (req, res) => {
       });
     }
 
-    console.log("Razorpay credentials check:", {
-      key_id_present: !!process.env.RAZORPAY_KEY_ID,
-      key_id_prefix: process.env.RAZORPAY_KEY_ID?.substring(0, 8),
-      key_secret_present: !!process.env.RAZORPAY_KEY_SECRET,
-    });
+    // console.log("Razorpay credentials check:", {
+    //   key_id_present: !!process.env.RAZORPAY_KEY_ID,
+    //   key_id_prefix: process.env.RAZORPAY_KEY_ID?.substring(0, 8),
+    //   key_secret_present: !!process.env.RAZORPAY_KEY_SECRET,
+    // });
 
     // Get user wallet
     const { data: wallet, error: walletError } = await supabase
