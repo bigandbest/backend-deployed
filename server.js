@@ -75,6 +75,8 @@ import walletRoutes from "./routes/walletRoutes.js";
 import adminWalletRoutes from "./routes/adminWalletRoutes.js";
 import productAvailabilityRoutes from "./routes/productAvailabilityRoutes.js";
 import userAddressRoutes from "./routes/userAddressRoutes.js";
+import reviewRoutes from "./routes/reviewRoutes.js";
+import wishlistRoutes from "./routes/wishlistRoutes.js";
 
 // Configuration
 const PORT = process.env.PORT || 8000;
@@ -207,6 +209,8 @@ const createApp = () => {
   app.use("/api/admin/wallets", adminWalletRoutes);
   app.use("/api/product-availability", productAvailabilityRoutes);
   app.use("/api/user/addresses", userAddressRoutes);
+  app.use("/api/reviews", reviewRoutes);
+  app.use("/api/wishlist", wishlistRoutes);
 
   // Enhanced health check with cluster and system info
   app.get("/api/health", (req, res) => {
