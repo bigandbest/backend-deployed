@@ -5,18 +5,37 @@ export const getOrderTracking = async (req, res) => {
   try {
     const { orderId } = req.params;
 
-    // Get order with tracking data
+    // Optimize query by selecting only necessary fields
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .select(`
-        *,
-        order_items(*, products(name, image)),
-        order_tracking(*)
+        id,
+        user_id,
+        status,
+        total,
+        current_location,
+        tracking_number,
+        created_at,
+        updated_at,
+        order_items(
+          id,
+          quantity,
+          price,
+          products(name, image)
+        ),
+        order_tracking(
+          id,
+          status,
+          location,
+          description,
+          timestamp
+        )
       `)
       .eq('id', orderId)
       .single();
 
     if (orderError) {
+      console.error("Error fetching order tracking:", orderError);
       return res.status(404).json({
         success: false,
         message: "Order not found"
@@ -104,14 +123,33 @@ export const searchByTrackingNumber = async (req, res) => {
     const { data: order, error } = await supabase
       .from('orders')
       .select(`
-        *,
-        order_items(*, products(name, image)),
-        order_tracking(*)
+        id,
+        user_id,
+        status,
+        total,
+        current_location,
+        tracking_number,
+        created_at,
+        updated_at,
+        order_items(
+          id,
+          quantity,
+          price,
+          products(name, image)
+        ),
+        order_tracking(
+          id,
+          status,
+          location,
+          description,
+          timestamp
+        )
       `)
       .eq('tracking_number', trackingNumber)
       .single();
 
     if (error) {
+      console.error("Error searching by tracking number:", error);
       return res.status(404).json({
         success: false,
         message: "Order not found with this tracking number"

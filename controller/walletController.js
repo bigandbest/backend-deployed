@@ -138,10 +138,10 @@ export const getUserWallet = async (req, res) => {
       return res.status(401).json({ success: false, error: "Unauthorized" });
     }
 
-    // Get or create wallet
+    // Get or create wallet - select only necessary fields for better performance
     let { data: wallet, error: walletError } = await supabase
       .from("wallets")
-      .select("*")
+      .select("id, user_id, balance, is_frozen, frozen_reason, created_at, updated_at")
       .eq("user_id", user.id)
       .single();
 
@@ -150,7 +150,7 @@ export const getUserWallet = async (req, res) => {
       const { data: newWallet, error: createError } = await supabase
         .from("wallets")
         .insert([{ user_id: user.id, balance: 0.0 }])
-        .select()
+        .select("id, user_id, balance, is_frozen, frozen_reason, created_at, updated_at")
         .single();
 
       if (createError) {
@@ -168,6 +168,7 @@ export const getUserWallet = async (req, res) => {
         .json({ success: false, error: "Failed to fetch wallet" });
     }
 
+    // Return minimal response for faster transmission
     res.json({
       success: true,
       wallet: {
@@ -199,7 +200,7 @@ export const getWalletTransactions = async (req, res) => {
 
     let query = supabase
       .from("wallet_transactions")
-      .select("*")
+      .select("id, transaction_type, amount, balance_before, balance_after, description, created_at, status", { count: "exact" })
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .range(offset, offset + parseInt(limit) - 1);
@@ -217,20 +218,14 @@ export const getWalletTransactions = async (req, res) => {
         .json({ success: false, error: "Failed to fetch transactions" });
     }
 
-    // Get total count for pagination
-    const { count: totalCount } = await supabase
-      .from("wallet_transactions")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", user.id);
-
     res.json({
       success: true,
-      transactions,
+      transactions: transactions || [],
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        total: totalCount,
-        pages: Math.ceil(totalCount / parseInt(limit)),
+        total: count || 0,
+        pages: Math.ceil((count || 0) / parseInt(limit)),
       },
     });
   } catch (error) {

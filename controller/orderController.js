@@ -121,33 +121,40 @@ export const updateOrderStatus = async (req, res) => {
 
 /** Get orders for a specific user */
 export const getUserOrders = async (req, res) => {
-  const { user_id } = req.params;
-  const { limit = 10, offset = 0 } = req.query; // Add pagination
-  console.log(
-    "Getting orders for user_id:",
-    user_id,
-    "limit:",
-    limit,
-    "offset:",
-    offset
-  );
+  try {
+    const { user_id } = req.params;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = parseInt(req.query.offset) || 0;
+    
+    console.log(
+      "Getting orders for user_id:",
+      user_id,
+      "limit:",
+      limit,
+      "offset:",
+      offset
+    );
 
-  const { data, error } = await supabase
-    .from("orders")
-    .select(
-      "id, status, created_at, payment_method, address, subtotal, shipping, total, order_items(id, quantity, price, products(id, name, image))"
-    )
-    .eq("user_id", user_id)
-    .order("created_at", { ascending: false })
-    .range(offset, offset + limit - 1); // Add pagination
+    const { data, error } = await supabase
+      .from("orders")
+      .select(
+        "id, status, created_at, payment_method, address, subtotal, shipping, total, order_items(id, quantity, price, product_id)"
+      )
+      .eq("user_id", user_id)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
 
-  console.log("Database query result:", { data, error });
-  if (error) {
-    console.error("Database error:", error);
-    return res.status(500).json({ success: false, error: error.message });
+    if (error) {
+      console.error("Database error:", error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+    
+    console.log("Sending response with orders count:", data?.length || 0);
+    return res.json({ success: true, orders: data });
+  } catch (error) {
+    console.error("Unexpected error in getUserOrders:", error);
+    return res.status(500).json({ success: false, error: "Internal server error" });
   }
-  console.log("Sending response with orders count:", data?.length || 0);
-  return res.json({ success: true, orders: data });
 };
 
 /** Place order with a flat address string */
