@@ -157,6 +157,49 @@ export const getUserOrders = async (req, res) => {
   }
 };
 
+/** Get orders for authenticated user (using middleware) */
+export const getMyOrders = async (req, res) => {
+  try {
+    const { user } = req;
+    
+    if (!user || !user.id) {
+      return res.status(401).json({ success: false, error: "Unauthorized" });
+    }
+
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = parseInt(req.query.offset) || 0;
+    
+    console.log(
+      "Getting orders for authenticated user:",
+      user.id,
+      "limit:",
+      limit,
+      "offset:",
+      offset
+    );
+
+    const { data, error } = await supabase
+      .from("orders")
+      .select(
+        "id, status, created_at, payment_method, address, subtotal, shipping, total, order_items(id, quantity, price, product_id)"
+      )
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) {
+      console.error("Database error:", error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+    
+    console.log("Sending response with orders count:", data?.length || 0);
+    return res.json({ success: true, orders: data || [] });
+  } catch (error) {
+    console.error("Unexpected error in getMyOrders:", error);
+    return res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
 /** Place order with a flat address string */
 export const placeOrder = async (req, res) => {
   const { user_id, items, subtotal, shipping, total, address, payment_method } =
