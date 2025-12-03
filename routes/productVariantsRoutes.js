@@ -5,8 +5,9 @@ import {
   updateProductVariant,
   deleteProductVariant,
   getProductsWithVariants,
+  updateVariantStock,
 } from "../controller/productVariantsController.js";
-import { authenticate } from "../middleware/authenticate.js";
+import { authenticateToken } from "../middleware/authenticate.js";
 
 const router = express.Router();
 
@@ -15,8 +16,9 @@ router.get("/products-with-variants", getProductsWithVariants);
 router.get("/product/:productId/variants", getProductVariants);
 
 // Protected routes - authentication required
-router.post("/product/:productId/variants", authenticate, addProductVariant);
-router.put("/variant/:variantId", authenticate, updateProductVariant);
-router.delete("/variant/:variantId", authenticate, deleteProductVariant);
+router.post("/product/:productId/variants", authenticateToken, addProductVariant);
+router.put("/variant/:variantId", authenticateToken, updateProductVariant);
+router.put("/variant/:variantId/stock", authenticateToken, updateVariantStock);
+router.delete("/variant/:variantId", authenticateToken, deleteProductVariant);
 
 export default router;

@@ -269,3 +269,73 @@ export const getProductsWithVariants = async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
+// Update variant stock
+export const updateVariantStock = async (req, res) => {
+  try {
+    const { variantId } = req.params;
+    const { variant_stock, active } = req.body;
+
+    if (!variantId) {
+      return res.status(400).json({ error: "Variant ID is required" });
+    }
+
+    if (variant_stock === undefined && active === undefined) {
+      return res.status(400).json({ error: "variant_stock or active status is required" });
+    }
+
+    // Check if variant exists
+    const { data: existingVariant, error: checkError } = await supabase
+      .from("product_variants")
+      .select("id, variant_name, variant_stock, active")
+      .eq("id", variantId)
+      .single();
+
+    if (checkError || !existingVariant) {
+      return res.status(404).json({ error: "Variant not found" });
+    }
+
+    // Prepare update data
+    const updateData = {};
+    
+    if (variant_stock !== undefined) {
+      const stock = parseInt(variant_stock);
+      if (isNaN(stock) || stock < 0) {
+        return res.status(400).json({ error: "Invalid stock quantity. Must be a non-negative number." });
+      }
+      updateData.variant_stock = stock;
+    }
+
+    // Update active status (for in-stock/out-of-stock)
+    if (active !== undefined) {
+      updateData.active = Boolean(active);
+    }
+
+    // Auto-set active based on stock if not explicitly set
+    if (variant_stock !== undefined && active === undefined) {
+      updateData.active = variant_stock > 0;
+    }
+
+    updateData.updated_at = new Date().toISOString();
+
+    // Update variant
+    const { data, error } = await supabase
+      .from("product_variants")
+      .update(updateData)
+      .eq("id", variantId)
+      .select();
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.status(200).json({
+      success: true,
+      variant: data[0],
+      message: "Variant stock updated successfully"
+    });
+  } catch (error) {
+    console.error('Server error in updateVariantStock:', error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};

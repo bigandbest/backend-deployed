@@ -25,15 +25,9 @@ export const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(" ")[1];
 
-    // console.log("Token auth - authHeader:", authHeader);
-    // console.log(
-    //   "Token auth - extracted token:",
-    //   token ? "Token present" : "No token"
-    // );
-
     if (!token) {
       console.log("No authorization token found");
-      return next(new Error("No authorization token"));
+      return res.status(401).json({ error: "Access token required" });
     }
 
     // Verify Supabase JWT token
@@ -41,7 +35,7 @@ export const authenticateToken = async (req, res, next) => {
 
     if (error || !user) {
       console.log("Token verification failed:", error?.message);
-      return next(new Error("Invalid token"));
+      return res.status(401).json({ error: "Invalid or expired token" });
     }
 
     console.log("Token auth successful for user:", user.user.email);
@@ -49,7 +43,7 @@ export const authenticateToken = async (req, res, next) => {
     next();
   } catch (error) {
     console.log("Token authentication error:", error.message);
-    return next(new Error("Authentication failed"));
+    return res.status(401).json({ error: "Authentication failed" });
   }
 };
 

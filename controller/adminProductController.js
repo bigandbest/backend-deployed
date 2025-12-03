@@ -1,16 +1,36 @@
 import { supabase } from "../config/supabaseClient.js";
 
+// Variant join string - used consistently across all product queries
+const VARIANT_JOIN = `
+  product_variants!left(
+    id,
+    variant_name,
+    variant_price,
+    variant_old_price,
+    variant_discount,
+    variant_stock,
+    variant_weight,
+    variant_unit,
+    variant_image_url,
+    shipping_amount,
+    is_default,
+    active,
+    created_at
+  )
+`;
+
 // Get all products for admin with full details and joins
 export const getAllProductsForAdmin = async (req, res) => {
   try {
-    // Fetch with join to groups, subcategories and categories
+    // Fetch with join to groups, subcategories, categories, and variants
     const { data, error } = await supabase
       .from("products")
       .select(
         `
         *, 
         groups(id, name, subcategories(id, name, categories(id, name))),
-        subcategories(id, name, categories(id, name))
+        subcategories(id, name, categories(id, name)),
+        ${VARIANT_JOIN}
       `
       )
       .order("created_at", { ascending: false });
@@ -215,14 +235,15 @@ export const getProductForAdmin = async (req, res) => {
       });
     }
 
-    // Fetch product with warehouse details
+    // Fetch product with warehouse details and variants
     const { data, error } = await supabase
       .from("products")
       .select(
         `
         *, 
         groups(id, name, subcategories(id, name, categories(id, name))),
-        subcategories(id, name, categories(id, name))
+        subcategories(id, name, categories(id, name)),
+        ${VARIANT_JOIN}
       `
       )
       .eq("id", productId)

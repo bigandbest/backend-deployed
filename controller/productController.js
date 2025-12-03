@@ -1,26 +1,31 @@
 import { supabase } from "../config/supabaseClient.js";
 import * as deliveryValidationService from "./deliveryValidationService.js";
 
+// Variant join string - used consistently across all product queries
+const VARIANT_JOIN = `
+  product_variants!left(
+    id,
+    variant_name,
+    variant_price,
+    variant_old_price,
+    variant_discount,
+    variant_stock,
+    variant_weight,
+    variant_unit,
+    variant_image_url,
+    shipping_amount,
+    is_default,
+    active,
+    created_at
+  )
+`;
+
 export const getAllProducts = async (req, res) => {
   try {
-    // Fetch products with their default variants
+    // Fetch products with ALL their variants
     const { data, error } = await supabase
       .from("products")
-      .select(`
-        *,
-        product_variants!left(
-          id,
-          variant_name,
-          variant_price,
-          variant_old_price,
-          variant_discount,
-          variant_stock,
-          variant_weight,
-          variant_unit,
-          variant_image,
-          is_default
-        )
-      `)
+      .select(`*, ${VARIANT_JOIN}`)
       .eq("active", true);
 
     if (error) {
@@ -81,8 +86,10 @@ export const getAllProducts = async (req, res) => {
 
     // Transform the data to match frontend expectations
     const transformedProducts = data.map((product) => {
+      // Filter active variants only
+      const activeVariants = (product.product_variants || []).filter(v => v.active !== false);
       // Find default variant if exists
-      const defaultVariant = product.product_variants?.find(v => v.is_default === true);
+      const defaultVariant = activeVariants.find(v => v.is_default === true);
       
       return {
         id: product.id,
@@ -101,16 +108,19 @@ export const getAllProducts = async (req, res) => {
         stockQuantity: product.stock_quantity || product.stock || 0,
         popular: product.popular,
         featured: product.featured,
+        most_orders: product.most_orders,
+        top_sale: product.top_sale,
         category: product.category,
         weight: product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
         brand: product.brand_name || "BigandBest",
         shipping_amount: product.shipping_amount || 0,
+        specifications: product.specifications,
         created_at: product.created_at,
         delivery_type: product.delivery_type || "nationwide",
         // ✅ Keep variants separate - DON'T let them override main product data
-        hasVariants: product.product_variants?.length > 0,
-        variants: product.product_variants || [],
-        defaultVariant: defaultVariant,
+        hasVariants: activeVariants.length > 0,
+        variants: activeVariants,
+        defaultVariant: defaultVariant || null,
         // ✅ Preserve original product data (for card display)
         originalPrice: product.price,
         originalOldPrice: product.old_price,
@@ -138,7 +148,7 @@ export const getProductsByCategory = async (req, res) => {
     const { category } = req.params;
     const { data, error } = await supabase
       .from("products")
-      .select("*")
+      .select(`*, ${VARIANT_JOIN}`)
       .eq("active", true)
       .eq("category", category);
 
@@ -168,6 +178,9 @@ export const getProductsByCategory = async (req, res) => {
       brand: product.brand_name || "BigandBest",
       shipping_amount: product.shipping_amount || 0,
       created_at: product.created_at,
+      hasVariants: product.product_variants?.length > 0,
+      variants: product.product_variants || [],
+      defaultVariant: product.product_variants?.find(v => v.is_default === true) || null,
     }));
 
     res.status(200).json({
@@ -250,7 +263,8 @@ export const getFeaturedProducts = async (req, res) => {
           name,
           description,
           image_url
-        )
+        ),
+        ${VARIANT_JOIN}
       `
       )
       .eq("active", true)
@@ -283,6 +297,9 @@ export const getFeaturedProducts = async (req, res) => {
       brand_name: product.brand_name,
       shipping_amount: product.shipping_amount || 0,
       created_at: product.created_at,
+      hasVariants: product.product_variants?.length > 0,
+      variants: product.product_variants || [],
+      defaultVariant: product.product_variants?.find(v => v.is_default === true) || null,
     }));
 
     res.status(200).json({
@@ -322,7 +339,8 @@ export const getProductsWithFilters = async (req, res) => {
           name,
           description,
           image_url
-        )
+        ),
+        ${VARIANT_JOIN}
       `,
         { count: "exact" }
       )
@@ -396,6 +414,9 @@ export const getProductsWithFilters = async (req, res) => {
       brand_name: product.brand_name,
       shipping_amount: product.shipping_amount || 0,
       created_at: product.created_at,
+      hasVariants: product.product_variants?.length > 0,
+      variants: product.product_variants || [],
+      defaultVariant: product.product_variants?.find(v => v.is_default === true) || null,
     }));
 
     res.status(200).json({
@@ -421,9 +442,10 @@ export const getProductById = async (req, res) => {
       return res.status(400).json({ error: "Product ID is required" });
     }
 
+    // Fetch product with ALL variants
     const { data, error } = await supabase
       .from("products")
-      .select("*")
+      .select(`*, ${VARIANT_JOIN}`)
       .eq("id", id)
       .eq("active", true)
       .single();
@@ -479,6 +501,9 @@ export const getProductById = async (req, res) => {
       deliveryInfo.checked_pincode = pincode;
     }
 
+    // Filter active variants only
+    const activeVariants = (data.product_variants || []).filter(v => v.active !== false);
+
     // Transform the data to match frontend expectations
     const transformedProduct = {
       id: data.id,
@@ -503,6 +528,10 @@ export const getProductById = async (req, res) => {
       specifications: data.specifications,
       created_at: data.created_at,
       delivery_info: deliveryInfo,
+      // Include variants
+      variants: activeVariants,
+      hasVariants: activeVariants.length > 0,
+      defaultVariant: activeVariants.find(v => v.is_default === true) || null,
     };
 
     res.status(200).json({
@@ -733,7 +762,7 @@ export const getProductsByDeliveryZone = async (req, res) => {
     // Build query for deliverable products
     let query = supabase
       .from("products")
-      .select("*")
+      .select(`*, ${VARIANT_JOIN}`)
       .eq("active", true)
       .or(
         `delivery_type.eq.nationwide,and(delivery_type.eq.zonal,allowed_zone_ids.ov.{${zoneIds.join(
@@ -777,6 +806,9 @@ export const getProductsByDeliveryZone = async (req, res) => {
       delivery_type: product.delivery_type,
       delivery_available: true,
       created_at: product.created_at,
+      hasVariants: product.product_variants?.length > 0,
+      variants: product.product_variants || [],
+      defaultVariant: product.product_variants?.find(v => v.is_default === true) || null,
     }));
 
     res.status(200).json({
@@ -807,21 +839,7 @@ export const getQuickPicks = async (req, res) => {
       // Get latest products
       const { data: productDetails, error: detailsError } = await supabase
         .from("products")
-        .select(`
-          *,
-          product_variants!left(
-            id,
-            variant_name,
-            variant_price,
-            variant_old_price,
-            variant_discount,
-            variant_stock,
-            variant_weight,
-            variant_unit,
-            variant_image,
-            is_default
-          )
-        `)
+        .select(`*, ${VARIANT_JOIN}`)
         .eq("active", true)
         .order("created_at", { ascending: false })
         .limit(parseInt(limit));
@@ -897,7 +915,7 @@ export const getQuickPicks = async (req, res) => {
 
         let latestQuery = supabase
           .from("products")
-          .select("*")
+          .select(`*, ${VARIANT_JOIN}`)
           .eq("active", true)
           .order("created_at", { ascending: false })
           .limit(remainingLimit);
@@ -946,7 +964,7 @@ export const getQuickPicks = async (req, res) => {
       if (trendingProductIds.length > 0) {
         const { data: productDetails, error: detailsError } = await supabase
           .from("products")
-          .select("*")
+          .select(`*, ${VARIANT_JOIN}`)
           .in("id", trendingProductIds)
           .eq("active", true);
 
@@ -969,7 +987,7 @@ export const getQuickPicks = async (req, res) => {
 
         let latestQuery = supabase
           .from("products")
-          .select("*")
+          .select(`*, ${VARIANT_JOIN}`)
           .eq("active", true)
           .order("created_at", { ascending: false })
           .limit(remainingLimit);
@@ -992,7 +1010,7 @@ export const getQuickPicks = async (req, res) => {
       // Get products marked as top sale
       const { data: productDetails, error: detailsError } = await supabase
         .from("products")
-        .select("*")
+        .select(`*, ${VARIANT_JOIN}`)
         .eq("active", true)
         .eq("top_sale", true)
         .order("created_at", { ascending: false })
@@ -1005,7 +1023,7 @@ export const getQuickPicks = async (req, res) => {
       // Get products marked as most ordered
       const { data: productDetails, error: detailsError } = await supabase
         .from("products")
-        .select("*")
+        .select(`*, ${VARIANT_JOIN}`)
         .eq("active", true)
         .eq("most_orders", true)
         .order("created_at", { ascending: false })
@@ -1086,7 +1104,8 @@ export const getProductsBySubcategory = async (req, res) => {
           name,
           description,
           image_url
-        )
+        ),
+        ${VARIANT_JOIN}
       `
       )
       .eq("active", true)
@@ -1123,6 +1142,9 @@ export const getProductsBySubcategory = async (req, res) => {
         product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
       brand: product.brand_name || "BigandBest",
       created_at: product.created_at,
+      hasVariants: product.product_variants?.length > 0,
+      variants: product.product_variants || [],
+      defaultVariant: product.product_variants?.find(v => v.is_default === true) || null,
     }));
 
     res.status(200).json({
@@ -1152,7 +1174,8 @@ export const getProductsByGroup = async (req, res) => {
           name,
           description,
           image_url
-        )
+        ),
+        ${VARIANT_JOIN}
       `
       )
       .eq("active", true)
@@ -1186,6 +1209,9 @@ export const getProductsByGroup = async (req, res) => {
       brand_name: product.brand_name,
       shipping_amount: product.shipping_amount || 0,
       created_at: product.created_at,
+      hasVariants: product.product_variants?.length > 0,
+      variants: product.product_variants || [],
+      defaultVariant: product.product_variants?.find(v => v.is_default === true) || null,
     }));
 
     res.status(200).json({
