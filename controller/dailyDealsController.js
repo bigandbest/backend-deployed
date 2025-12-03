@@ -117,6 +117,81 @@ export async function getAllDailyDeals(req, res) {
   }
 }
 
+// View All Daily Deals WITH Products (Optimized - Single API Call)
+export async function getAllDailyDealsWithProducts(req, res) {
+  try {
+    // Step 1: Fetch all active deals
+    const { data: deals, error: dealsError } = await supabase
+      .from("daily_deals")
+      .select("*")
+      .eq("active", true)
+      .order("sort_order", { ascending: true });
+
+    if (dealsError) {
+      return res.status(400).json({ success: false, error: dealsError.message });
+    }
+
+    if (!deals || deals.length === 0) {
+      return res.json({ success: true, deals: [] });
+    }
+
+    // Step 2: Fetch all product mappings for these deals
+    const dealIds = deals.map(d => d.id);
+    const { data: mappings, error: mappingsError } = await supabase
+      .from("daily_deals_product")
+      .select("daily_deal_id, product_id")
+      .in("daily_deal_id", dealIds);
+
+    if (mappingsError) {
+      console.error("Error fetching product mappings:", mappingsError);
+      // Return deals without products if mapping fails
+      return res.json({
+        success: true,
+        deals: deals.map(deal => ({ ...deal, products: [] }))
+      });
+    }
+
+    // Step 3: Fetch all products with variants
+    const productIds = [...new Set(mappings?.map(m => m.product_id) || [])];
+    
+    let products = [];
+    if (productIds.length > 0) {
+      const { fetchProductsWithVariants, transformProductWithVariants } = await import('./productHelpers.js');
+      const fetchedProducts = await fetchProductsWithVariants(productIds);
+      products = fetchedProducts.map(transformProductWithVariants);
+    }
+
+    // Step 4: Create a map of products by ID for quick lookup
+    const productsMap = {};
+    products.forEach(product => {
+      productsMap[product.id] = product;
+    });
+
+    // Step 5: Group products by deal_id
+    const dealProductsMap = {};
+    mappings?.forEach(mapping => {
+      if (!dealProductsMap[mapping.daily_deal_id]) {
+        dealProductsMap[mapping.daily_deal_id] = [];
+      }
+      const product = productsMap[mapping.product_id];
+      if (product) {
+        dealProductsMap[mapping.daily_deal_id].push(product);
+      }
+    });
+
+    // Step 6: Combine deals with their products
+    const dealsWithProducts = deals.map(deal => ({
+      ...deal,
+      products: dealProductsMap[deal.id] || []
+    }));
+
+    res.json({ success: true, deals: dealsWithProducts });
+  } catch (err) {
+    console.error("Error in getAllDailyDealsWithProducts:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
 // View a Single Daily Deal
 export async function getDailyDealById(req, res) {
   try {
