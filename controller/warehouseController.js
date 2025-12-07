@@ -479,12 +479,13 @@ const getWarehouseProducts = async (req, res) => {
       });
     }
 
-    // Get products with stock levels for this warehouse
+    // Get products with stock levels for this warehouse (including variants)
     const { data: warehouseProducts, error } = await supabase
       .from("product_warehouse_stock")
       .select(
         `
         product_id,
+        variant_id,
         stock_quantity,
         reserved_quantity,
         minimum_threshold,
@@ -496,6 +497,14 @@ const getWarehouseProducts = async (req, res) => {
           delivery_type,
           price,
           image
+        ),
+        product_variants (
+          id,
+          variant_name,
+          variant_price,
+          variant_weight,
+          variant_unit,
+          is_default
         )
       `
       )
@@ -511,22 +520,58 @@ const getWarehouseProducts = async (req, res) => {
       });
     }
 
-    // Transform the data to include calculated fields
-    const transformedProducts =
-      warehouseProducts?.map((item) => ({
-        product_id: item.product_id,
-        product_name: item.products?.name || "Unknown Product",
-        product_price: item.products?.price,
-        stock_quantity: item.stock_quantity,
-        reserved_quantity: item.reserved_quantity || 0,
-        available_quantity: item.stock_quantity - (item.reserved_quantity || 0),
-        minimum_threshold: item.minimum_threshold || 0,
-        cost_per_unit: item.cost_per_unit,
-        last_restocked_at: item.last_restocked_at,
-        delivery_type: item.products?.delivery_type,
-        image_url: item.products?.image, // Fixed: use 'image' field from products table
-        is_low_stock: item.stock_quantity <= (item.minimum_threshold || 0),
-      })) || [];
+    // Group by product and include variants
+    const productsMap = new Map();
+    
+    warehouseProducts?.forEach((item) => {
+      const productId = item.product_id;
+      
+      if (!productsMap.has(productId)) {
+        productsMap.set(productId, {
+          product_id: productId,
+          product_name: item.products?.name || "Unknown Product",
+          product_price: item.products?.price,
+          delivery_type: item.products?.delivery_type,
+          image_url: item.products?.image,
+          variants: [],
+          base_stock: null
+        });
+      }
+      
+      const product = productsMap.get(productId);
+      
+      if (item.variant_id) {
+        // This is variant stock
+        product.variants.push({
+          variant_id: item.variant_id,
+          variant_name: item.product_variants?.variant_name,
+          variant_price: item.product_variants?.variant_price,
+          variant_weight: item.product_variants?.variant_weight,
+          variant_unit: item.product_variants?.variant_unit,
+          is_default: item.product_variants?.is_default,
+          stock_quantity: item.stock_quantity,
+          reserved_quantity: item.reserved_quantity || 0,
+          available_quantity: item.stock_quantity - (item.reserved_quantity || 0),
+          minimum_threshold: item.minimum_threshold || 0,
+          cost_per_unit: item.cost_per_unit,
+          last_restocked_at: item.last_restocked_at,
+          is_low_stock: item.stock_quantity <= (item.minimum_threshold || 0)
+        });
+      } else {
+        // This is base product stock (no variant)
+        product.base_stock = {
+          stock_quantity: item.stock_quantity,
+          reserved_quantity: item.reserved_quantity || 0,
+          available_quantity: item.stock_quantity - (item.reserved_quantity || 0),
+          minimum_threshold: item.minimum_threshold || 0,
+          cost_per_unit: item.cost_per_unit,
+          last_restocked_at: item.last_restocked_at,
+          is_low_stock: item.stock_quantity <= (item.minimum_threshold || 0)
+        };
+      }
+    });
+
+    const transformedProducts = Array.from(productsMap.values());
 
     res.status(200).json({
       success: true,
