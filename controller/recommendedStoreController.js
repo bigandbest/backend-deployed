@@ -164,12 +164,46 @@ export async function deleteRecommendedStore(req, res) {
 // View All Recommended Stores
 export async function getAllRecommendedStores(req, res) {
   try {
+    // Get all stores with their associated products
     const { data, error } = await supabase
       .from("recommended_store")
-      .select("*");
+      .select(`
+        id,
+        name,
+        description,
+        image_url,
+        is_active,
+        product_recommended_store (
+          products (
+            id,
+            name,
+            image,
+            category,
+            price,
+            rating
+          )
+        )
+      `);
+    
     if (error)
       return res.status(400).json({ success: false, error: error.message });
-    res.json({ success: true, recommendedStores: data });
+    
+    // Transform the data to include products array
+    const formattedStores = data.map(store => {
+      const products = store.product_recommended_store?.map(mapping => mapping.products).filter(p => p) || [];
+      
+      return {
+        id: store.id,
+        name: store.name,
+        description: store.description,
+        image_url: store.image_url,
+        is_active: store.is_active,
+        products: products,
+        product_count: products.length
+      };
+    });
+    
+    res.json({ success: true, recommendedStores: formattedStores });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -180,13 +214,49 @@ export async function getAllRecommendedStores(req, res) {
 // Get Active Recommended Stores (for website)
 export async function getActiveRecommendedStores(req, res) {
   try {
+    // Get active stores with their associated products
     const { data, error } = await supabase
       .from("recommended_store")
-      .select("*")
+      .select(`
+        id,
+        name,
+        description,
+        image_url,
+        is_active,
+        product_recommended_store (
+          products (
+            id,
+            name,
+            image,
+            category,
+            price,
+            rating
+          )
+        )
+      `)
       .eq("is_active", true);
+    
     if (error)
       return res.status(400).json({ success: false, error: error.message });
-    res.json({ success: true, recommendedStores: data });
+    
+    // Transform the data to match the frontend's expected structure
+    // Each store will have its first associated product
+    const formattedStores = data.map(store => {
+      // Get the first product from the store's product mappings
+      const firstProductMapping = store.product_recommended_store?.[0];
+      const product = firstProductMapping?.products;
+      
+      return {
+        id: store.id,
+        name: store.name,
+        description: store.description,
+        image_url: store.image_url,
+        is_active: store.is_active,
+        products: product || null
+      };
+    }).filter(store => store.products !== null); // Only return stores that have products
+    
+    res.json({ success: true, recommendedStores: formattedStores });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
