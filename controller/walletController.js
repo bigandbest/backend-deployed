@@ -147,6 +147,75 @@ export const getUserWallet = async (req, res) => {
 
     if (walletError && walletError.code === "PGRST116") {
       // Wallet doesn't exist, create one
+      console.log(`Creating wallet for user: ${user.id}`);
+      
+      // First, ensure the user exists in the users table
+      // This is required because wallets has a foreign key to users table
+      try {
+        // Check if user exists in users table
+        const { data: existingUser, error: userCheckError } = await supabase
+          .from("users")
+          .select("id")
+          .eq("id", user.id)
+          .single();
+
+        if (userCheckError && userCheckError.code === "PGRST116") {
+          // User doesn't exist in users table, create it
+          console.log(`Creating user record in users table for: ${user.id}`);
+          
+          // Get user details from Supabase Auth
+          const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(user.id);
+          
+          if (authError || !authUser) {
+            console.error("User not found in auth.users:", user.id, authError);
+            return res.status(400).json({ 
+              success: false, 
+              error: "User account not found. Please ensure you are properly authenticated." 
+            });
+          }
+
+          // Create user record in users table
+          const { data: newUser, error: createUserError } = await supabase
+            .from("users")
+            .upsert([{
+              id: user.id,
+              email: authUser.user.email,
+              name: authUser.user.user_metadata?.name || authUser.user.user_metadata?.full_name || null,
+              phone: authUser.user.phone || authUser.user.user_metadata?.phone || null,
+              avatar: authUser.user.user_metadata?.avatar_url || null,
+              photo_url: authUser.user.user_metadata?.avatar_url || null,
+              created_at: authUser.user.created_at,
+            }], {
+              onConflict: 'id',
+              ignoreDuplicates: false
+            })
+            .select()
+            .single();
+
+          if (createUserError) {
+            console.error("Error creating user record:", createUserError);
+            return res.status(500).json({ 
+              success: false, 
+              error: "Failed to create user record",
+              details: createUserError.message 
+            });
+          }
+
+          console.log(`User record created successfully for: ${user.id}`);
+        } else if (userCheckError) {
+          console.error("Error checking user existence:", userCheckError);
+          // Continue anyway - the wallet insert will fail with a better error if needed
+        }
+      } catch (userSyncError) {
+        console.error("Error syncing user to users table:", userSyncError);
+        return res.status(500).json({ 
+          success: false, 
+          error: "Failed to sync user data",
+          details: userSyncError.message 
+        });
+      }
+      
+      // Now create the wallet
       const { data: newWallet, error: createError } = await supabase
         .from("wallets")
         .insert([{ user_id: user.id, balance: 0.0 }])
@@ -155,12 +224,29 @@ export const getUserWallet = async (req, res) => {
 
       if (createError) {
         console.error("Error creating wallet:", createError);
+        
+        // Provide more specific error messages based on error code
+        if (createError.code === '23503') {
+          return res.status(400).json({ 
+            success: false, 
+            error: "Cannot create wallet: User account not found in database",
+            details: "Foreign key constraint violation - this should not happen after user sync"
+          });
+        } else if (createError.code === '42501') {
+          return res.status(500).json({ 
+            success: false, 
+            error: "Database permission error. Please contact support.",
+            details: "Row-level security policy violation. The service role should bypass RLS - check Supabase RLS policies."
+          });
+        }
+        
         return res
           .status(500)
-          .json({ success: false, error: "Failed to create wallet" });
+          .json({ success: false, error: "Failed to create wallet", details: createError.message });
       }
 
       wallet = newWallet;
+      console.log(`Wallet created successfully for user: ${user.id}`);
     } else if (walletError) {
       console.error("Error fetching wallet:", walletError);
       return res
