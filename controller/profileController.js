@@ -215,6 +215,85 @@ export const getUserProfile = async (req, res) => {
   }
 };
 
+export const updateUserProfile = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: "User not authenticated",
+      });
+    }
+
+    // Extract profile data from request body
+    const {
+      name,
+      phone,
+      company_name,
+      gstin,
+      account_type,
+      street_address,
+      suite_unit_floor,
+      house_number,
+      locality,
+      area,
+      city,
+      state,
+      postal_code,
+      country,
+      landmark,
+    } = req.body;
+
+    // Build update object with only provided fields
+    const updateData = {};
+    if (name !== undefined) updateData.name = name;
+    if (phone !== undefined) updateData.phone = phone;
+    if (company_name !== undefined) updateData.company_name = company_name;
+    // GSTIN should be null if empty to avoid constraint violation
+    if (gstin !== undefined) updateData.gstin = gstin || null;
+    if (account_type !== undefined) updateData.account_type = account_type;
+    if (street_address !== undefined) updateData.street_address = street_address;
+    if (suite_unit_floor !== undefined) updateData.suite_unit_floor = suite_unit_floor;
+    if (house_number !== undefined) updateData.house_number = house_number;
+    if (locality !== undefined) updateData.locality = locality;
+    if (area !== undefined) updateData.area = area;
+    if (city !== undefined) updateData.city = city;
+    if (state !== undefined) updateData.state = state;
+    if (postal_code !== undefined) updateData.postal_code = postal_code;
+    if (country !== undefined) updateData.country = country;
+    if (landmark !== undefined) updateData.landmark = landmark;
+
+    // Update user profile in database
+    const { data, error } = await supabase
+      .from("users")
+      .update(updateData)
+      .eq("id", userId)
+      .select("*")
+      .single();
+
+    if (error) {
+      console.error("Database update error:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to update user profile",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Profile updated successfully",
+      user: data,
+    });
+  } catch (error) {
+    console.error("Update user profile error:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to update user profile",
+    });
+  }
+};
+
 // Export multer middleware with error handling
 export const uploadMiddleware = (req, res, next) => {
   upload.single("profileImage")(req, res, (err) => {
