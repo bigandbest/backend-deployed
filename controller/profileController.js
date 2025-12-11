@@ -215,6 +215,62 @@ export const getUserProfile = async (req, res) => {
   }
 };
 
+export const updateUserProfile = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: "User not authenticated",
+      });
+    }
+
+    const { name, phone, first_name, last_name } = req.body;
+
+    // Build update object with only provided fields
+    const updateData = {};
+    if (name !== undefined) updateData.name = name;
+    if (phone !== undefined) updateData.phone = phone;
+    if (first_name !== undefined) updateData.first_name = first_name;
+    if (last_name !== undefined) updateData.last_name = last_name;
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "No fields to update",
+      });
+    }
+
+    const { data, error } = await supabase
+      .from("users")
+      .update(updateData)
+      .eq("id", userId)
+      .select("*")
+      .single();
+
+    if (error) {
+      console.error("Profile update error:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to update profile",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Profile updated successfully",
+      user: data,
+    });
+  } catch (error) {
+    console.error("Update user profile error:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to update profile",
+    });
+  }
+};
+
 // Export multer middleware with error handling
 export const uploadMiddleware = (req, res, next) => {
   upload.single("profileImage")(req, res, (err) => {

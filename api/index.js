@@ -51,6 +51,7 @@ import addBannerGroupProductRoutes from "../routes/addBannerGroupProductRoutes.j
 import uniqueSectionRoutes from "../routes/uniqueSectionRoutes.js";
 import uniqueSectionProductRoutes from "../routes/uniqueSectionProductRoutes.js";
 import profileRoutes from "../routes/profileRoutes.js";
+import sessionRoutes from "../routes/sessionRoutes.js";
 import returnOrderRoutes from "../routes/returnOrderRoutes.js";
 import refundRoutes from "../routes/refundRoutes.js";
 import debugRoutes from "../routes/debugRoutes.js";
@@ -182,6 +183,7 @@ app.use("/api/banner-group-products", addBannerGroupProductRoutes);
 app.use("/api/unique-sections", uniqueSectionRoutes);
 app.use("/api/unique-sections-products", uniqueSectionProductRoutes);
 app.use("/api/user", profileRoutes);
+app.use("/api/session", sessionRoutes);
 app.use("/api/return-orders", returnOrderRoutes);
 app.use("/api/refund", refundRoutes);
 app.use("/api/debug", debugRoutes);

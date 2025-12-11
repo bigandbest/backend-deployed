@@ -3,6 +3,7 @@ import {
   uploadProfileImage,
   deleteProfileImage,
   getUserProfile,
+  updateUserProfile,
   uploadMiddleware,
 } from "../controller/profileController.js";
 import { authenticateToken } from "../middleware/authenticate.js";
@@ -11,6 +12,9 @@ const router = express.Router();
 
 // Get user profile
 router.get("/profile", authenticateToken, getUserProfile);
+
+// Update user profile
+router.put("/profile/update", authenticateToken, updateUserProfile);
 
 // Upload profile image
 router.post(
