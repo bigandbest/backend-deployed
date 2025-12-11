@@ -4,7 +4,6 @@ import {
   deleteProfileImage,
   getUserProfile,
   updateUserProfile,
-  updateUserProfile,
   uploadMiddleware,
 } from "../controller/profileController.js";
 import { authenticateToken } from "../middleware/authenticate.js";
