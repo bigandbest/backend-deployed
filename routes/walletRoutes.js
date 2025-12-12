@@ -4,6 +4,7 @@ import {
   getUserWallet,
   getWalletTransactions,
   createWalletTopupOrder,
+  verifyWalletTopup,
   walletTopupWebhook,
   spendFromWallet,
   processRefundToWallet,
@@ -16,6 +17,7 @@ const router = express.Router();
 router.get("/", authenticateToken, getUserWallet); // GET /api/wallet
 router.get("/transactions", authenticateToken, getWalletTransactions); // GET /api/wallet/transactions
 router.post("/topup", authenticateToken, createWalletTopupOrder); // POST /api/wallet/topup
+router.post("/topup/verify", authenticateToken, verifyWalletTopup); // POST /api/wallet/topup/verify
 router.post("/spend", authenticateToken, spendFromWallet); // POST /api/wallet/spend
 
 // Internal route for refunds (called by refund system)

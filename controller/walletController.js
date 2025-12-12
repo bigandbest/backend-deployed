@@ -481,6 +481,156 @@ export const createWalletTopupOrder = async (req, res) => {
   }
 };
 
+// Verify wallet topup after Razorpay payment (called from frontend)
+export const verifyWalletTopup = async (req, res) => {
+  try {
+    const { user } = req;
+    const {
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+      amount,
+    } = req.body;
+
+    if (!user || !user.id) {
+      return res.status(401).json({ success: false, error: "Unauthorized" });
+    }
+
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing payment details",
+      });
+    }
+
+    // Verify Razorpay signature
+    const body = razorpay_order_id + "|" + razorpay_payment_id;
+    const expectedSignature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(body.toString())
+      .digest("hex");
+
+    if (expectedSignature !== razorpay_signature) {
+      console.error("Invalid Razorpay signature");
+      return res
+        .status(400)
+        .json({ success: false, error: "Invalid payment signature" });
+    }
+
+    // Get pending topup
+    const { data: pendingTopup, error: topupError } = await supabase
+      .from("wallet_topups_pending")
+      .select("*")
+      .eq("razorpay_order_id", razorpay_order_id)
+      .single();
+
+    if (topupError || !pendingTopup) {
+      console.error("Pending topup not found:", razorpay_order_id);
+      return res
+        .status(404)
+        .json({ success: false, error: "Payment order not found" });
+    }
+
+    // Verify user owns this topup
+    if (pendingTopup.user_id !== user.id) {
+      return res.status(403).json({
+        success: false,
+        error: "Unauthorized to verify this payment",
+      });
+    }
+
+    // Check if already processed
+    if (pendingTopup.status === "COMPLETED") {
+      return res.json({
+        success: true,
+        message: "Payment already processed",
+        already_processed: true,
+      });
+    }
+
+    // Generate idempotency key
+    const idempotencyKey = generateIdempotencyKey(
+      pendingTopup.user_id,
+      "TOPUP",
+      pendingTopup.amount,
+      razorpay_order_id
+    );
+
+    try {
+      // Execute wallet topup transaction
+      const { wallet, transaction } = await executeWalletTransaction(
+        pendingTopup.user_id,
+        "TOPUP",
+        pendingTopup.amount,
+        "TOPUP_ORDER",
+        pendingTopup.id,
+        `Wallet topup via Razorpay`,
+        { razorpay_order_id, razorpay_payment_id },
+        null,
+        razorpay_order_id,
+        razorpay_payment_id,
+        idempotencyKey
+      );
+
+      // Update pending topup status
+      await supabase
+        .from("wallet_topups_pending")
+        .update({
+          status: "COMPLETED",
+          razorpay_payment_id,
+          razorpay_signature,
+          completed_at: new Date().toISOString(),
+        })
+        .eq("id", pendingTopup.id);
+
+      // Create notification
+      await createNotificationHelper(
+        pendingTopup.user_id,
+        "Wallet Recharged Successfully",
+        `Your wallet has been recharged with ₹${pendingTopup.amount}. Current balance: ₹${wallet.balance}`,
+        "wallet_topup",
+        transaction.id,
+        "user"
+      );
+
+      console.log(
+        `Wallet topup verified and completed: User ${pendingTopup.user_id}, Amount: ${pendingTopup.amount}`
+      );
+
+      res.json({
+        success: true,
+        message: "Wallet topup completed successfully",
+        wallet_balance: parseFloat(wallet.balance),
+        transaction_id: transaction.id,
+      });
+    } catch (transactionError) {
+      console.error("Error processing wallet topup:", transactionError);
+
+      // Mark topup as failed
+      await supabase
+        .from("wallet_topups_pending")
+        .update({
+          status: "FAILED",
+          failure_reason: transactionError.message,
+        })
+        .eq("id", pendingTopup.id);
+
+      res.status(500).json({
+        success: false,
+        error: "Failed to process payment",
+        details: transactionError.message,
+      });
+    }
+  } catch (error) {
+    console.error("Error in verifyWalletTopup:", error);
+    res.status(500).json({
+      success: false,
+      error: "Payment verification failed",
+      details: error.message,
+    });
+  }
+};
+
 // Webhook to handle successful wallet topup
 export const walletTopupWebhook = async (req, res) => {
   try {

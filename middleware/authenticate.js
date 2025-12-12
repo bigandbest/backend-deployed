@@ -23,19 +23,45 @@ const authenticate = (req, res, next) => {
 export const authenticateToken = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-    const token = authHeader && authHeader.split(" ")[1];
-
-    if (!token) {
-      console.log("No authorization token found");
+    
+    if (!authHeader) {
+      console.log("No authorization header found");
       return res.status(401).json({ error: "Access token required" });
+    }
+
+    // Check if header starts with "Bearer "
+    if (!authHeader.startsWith("Bearer ")) {
+      console.log("Invalid authorization header format:", authHeader.substring(0, 20));
+      return res.status(401).json({ error: "Invalid authorization header format. Expected: Bearer <token>" });
+    }
+
+    const token = authHeader.split(" ")[1];
+
+    if (!token || token.trim() === "") {
+      console.log("Empty token in authorization header");
+      return res.status(401).json({ error: "Access token is empty" });
+    }
+
+    // Basic JWT format validation (should have 3 parts separated by dots)
+    const tokenParts = token.split(".");
+    if (tokenParts.length !== 3) {
+      console.log(`Invalid JWT format: token has ${tokenParts.length} segments, expected 3`);
+      console.log("Token preview:", token.substring(0, 50) + "...");
+      return res.status(401).json({ 
+        error: "Invalid token format",
+        details: `Token contains ${tokenParts.length} segments, expected 3`
+      });
     }
 
     // Verify Supabase JWT token
     const { data: user, error } = await supabase.auth.getUser(token);
 
     if (error || !user) {
-      console.log("Token verification failed:", error?.message);
-      return res.status(401).json({ error: "Invalid or expired token" });
+      console.log("Token verification failed:", error?.message || "User not found");
+      return res.status(401).json({ 
+        error: "Invalid or expired token",
+        details: error?.message 
+      });
     }
 
     console.log("Token auth successful for user:", user.user.email);
@@ -43,7 +69,10 @@ export const authenticateToken = async (req, res, next) => {
     next();
   } catch (error) {
     console.log("Token authentication error:", error.message);
-    return res.status(401).json({ error: "Authentication failed" });
+    return res.status(401).json({ 
+      error: "Authentication failed",
+      details: error.message 
+    });
   }
 };
 

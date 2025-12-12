@@ -67,6 +67,7 @@ import storeSectionMappingRoutes from "./routes/storeSectionMappingRoutes.js";
 import bulkWholesaleRoutes from "./routes/bulkWholesaleRoutes.js";
 import codOrderRoutes from "./routes/codOrderRoutes.js";
 import onlinePaymentOrderRoutes from "./routes/onlinePaymentOrderRoutes.js";
+import walletOrderRoutes from "./routes/walletOrderRoutes.js";
 import stockRoutes from "./routes/stockRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
 import productGridSettingsRoutes from "./routes/productGridSettingsRoutes.js";
@@ -202,6 +203,9 @@ const createApp = () => {
   
   // Online Payment Orders (Razorpay, etc.) - No amount limit
   app.use("/api/online-payment-orders", onlinePaymentOrderRoutes);
+  
+  // Wallet Orders (Prepaid via wallet balance)
+  app.use("/api/wallet-orders", walletOrderRoutes);
   
   app.use("/api/zones", zoneRoutes);
   app.use("/api/stock", stockRoutes);
