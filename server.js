@@ -66,6 +66,7 @@ import promoBannerRoutes from "./routes/promoBannerRoutes.js";
 import storeSectionMappingRoutes from "./routes/storeSectionMappingRoutes.js";
 import bulkWholesaleRoutes from "./routes/bulkWholesaleRoutes.js";
 import codOrderRoutes from "./routes/codOrderRoutes.js";
+import onlinePaymentOrderRoutes from "./routes/onlinePaymentOrderRoutes.js";
 import stockRoutes from "./routes/stockRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
 import productGridSettingsRoutes from "./routes/productGridSettingsRoutes.js";
@@ -198,6 +199,9 @@ const createApp = () => {
     },
     codOrderRoutes
   );
+  
+  // Online Payment Orders (Razorpay, etc.) - No amount limit
+  app.use("/api/online-payment-orders", onlinePaymentOrderRoutes);
   
   app.use("/api/zones", zoneRoutes);
   app.use("/api/stock", stockRoutes);

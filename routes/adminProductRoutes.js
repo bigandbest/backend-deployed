@@ -4,6 +4,7 @@ import {
   updateProductWarehouseMapping,
   getProductForAdmin,
   deleteProductForAdmin,
+  updateProduct,
 } from "../controller/adminProductController.js";
 
 const router = express.Router();
@@ -13,6 +14,9 @@ router.get("/products", getAllProductsForAdmin);
 
 // GET /api/admin/products/:productId - Get single product for admin
 router.get("/products/:productId", getProductForAdmin);
+
+// PUT /api/admin/products/:productId - Update product (general update)
+router.put("/products/:productId", updateProduct);
 
 // PUT /api/admin/products/:productId/warehouse-mapping - Update warehouse mapping
 router.put(
@@ -24,3 +28,4 @@ router.put(
 router.delete("/products/:productId", deleteProductForAdmin);
 
 export default router;
+

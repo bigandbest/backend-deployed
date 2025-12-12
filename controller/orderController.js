@@ -367,12 +367,62 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
     return res.status(500).json({ success: false, error: orderError.message });
   }
 
-  const orderItemsToInsert = items.map((item) => ({
-    order_id: order.id,
-    product_id: item.product_id || item.id,
-    quantity: item.quantity,
-    price: item.price,
-  }));
+  // Process order items with bulk order detection
+  const orderItemsToInsert = [];
+  let hasBulkOrder = false;
+
+  for (const item of items) {
+    const productId = item.product_id || item.id;
+    const quantity = item.quantity;
+    let finalPrice = item.price;
+    let isBulkOrder = false;
+    let bulkRange = null;
+    let originalPrice = item.price;
+
+    // Check if this item qualifies for bulk pricing
+    try {
+      const { data: bulkSettings, error: bulkError } = await supabase
+        .from('bulk_product_settings')
+        .select('*')
+        .eq('product_id', productId)
+        .is('variant_id', null)
+        .eq('is_bulk_enabled', true)
+        .maybeSingle();
+
+      if (!bulkError && bulkSettings && quantity >= bulkSettings.min_quantity) {
+        // This is a bulk order!
+        isBulkOrder = true;
+        hasBulkOrder = true;
+        finalPrice = bulkSettings.bulk_price;
+        bulkRange = bulkSettings.max_quantity 
+          ? `${bulkSettings.min_quantity}-${bulkSettings.max_quantity}`
+          : `${bulkSettings.min_quantity}+`;
+        
+        console.log(`Bulk pricing applied for product ${productId}: ${quantity} units at ₹${finalPrice} (was ₹${originalPrice})`);
+      }
+    } catch (bulkCheckError) {
+      console.error('Error checking bulk settings:', bulkCheckError);
+      // Continue with regular pricing if bulk check fails
+    }
+
+    orderItemsToInsert.push({
+      order_id: order.id,
+      product_id: productId,
+      quantity: quantity,
+      price: finalPrice,
+      is_bulk_order: isBulkOrder,
+      bulk_range: bulkRange,
+      original_price: isBulkOrder ? originalPrice : null,
+    });
+  }
+
+  // Update order with bulk order flag if any item is bulk
+  if (hasBulkOrder) {
+    await supabase
+      .from('orders')
+      .update({ is_bulk_order: true })
+      .eq('id', order.id);
+  }
 
   const { error: itemsError } = await supabase
     .from("order_items")
@@ -382,6 +432,60 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
     // Optional: You might want to delete the order if item insertion fails (rollback)
     console.error("Supabase order items insert error:", itemsError);
     return res.status(500).json({ success: false, error: itemsError.message });
+  }
+
+  // Reduce inventory from warehouses and products
+  for (const item of items) {
+    const productId = item.product_id || item.id;
+    const quantity = item.quantity;
+
+    try {
+      // 1. Reduce from warehouse stock (product_warehouse_stock table)
+      // Find warehouse with available stock for this product
+      const { data: warehouseStock, error: warehouseError } = await supabase
+        .from('product_warehouse_stock')
+        .select('*')
+        .eq('product_id', productId)
+        .gt('stock_quantity', 0)
+        .order('stock_quantity', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (!warehouseError && warehouseStock) {
+        const newWarehouseStock = Math.max(0, warehouseStock.stock_quantity - quantity);
+        await supabase
+          .from('product_warehouse_stock')
+          .update({ stock_quantity: newWarehouseStock })
+          .eq('id', warehouseStock.id);
+        
+        console.log(`Reduced warehouse stock for product ${productId}: ${quantity} units from warehouse ${warehouseStock.warehouse_id}`);
+      }
+
+      // 2. Reduce from products table total stock
+      const { data: product, error: productError } = await supabase
+        .from('products')
+        .select('stock_quantity, stock')
+        .eq('id', productId)
+        .single();
+
+      if (!productError && product) {
+        const currentStock = product.stock_quantity || product.stock || 0;
+        const newStock = Math.max(0, currentStock - quantity);
+        
+        await supabase
+          .from('products')
+          .update({ 
+            stock_quantity: newStock,
+            stock: newStock  // Update both fields for compatibility
+          })
+          .eq('id', productId);
+        
+        console.log(`Reduced product stock for ${productId}: ${currentStock} -> ${newStock}`);
+      }
+    } catch (stockError) {
+      console.error(`Error reducing stock for product ${productId}:`, stockError);
+      // Continue with other products even if one fails
+    }
   }
 
   // Clear the user's cart after successful order placement

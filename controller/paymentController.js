@@ -27,7 +27,7 @@ export const createRazorpayOrder = async (req, res) => {
     }
 
     const options = {
-      amount: amount * 100, // convert to paisa
+      amount: amount, // Already in paisa from frontend
       currency: "INR",
       receipt: `receipt_${Math.floor(Math.random() * 1000000)}`,
       payment_capture: 1,

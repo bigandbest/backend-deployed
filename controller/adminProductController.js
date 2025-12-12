@@ -332,3 +332,92 @@ export const deleteProductForAdmin = async (req, res) => {
     });
   }
 };
+
+// Update product (general update for all fields)
+export const updateProduct = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const updateData = req.body;
+
+    console.log("Updating product:", productId, updateData);
+
+    if (!productId) {
+      return res.status(400).json({
+        success: false,
+        error: "Product ID is required",
+      });
+    }
+
+    // Remove fields that shouldn't be updated directly or don't exist in database
+    const {
+      id,
+      created_at,
+      product_variants,
+      groups,
+      subcategories,
+      // Fields that don't exist in products table schema
+      auto_distribute_to_zones,
+      initial_stock,
+      zone_distribution_quantity,
+      ...fieldsToUpdate
+    } = updateData;
+
+    // Add updated timestamp
+    fieldsToUpdate.updated_at = new Date().toISOString();
+
+    console.log("Fields to update:", fieldsToUpdate);
+
+    // Check if product exists
+    const { data: existingProduct, error: checkError } = await supabase
+      .from("products")
+      .select("id")
+      .eq("id", productId)
+      .single();
+
+    if (checkError || !existingProduct) {
+      console.error("Product not found:", checkError);
+      return res.status(404).json({
+        success: false,
+        error: "Product not found",
+      });
+    }
+
+    // Update the product
+    const { data, error } = await supabase
+      .from("products")
+      .update(fieldsToUpdate)
+      .eq("id", productId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Supabase error:", error);
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        details: error.details || null,
+      });
+    }
+
+    if (!data) {
+      return res.status(404).json({
+        success: false,
+        error: "Product not found after update",
+      });
+    }
+
+    console.log("Product updated successfully:", data);
+    res.status(200).json({
+      success: true,
+      message: "Product updated successfully",
+      product: data,
+    });
+  } catch (err) {
+    console.error("Error updating product:", err);
+    res.status(500).json({
+      success: false,
+      error: "An unexpected error occurred. Please try again.",
+    });
+  }
+};
+
