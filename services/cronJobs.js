@@ -1,0 +1,87 @@
+// services/cronJobs.js
+// Scheduled tasks for auto-expiry of enquiries, bids, and locked bids
+
+import { supabase } from "../config/supabaseClient.js";
+import cron from "node-cron";
+
+/**
+ * Run auto-expiry functions
+ * This function calls the database functions to expire old enquiries, bids, and locked bids
+ */
+export const runAutoExpiry = async () => {
+  try {
+    console.log("[CRON] Running auto-expiry tasks...");
+
+    // Expire old enquiries
+    const { data: enquiryData, error: enquiryError } = await supabase.rpc(
+      "expire_old_enquiries"
+    );
+
+    if (enquiryError) {
+      console.error("[CRON] Error expiring enquiries:", enquiryError);
+    } else {
+      console.log(`[CRON] Expired ${enquiryData || 0} enquiries`);
+    }
+
+    // Expire old bids
+    const { data: bidData, error: bidError } = await supabase.rpc(
+      "expire_old_bids"
+    );
+
+    if (bidError) {
+      console.error("[CRON] Error expiring bids:", bidError);
+    } else {
+      console.log(`[CRON] Expired ${bidData || 0} bids`);
+    }
+
+    // Release stock from expired locked bids
+    const { data: stockData, error: stockError } = await supabase.rpc(
+      "release_expired_bid_stock"
+    );
+
+    if (stockError) {
+      console.error("[CRON] Error releasing expired bid stock:", stockError);
+    } else {
+      console.log(`[CRON] Released stock from ${stockData || 0} expired locked bids`);
+    }
+
+    console.log("[CRON] Auto-expiry tasks completed");
+  } catch (error) {
+    console.error("[CRON] Unexpected error in runAutoExpiry:", error);
+  }
+};
+
+/**
+ * Initialize cron jobs
+ * Call this function in server.js to start scheduled tasks
+ */
+export const initializeCronJobs = () => {
+  console.log("🕐 Initializing cron jobs for enquiry & bid auto-expiry...");
+
+  // Run every 5 minutes
+  cron.schedule("*/5 * * * *", async () => {
+    await runAutoExpiry();
+  });
+
+  console.log("✅ Cron jobs initialized - Running every 5 minutes");
+};
+
+/**
+ * Manual trigger for testing
+ * Can be called via API endpoint for testing purposes
+ */
+export const manualTriggerExpiry = async (req, res) => {
+  try {
+    await runAutoExpiry();
+    return res.json({
+      success: true,
+      message: "Auto-expiry tasks executed successfully",
+    });
+  } catch (error) {
+    console.error("Error in manual trigger:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to run auto-expiry tasks",
+    });
+  }
+};

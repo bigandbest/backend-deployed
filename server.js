@@ -79,6 +79,8 @@ import productAvailabilityRoutes from "./routes/productAvailabilityRoutes.js";
 import userAddressRoutes from "./routes/userAddressRoutes.js";
 import reviewRoutes from "./routes/reviewRoutes.js";
 import wishlistRoutes from "./routes/wishlistRoutes.js";
+import enquiryMessagesRoutes from "./routes/enquiryMessagesRoutes.js";
+import bidRoutes from "./routes/bidRoutes.js";
 
 // Configuration
 const PORT = process.env.PORT || 8000;
@@ -219,6 +221,8 @@ const createApp = () => {
   app.use("/api/user/addresses", userAddressRoutes);
   app.use("/api/reviews", reviewRoutes);
   app.use("/api/wishlist", wishlistRoutes);
+  app.use("/api/enquiry-messages", enquiryMessagesRoutes);
+  app.use("/api/bids", bidRoutes);
 
   // Enhanced health check with cluster and system info
   app.get("/api/health", (req, res) => {

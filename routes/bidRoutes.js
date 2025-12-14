@@ -1,0 +1,22 @@
+// routes/bidRoutes.js
+import express from "express";
+import {
+  createBid,
+  lockBid,
+  getBidDetails,
+  validateBid,
+  cancelLockedBid,
+} from "../controller/bidController.js";
+
+const router = express.Router();
+
+// Admin routes
+router.post("/", createBid); // Create a bid offer
+router.post("/:id/lock", lockBid); // Lock a bid (finalize)
+router.get("/:id", getBidDetails); // Get bid details
+
+// Validation routes
+router.get("/:id/validate", validateBid); // Validate bid before checkout
+router.post("/:id/cancel", cancelLockedBid); // Cancel a locked bid
+
+export default router;
