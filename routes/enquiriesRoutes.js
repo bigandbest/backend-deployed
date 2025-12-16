@@ -1,6 +1,5 @@
 import express from "express";
 import {
-  getEnquiriesCount,
   createEnquiry,
   getUserEnquiries,
   getEnquiryDetails,
@@ -9,6 +8,7 @@ import {
   updateEnquiryStatus,
   closeEnquiry,
 } from "../controller/enquiryController.js";
+import { getEnquiriesCount } from "../controller/enquiriesController.js";
 
 const router = express.Router();
 
