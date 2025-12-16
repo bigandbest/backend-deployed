@@ -24,12 +24,8 @@ export const getCartItems = async (req, res) => {
         quantity, 
         added_at, 
         variant_id,
-        is_bid_product,
-        locked_bid_id,
-        bid_unit_price,
         products(*),
-        product_variants(*),
-        locked_bids!locked_bid_id(id, payment_deadline, final_amount, status)
+        product_variants(*)
       `)
       .eq("user_id", user_id);
 
@@ -42,8 +38,7 @@ export const getCartItems = async (req, res) => {
     const cartItems = data.map((item) => {
       const product = item.products;
       const variant = item.product_variants;
-      const lockedBid = item.locked_bids;
-      
+
       return {
         ...product, // Spread product details
         cart_item_id: item.id,
@@ -51,14 +46,8 @@ export const getCartItems = async (req, res) => {
         added_at: item.added_at,
         variant_id: item.variant_id,
         variant: variant, // Include variant details
-        // Bid product fields
-        is_bid_product: item.is_bid_product || false,
-        locked_bid_id: item.locked_bid_id,
-        locked_bid: lockedBid,
-        // If bid product, use bid price; else if variant exists, use variant price
-        price: item.is_bid_product 
-          ? item.bid_unit_price 
-          : (variant ? variant.variant_price : product.price),
+        // Use variant price if variant exists, otherwise use product price
+        price: variant ? variant.variant_price : product.price,
         oldPrice: variant ? variant.variant_old_price : product.old_price,
         weight: variant ? variant.variant_weight : (product.uom || "1 Unit"),
       };
@@ -321,7 +310,7 @@ export const updateCartItem = async (req, res) => {
     // Get current cart item
     const { data: currentCartItem, error: fetchError } = await supabase
       .from("cart_items")
-      .select("product_id, quantity, variant_id, is_bid_product, locked_bid_id")
+      .select("product_id, quantity, variant_id")
       .eq("id", cart_item_id)
       .single();
 
@@ -335,14 +324,6 @@ export const updateCartItem = async (req, res) => {
       return res
         .status(500)
         .json({ success: false, error: fetchError.message });
-    }
-
-    // Prevent updating bid products
-    if (currentCartItem.is_bid_product) {
-      return res.status(400).json({
-        success: false,
-        error: "Cannot modify bid products. Please cancel the bid to remove from cart.",
-      });
     }
 
     const currentCartQuantity = currentCartItem.quantity;
@@ -470,7 +451,7 @@ export const removeCartItem = async (req, res) => {
     // First get the cart item details to restore stock
     const { data: cartItem, error: fetchError } = await supabase
       .from("cart_items")
-      .select("product_id, quantity, variant_id, is_bid_product, locked_bid_id")
+      .select("product_id, quantity, variant_id")
       .eq("id", cart_item_id)
       .single();
 
@@ -484,14 +465,6 @@ export const removeCartItem = async (req, res) => {
       return res
         .status(500)
         .json({ success: false, error: fetchError.message });
-    }
-
-    // Prevent removing bid products
-    if (cartItem.is_bid_product) {
-      return res.status(400).json({
-        success: false,
-        error: "Cannot remove bid products. Please cancel the bid to remove from cart.",
-      });
     }
 
     let currentStock = 0;
