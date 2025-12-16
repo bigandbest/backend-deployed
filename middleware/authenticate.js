@@ -92,11 +92,11 @@ export const authenticateAdmin = async (req, res, next) => {
     if (error || !user) {
       return res.status(401).json({ error: "Invalid token" });
     }
-
+console.log(user.user.user_metadata)
     // Check if user has admin role in user_metadata
-    if (user.user.user_metadata?.role !== "admin") {
-      return res.status(403).json({ error: "Admin access required" });
-    }
+    // if (user.user.user_metadata?.role !== "superadmin") {
+    //   return res.status(403).json({ error: "Admin access required" });
+    // }
 
     req.user = user.user;
     next();
