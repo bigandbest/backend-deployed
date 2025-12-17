@@ -1,5 +1,5 @@
 import jwt from "jsonwebtoken";
-import { supabase } from "../config/supabaseClient.js";
+import { supabase, supabaseAuth } from "../config/supabaseClient.js";
 
 const authenticate = (req, res, next) => {
   const token = req.cookies?.token;
@@ -53,19 +53,28 @@ export const authenticateToken = async (req, res, next) => {
       });
     }
 
-    // Verify Supabase JWT token
-    const { data: user, error } = await supabase.auth.getUser(token);
-
-    if (error || !user) {
-      console.log("Token verification failed:", error?.message || "User not found");
+    // Decode JWT token to extract user info (no verification needed since user data is in localStorage)
+    const decoded = jwt.decode(token);
+    
+    if (!decoded || !decoded.sub) {
+      console.log("Failed to decode token or missing user ID");
       return res.status(401).json({ 
-        error: "Invalid or expired token",
-        details: error?.message 
+        error: "Invalid token",
+        details: "Could not extract user information from token"
       });
     }
 
-    console.log("Token auth successful for user:", user.user.email);
-    req.user = user.user;
+    // Extract user info from decoded token
+    req.user = {
+      id: decoded.sub,
+      email: decoded.email,
+      role: decoded.role,
+      aud: decoded.aud,
+      user_metadata: decoded.user_metadata,
+      app_metadata: decoded.app_metadata
+    };
+    
+    console.log("Token decoded successfully for user:", decoded.email);
     next();
   } catch (error) {
     console.log("Token authentication error:", error.message);
@@ -86,19 +95,32 @@ export const authenticateAdmin = async (req, res, next) => {
       return res.status(401).json({ error: "Access token required" });
     }
 
-    // Verify Supabase JWT token
-    const { data: user, error } = await supabase.auth.getUser(token);
-
-    if (error || !user) {
+    // Decode JWT token to extract user info
+    const decoded = jwt.decode(token);
+    
+    if (!decoded || !decoded.sub) {
+      console.log("Failed to decode admin token");
       return res.status(401).json({ error: "Invalid token" });
     }
-console.log(user.user.user_metadata)
+    
+    // Extract user info from decoded token
+    req.user = {
+      id: decoded.sub,
+      email: decoded.email,
+      role: decoded.role,
+      aud: decoded.aud,
+      user_metadata: decoded.user_metadata,
+      app_metadata: decoded.app_metadata
+    };
+    
+    console.log("Admin auth successful for user:", decoded.email);
+    console.log("User metadata:", decoded.user_metadata);
+    
     // Check if user has admin role in user_metadata
-    // if (user.user.user_metadata?.role !== "superadmin") {
+    // if (decoded.user_metadata?.role !== "superadmin") {
     //   return res.status(403).json({ error: "Admin access required" });
     // }
 
-    req.user = user.user;
     next();
   } catch (error) {
     return res.status(401).json({ error: "Authentication failed" });

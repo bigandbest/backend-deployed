@@ -1,46 +1,13 @@
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "../config/supabaseClient.js";
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
-// Helper function to get user from token
-const getUserFromToken = async (req) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return null;
-    }
-
-    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
-    
-    // Verify token with Supabase
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-    
-    if (error || !user) {
-      console.error('Token verification error:', error);
-      return null;
-    }
-    
-    return user;
-  } catch (error) {
-    console.error('Error getting user from token:', error);
-    return null;
-  }
-};
+// Note: Authentication is handled by authenticateToken middleware
+// req.user is populated by the middleware before reaching these controllers
 
 // Get user's wishlist
 export const getWishlist = async (req, res) => {
   try {
-    const user = await getUserFromToken(req);
-    
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        error: "Authentication required",
-      });
-    }
+    // User is already authenticated by middleware
+    const userId = req.user.id;
 
     const { data: wishlistItems, error } = await supabase
       .from("wishlist_items")
@@ -55,12 +22,10 @@ export const getWishlist = async (req, res) => {
           rating,
           review_count,
           stock,
-          category,
-          brand
+          category
         )
       `)
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false });
+      .eq("user_id", userId);
 
     if (error) {
       console.error("Error fetching wishlist:", error);
@@ -87,15 +52,8 @@ export const getWishlist = async (req, res) => {
 // Add item to wishlist
 export const addToWishlist = async (req, res) => {
   try {
-    const user = await getUserFromToken(req);
+    const userId = req.user.id;
     const { productId } = req.body;
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        error: "Authentication required",
-      });
-    }
 
     if (!productId) {
       return res.status(400).json({
@@ -108,7 +66,7 @@ export const addToWishlist = async (req, res) => {
     const { data: existing } = await supabase
       .from("wishlist_items")
       .select("id")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("product_id", productId)
       .single();
 
@@ -123,7 +81,7 @@ export const addToWishlist = async (req, res) => {
     const { data: wishlistItem, error } = await supabase
       .from("wishlist_items")
       .insert({
-        user_id: user.id,
+        user_id: userId,
         product_id: productId,
       })
       .select()
@@ -154,20 +112,13 @@ export const addToWishlist = async (req, res) => {
 // Remove item from wishlist
 export const removeFromWishlist = async (req, res) => {
   try {
-    const user = await getUserFromToken(req);
+    const userId = req.user.id;
     const { productId } = req.params;
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        error: "Authentication required",
-      });
-    }
 
     const { error } = await supabase
       .from("wishlist_items")
       .delete()
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("product_id", productId);
 
     if (error) {
@@ -194,10 +145,10 @@ export const removeFromWishlist = async (req, res) => {
 // Check if product is in wishlist
 export const checkWishlist = async (req, res) => {
   try {
-    const user = await getUserFromToken(req);
     const { productId } = req.params;
 
-    if (!user) {
+    // If user is not authenticated, return false (optional auth)
+    if (!req.user || !req.user.id) {
       return res.status(200).json({
         success: true,
         inWishlist: false,
@@ -207,7 +158,7 @@ export const checkWishlist = async (req, res) => {
     const { data: wishlistItem } = await supabase
       .from("wishlist_items")
       .select("id")
-      .eq("user_id", user.id)
+      .eq("user_id", req.user.id)
       .eq("product_id", productId)
       .single();
 
@@ -227,19 +178,12 @@ export const checkWishlist = async (req, res) => {
 // Clear entire wishlist
 export const clearWishlist = async (req, res) => {
   try {
-    const user = await getUserFromToken(req);
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        error: "Authentication required",
-      });
-    }
+    const userId = req.user.id;
 
     const { error } = await supabase
       .from("wishlist_items")
       .delete()
-      .eq("user_id", user.id);
+      .eq("user_id", userId);
 
     if (error) {
       console.error("Error clearing wishlist:", error);

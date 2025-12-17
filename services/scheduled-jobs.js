@@ -63,7 +63,7 @@ const expireOldBids = cron.schedule('*/5 * * * *', async () => {
  */
 const releaseExpiredBidStock = cron.schedule('*/2 * * * *', async () => {
     try {
-        console.log('[CRON] Running release_expired_bid_stock...');
+        // console.log('[CRON] Running release_expired_bid_stock...');
 
         const { data, error } = await supabase.rpc('release_expired_bid_stock');
 
@@ -129,16 +129,20 @@ const removeExpiredBidsFromCart = async () => {
 export const startScheduledJobs = () => {
     console.log('🕐 Starting scheduled jobs...');
 
-    expireOldEnquiries.start();
-    console.log('✅ Enquiry expiry job started (runs every 5 minutes)');
+    // NOTE: Bidding system cron jobs are disabled until database functions are created
+    // To enable: Run the SQL script at backend-deployed/database/enquiry_bids_schema.sql in Supabase
+    
+    // expireOldEnquiries.start();
+    // console.log('✅ Enquiry expiry job started (runs every 5 minutes)');
 
-    expireOldBids.start();
-    console.log('✅ Bid expiry job started (runs every 5 minutes)');
+    // expireOldBids.start();
+    // console.log('✅ Bid expiry job started (runs every 5 minutes)');
 
-    releaseExpiredBidStock.start();
-    console.log('✅ Stock release job started (runs every 2 minutes)');
+    // releaseExpiredBidStock.start();
+    // console.log('✅ Stock release job started (runs every 2 minutes)');
 
-    console.log('🕐 All scheduled jobs are running');
+    console.log('⚠️  Bidding system cron jobs are currently disabled');
+    console.log('💡 To enable: Create database functions by running enquiry_bids_schema.sql in Supabase');
 };
 
 /**
