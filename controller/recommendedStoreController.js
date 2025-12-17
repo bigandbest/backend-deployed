@@ -214,6 +214,9 @@ export async function getAllRecommendedStores(req, res) {
 // Get Active Recommended Stores (for website)
 export async function getActiveRecommendedStores(req, res) {
   try {
+    console.log("=== getActiveRecommendedStores called ===");
+    console.log("Request headers:", req.headers);
+    
     // Get active stores with their associated products
     const { data, error } = await supabase
       .from("recommended_store")
@@ -236,8 +239,14 @@ export async function getActiveRecommendedStores(req, res) {
       `)
       .eq("is_active", true);
 
-    if (error)
+    console.log("Supabase query completed");
+    console.log("Data count:", data?.length || 0);
+    console.log("Error:", error);
+
+    if (error) {
+      console.error("Supabase error:", error);
       return res.status(400).json({ success: false, error: error.message });
+    }
 
     // Transform the data to include products array
     const formattedStores = data.map(store => {
@@ -254,8 +263,13 @@ export async function getActiveRecommendedStores(req, res) {
       };
     });
 
+    console.log("Formatted stores count:", formattedStores.length);
+    console.log("Returning success response");
+    
     res.json({ success: true, recommendedStores: formattedStores });
   } catch (err) {
+    console.error("Exception in getActiveRecommendedStores:", err);
+    console.error("Error stack:", err.stack);
     res.status(500).json({ success: false, error: err.message });
   }
 }
