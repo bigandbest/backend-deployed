@@ -9,11 +9,13 @@ import {
   validateCartDelivery,
   reserveCartStock,
   confirmCartStockDeduction,
+  checkCartHasBidProducts,
 } from "../controller/cartController.js";
 
 const router = express.Router();
 
 router.get("/:user_id", getCartItems);
+router.get("/:user_id/has-bid-products", checkCartHasBidProducts);
 router.post("/add", addToCart);
 router.put("/update/:cart_item_id", updateCartItem);
 router.delete("/remove/:cart_item_id", removeCartItem);

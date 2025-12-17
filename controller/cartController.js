@@ -24,8 +24,19 @@ export const getCartItems = async (req, res) => {
         quantity, 
         added_at, 
         variant_id,
+        is_bid_product,
+        locked_bid_id,
+        bid_unit_price,
         products(*),
-        product_variants(*)
+        product_variants(*),
+        locked_bids:locked_bid_id(
+          id,
+          payment_deadline,
+          status,
+          final_amount,
+          subtotal,
+          gst_amount
+        )
       `)
       .eq("user_id", user_id);
 
@@ -34,10 +45,47 @@ export const getCartItems = async (req, res) => {
       return res.status(500).json({ success: false, error: error.message });
     }
 
+    // Check for expired bid products and remove them
+    const expiredBidItems = [];
+    const validItems = [];
+
+    for (const item of data) {
+      if (item.is_bid_product && item.locked_bids) {
+        const paymentDeadline = new Date(item.locked_bids.payment_deadline);
+        const now = new Date();
+
+        if (paymentDeadline < now || item.locked_bids.status !== "PENDING_PAYMENT") {
+          // Bid has expired or is no longer pending
+          expiredBidItems.push(item.id);
+
+          // Update locked bid status if not already expired
+          if (item.locked_bids.status === "PENDING_PAYMENT") {
+            await supabase
+              .from("locked_bids")
+              .update({ status: "EXPIRED" })
+              .eq("id", item.locked_bid_id);
+          }
+        } else {
+          validItems.push(item);
+        }
+      } else {
+        validItems.push(item);
+      }
+    }
+
+    // Remove expired bid items from cart
+    if (expiredBidItems.length > 0) {
+      await supabase
+        .from("cart_items")
+        .delete()
+        .in("id", expiredBidItems);
+    }
+
     // Restructure the data to be more convenient on the client-side
-    const cartItems = data.map((item) => {
+    const cartItems = validItems.map((item) => {
       const product = item.products;
       const variant = item.product_variants;
+      const lockedBid = item.locked_bids;
 
       return {
         ...product, // Spread product details
@@ -46,14 +94,30 @@ export const getCartItems = async (req, res) => {
         added_at: item.added_at,
         variant_id: item.variant_id,
         variant: variant, // Include variant details
-        // Use variant price if variant exists, otherwise use product price
-        price: variant ? variant.variant_price : product.price,
+        is_bid_product: item.is_bid_product || false,
+        locked_bid_id: item.locked_bid_id,
+        // Use bid price if it's a bid product, otherwise use variant/product price
+        price: item.is_bid_product
+          ? item.bid_unit_price
+          : (variant ? variant.variant_price : product.price),
         oldPrice: variant ? variant.variant_old_price : product.old_price,
         weight: variant ? variant.variant_weight : (product.uom || "1 Unit"),
+        // Add bid details if it's a bid product
+        bid_details: lockedBid ? {
+          payment_deadline: lockedBid.payment_deadline,
+          status: lockedBid.status,
+          final_amount: lockedBid.final_amount,
+          subtotal: lockedBid.subtotal,
+          gst_amount: lockedBid.gst_amount,
+        } : null,
       };
     });
 
-    return res.json({ success: true, cartItems });
+    return res.json({
+      success: true,
+      cartItems,
+      expired_bid_items: expiredBidItems.length,
+    });
   } catch (error) {
     console.error("Unexpected error in getCartItems:", error);
     return res
@@ -310,7 +374,7 @@ export const updateCartItem = async (req, res) => {
     // Get current cart item
     const { data: currentCartItem, error: fetchError } = await supabase
       .from("cart_items")
-      .select("product_id, quantity, variant_id")
+      .select("product_id, quantity, variant_id, is_bid_product, locked_bid_id")
       .eq("id", cart_item_id)
       .single();
 
@@ -324,6 +388,15 @@ export const updateCartItem = async (req, res) => {
       return res
         .status(500)
         .json({ success: false, error: fetchError.message });
+    }
+
+    // Prevent quantity changes for bid products
+    if (currentCartItem.is_bid_product) {
+      return res.status(400).json({
+        success: false,
+        error: "Cannot modify quantity of bid products. Bid quantities are locked.",
+        is_bid_product: true,
+      });
     }
 
     const currentCartQuantity = currentCartItem.quantity;
@@ -451,7 +524,7 @@ export const removeCartItem = async (req, res) => {
     // First get the cart item details to restore stock
     const { data: cartItem, error: fetchError } = await supabase
       .from("cart_items")
-      .select("product_id, quantity, variant_id")
+      .select("product_id, quantity, variant_id, is_bid_product, locked_bid_id")
       .eq("id", cart_item_id)
       .single();
 
@@ -465,6 +538,15 @@ export const removeCartItem = async (req, res) => {
       return res
         .status(500)
         .json({ success: false, error: fetchError.message });
+    }
+
+    // Prevent removal of bid products
+    if (cartItem.is_bid_product) {
+      return res.status(400).json({
+        success: false,
+        error: "Cannot remove bid products from cart. Bid products will be automatically removed when they expire.",
+        is_bid_product: true,
+      });
     }
 
     let currentStock = 0;
@@ -866,6 +948,53 @@ export const confirmCartStockDeduction = async (req, res) => {
   } catch (error) {
     console.error("Error in confirmCartStockDeduction:", error);
     res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};
+
+/**
+ * @description Check if cart contains any bid products
+ * @route GET /api/cart/:user_id/has-bid-products
+ */
+export const checkCartHasBidProducts = async (req, res) => {
+  try {
+    const { user_id } = req.params;
+
+    if (!user_id) {
+      return res.status(400).json({
+        success: false,
+        error: "User ID is required",
+      });
+    }
+
+    // Check if any cart items are bid products
+    const { data, error, count } = await supabase
+      .from("cart_items")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user_id)
+      .eq("is_bid_product", true);
+
+    if (error) {
+      console.error("Error checking bid products:", error.message);
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+
+    const hasBidProducts = count > 0;
+
+    return res.json({
+      success: true,
+      has_bid_products: hasBidProducts,
+      bid_product_count: count || 0,
+      cod_allowed: !hasBidProducts, // COD not allowed if cart has bid products
+    });
+  } catch (error) {
+    console.error("Unexpected error in checkCartHasBidProducts:", error);
+    return res.status(500).json({
       success: false,
       error: "Internal server error",
     });

@@ -145,9 +145,8 @@ export const createBid = async (req, res) => {
       sender_type: "ADMIN",
       sender_id: created_by || enquiry.user_id,
       sender_name: "Admin",
-      message: `New bid offer created: ₹${totalAmount.toFixed(2)} for ${
-        bidProducts.length
-      } product(s). Valid for ${validity_hours} hours.`,
+      message: `New bid offer created: ₹${totalAmount.toFixed(2)} for ${bidProducts.length
+        } product(s). Valid for ${validity_hours} hours.`,
     });
 
     return res.status(201).json({
@@ -623,6 +622,175 @@ export const cancelLockedBid = async (req, res) => {
     });
   } catch (error) {
     console.error("Unexpected error in cancelLockedBid:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};
+
+/**
+ * Reject a bid (Admin only)
+ * POST /api/bids/:id/reject
+ */
+export const rejectBid = async (req, res) => {
+  try {
+    const { id } = req.params; // bid_id
+    const { reason } = req.body;
+
+    // Get bid
+    const { data: bid, error: bidError } = await supabase
+      .from("enquiry_bids")
+      .select("*, product_enquiries!inner(user_id)")
+      .eq("id", id)
+      .single();
+
+    if (bidError || !bid) {
+      return res.status(404).json({
+        success: false,
+        error: "Bid not found",
+      });
+    }
+
+    // Can only reject if ACTIVE or ACCEPTED
+    if (!["ACTIVE", "ACCEPTED"].includes(bid.status)) {
+      return res.status(400).json({
+        success: false,
+        error: "Can only reject active or accepted bids",
+      });
+    }
+
+    // Update bid status
+    await supabase
+      .from("enquiry_bids")
+      .update({
+        status: "REJECTED",
+        notes: reason || "Rejected by admin"
+      })
+      .eq("id", id);
+
+    // Notify user
+    await supabase.from("notifications").insert({
+      user_id: bid.product_enquiries.user_id,
+      type: "user",
+      title: "Bid Rejected",
+      message: reason || "Your bid has been rejected by admin",
+      related_type: "bid",
+      related_id: id,
+      read: false,
+    });
+
+    return res.json({
+      success: true,
+      message: "Bid rejected successfully",
+    });
+  } catch (error) {
+    console.error("Unexpected error in rejectBid:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};
+
+/**
+ * Update a bid (Admin only) - Only before it's locked
+ * PUT /api/bids/:id
+ */
+export const updateBid = async (req, res) => {
+  try {
+    const { id } = req.params; // bid_id
+    const { products, validity_hours, terms, notes } = req.body;
+
+    // Get bid
+    const { data: bid, error: bidError } = await supabase
+      .from("enquiry_bids")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (bidError || !bid) {
+      return res.status(404).json({
+        success: false,
+        error: "Bid not found",
+      });
+    }
+
+    // Can only update if ACTIVE
+    if (bid.status !== "ACTIVE") {
+      return res.status(400).json({
+        success: false,
+        error: "Can only update active bids",
+      });
+    }
+
+    // Update bid details
+    const updateData = {};
+    if (validity_hours) updateData.validity_hours = validity_hours;
+    if (terms) updateData.terms = terms;
+    if (notes) updateData.notes = notes;
+
+    if (Object.keys(updateData).length > 0) {
+      await supabase
+        .from("enquiry_bids")
+        .update(updateData)
+        .eq("id", id);
+    }
+
+    // Update products if provided
+    if (products && products.length > 0) {
+      // Delete existing products
+      await supabase
+        .from("bid_products")
+        .delete()
+        .eq("bid_id", id);
+
+      // Insert new products
+      const bidProducts = [];
+      for (const product of products) {
+        const { data: productData } = await supabase
+          .from("products")
+          .select("name, gst_percentage")
+          .eq("id", product.product_id)
+          .single();
+
+        if (productData) {
+          bidProducts.push({
+            bid_id: id,
+            product_id: product.product_id,
+            variant_id: product.variant_id || null,
+            product_name: productData.name,
+            quantity: product.quantity,
+            unit_price: product.unit_price,
+            total_price: product.unit_price * product.quantity,
+            gst_percentage: productData.gst_percentage || 0,
+          });
+        }
+      }
+
+      await supabase.from("bid_products").insert(bidProducts);
+
+      // Update bid type and pricing
+      const bid_type = bidProducts.length === 1 ? "SINGLE_PRODUCT" : "MULTI_PRODUCT";
+      const base_price = bid_type === "SINGLE_PRODUCT"
+        ? bidProducts[0].total_price
+        : null;
+      const quantity = bid_type === "SINGLE_PRODUCT"
+        ? bidProducts[0].quantity
+        : null;
+
+      await supabase
+        .from("enquiry_bids")
+        .update({ bid_type, base_price, quantity })
+        .eq("id", id);
+    }
+
+    return res.json({
+      success: true,
+      message: "Bid updated successfully",
+    });
+  } catch (error) {
+    console.error("Unexpected error in updateBid:", error);
     return res.status(500).json({
       success: false,
       error: "Internal server error",

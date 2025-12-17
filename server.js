@@ -7,6 +7,8 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+import { startScheduledJobs, stopScheduledJobs } from "./services/scheduled-jobs.js";
+
 import authRoutes from "./routes/authRoute.js";
 import adminAuthRoutes from "./routes/adminAuthRoutes.js";
 import printRequestRoutes from "./routes/printRequestRoutes.js";
@@ -92,7 +94,7 @@ const getSystemInfo = () => {
   const totalMemory = os.totalmem();
   const freeMemory = os.freemem();
   const usedMemory = totalMemory - freeMemory;
-  
+
   return {
     platform: os.platform(),
     architecture: os.arch(),
@@ -191,7 +193,7 @@ const createApp = () => {
   app.use("/api/promo-banner", promoBannerRoutes);
   app.use("/api/store-section-mappings", storeSectionMappingRoutes);
   app.use("/api/bulk-wholesale", bulkWholesaleRoutes);
-  
+
   // COD Orders routes with logging middleware
   app.use(
     "/api/cod-orders",
@@ -202,13 +204,13 @@ const createApp = () => {
     },
     codOrderRoutes
   );
-  
+
   // Online Payment Orders (Razorpay, etc.) - No amount limit
   app.use("/api/online-payment-orders", onlinePaymentOrderRoutes);
-  
+
   // Wallet Orders (Prepaid via wallet balance)
   app.use("/api/wallet-orders", walletOrderRoutes);
-  
+
   app.use("/api/zones", zoneRoutes);
   app.use("/api/stock", stockRoutes);
   app.use("/api/upload", uploadRoutes);
@@ -228,7 +230,7 @@ const createApp = () => {
   app.get("/api/health", (req, res) => {
     const systemInfo = getSystemInfo();
     const processMemory = process.memoryUsage();
-    
+
     res.status(200).json({
       status: "OK",
       message: "Server is healthy",
@@ -267,8 +269,8 @@ const createApp = () => {
           });
         }
       });
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         routes,
         workerId: cluster.worker?.id || "primary",
       });
@@ -281,7 +283,7 @@ const createApp = () => {
   app.get("/api/metrics", (req, res) => {
     const systemInfo = getSystemInfo();
     const processMemory = process.memoryUsage();
-    
+
     res.status(200).json({
       timestamp: new Date().toISOString(),
       system: systemInfo,
@@ -331,7 +333,10 @@ const validateEnv = () => {
 // Graceful shutdown handler
 const gracefulShutdown = (server, signal) => {
   console.log(`\n${signal} received. Starting graceful shutdown...`);
-  
+
+  // Stop scheduled jobs
+  stopScheduledJobs();
+
   server.close(() => {
     console.log("✅ HTTP server closed");
     console.log("👋 Process terminated gracefully");
@@ -352,7 +357,7 @@ if (IS_CLUSTERED && cluster.isPrimary) {
   console.log("╚════════════════════════════════════════════════════════════╝");
   console.log(`🖥️  Master process ${process.pid} is running`);
   console.log(`📊 System Info:`);
-  
+
   const sysInfo = getSystemInfo();
   console.log(`   Platform: ${sysInfo.platform} (${sysInfo.architecture})`);
   console.log(`   CPUs: ${sysInfo.cpus} cores`);
@@ -379,7 +384,7 @@ if (IS_CLUSTERED && cluster.isPrimary) {
     console.log(
       `⚠️  Worker ${worker.process.pid} (ID: ${worker.id}) died (${signal || code})`
     );
-    
+
     // Restart the worker
     console.log("🔄 Starting a new worker...");
     cluster.fork();
@@ -389,11 +394,11 @@ if (IS_CLUSTERED && cluster.isPrimary) {
   process.on("SIGTERM", () => {
     console.log("\n🛑 SIGTERM received in master process");
     console.log("📢 Shutting down all workers...");
-    
+
     for (const id in cluster.workers) {
       cluster.workers[id].kill();
     }
-    
+
     setTimeout(() => {
       console.log("👋 Master process exiting");
       process.exit(0);
@@ -403,11 +408,11 @@ if (IS_CLUSTERED && cluster.isPrimary) {
   process.on("SIGINT", () => {
     console.log("\n🛑 SIGINT received in master process");
     console.log("📢 Shutting down all workers...");
-    
+
     for (const id in cluster.workers) {
       cluster.workers[id].kill();
     }
-    
+
     setTimeout(() => {
       console.log("👋 Master process exiting");
       process.exit(0);
@@ -417,19 +422,18 @@ if (IS_CLUSTERED && cluster.isPrimary) {
 } else {
   // Worker process - runs the actual server
   const app = createApp();
-  
+
   const server = app.listen(PORT, () => {
     const workerId = cluster.worker?.id || "standalone";
     const pid = process.pid;
-    
+
     console.log("\n╔════════════════════════════════════════════════════════════╗");
     console.log(`║  🚀 Worker ${workerId} (PID: ${pid}) - Server Started on Port ${PORT}  ║`);
     console.log("╚════════════════════════════════════════════════════════════╝");
     console.log(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
     console.log(`🌐 CORS: Configured to allow all origins`);
     console.log(
-      `💳 Razorpay Mode: ${
-        process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
+      `💳 Razorpay Mode: ${process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
       }`
     );
     console.log(
@@ -437,6 +441,11 @@ if (IS_CLUSTERED && cluster.isPrimary) {
     );
     console.log(`🔧 Cluster Mode: ${IS_CLUSTERED ? "ENABLED" : "DISABLED"}`);
     console.log("════════════════════════════════════════════════════════════\n");
+
+    // Start scheduled jobs (only in first worker or standalone mode)
+    if (!IS_CLUSTERED || workerId === 1) {
+      startScheduledJobs();
+    }
   });
 
   // Graceful shutdown for workers

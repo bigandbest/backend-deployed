@@ -45,15 +45,16 @@
     "form-data": "^4.0.4",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
+    "node-cron": "^4.2.1",
     "nodemon": "^3.1.10",
     "razorpay": "^2.9.6",
     "uuid": "^13.0.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/jest": "^29.5.12",
     "jest": "^29.7.0",
-    "supertest": "^7.0.0",
-    "@types/jest": "^29.5.12"
+    "supertest": "^7.0.0"
   },
   "jest": {
     "testEnvironment": "node",

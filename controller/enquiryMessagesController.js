@@ -1,4 +1,4 @@
-// controllers/enquiryMessagesController.js
+// controller/enquiryMessagesController.js
 import { supabase } from "../config/supabaseClient.js";
 
 /**
@@ -7,7 +7,15 @@ import { supabase } from "../config/supabaseClient.js";
  */
 export const sendMessage = async (req, res) => {
   try {
-    const { enquiry_id, sender_type, sender_id, sender_name, message } = req.body;
+    const {
+      enquiry_id,
+      sender_type, // 'USER' or 'ADMIN'
+      sender_id,
+      sender_name,
+      message,
+      attachment_url,
+      attachment_type,
+    } = req.body;
 
     // Validate required fields
     if (!enquiry_id || !sender_type || !sender_id || !message) {
@@ -17,18 +25,10 @@ export const sendMessage = async (req, res) => {
       });
     }
 
-    // Validate sender_type
-    if (!["USER", "ADMIN"].includes(sender_type)) {
-      return res.status(400).json({
-        success: false,
-        error: "sender_type must be USER or ADMIN",
-      });
-    }
-
     // Verify enquiry exists
     const { data: enquiry, error: enquiryError } = await supabase
       .from("product_enquiries")
-      .select("*, users:user_id (id, name, email)")
+      .select("id, user_id, status")
       .eq("id", enquiry_id)
       .single();
 
@@ -39,11 +39,11 @@ export const sendMessage = async (req, res) => {
       });
     }
 
-    // Verify sender has access to this enquiry
-    if (sender_type === "USER" && enquiry.user_id !== sender_id) {
-      return res.status(403).json({
+    // Check if enquiry is in a valid status for messaging
+    if (["CLOSED", "EXPIRED", "COMPLETED"].includes(enquiry.status)) {
+      return res.status(400).json({
         success: false,
-        error: "Unauthorized access to this enquiry",
+        error: "Cannot send messages to closed, expired, or completed enquiries",
       });
     }
 
@@ -55,8 +55,11 @@ export const sendMessage = async (req, res) => {
           enquiry_id,
           sender_type,
           sender_id,
-          sender_name: sender_name || (sender_type === "USER" ? "User" : "Admin"),
+          sender_name: sender_name || (sender_type === "ADMIN" ? "Admin" : "User"),
           message,
+          attachment_url: attachment_url || null,
+          attachment_type: attachment_type || null,
+          is_read: false,
         },
       ])
       .select()
@@ -70,24 +73,32 @@ export const sendMessage = async (req, res) => {
       });
     }
 
-    // Create notification for recipient
-    if (sender_type === "USER") {
-      // Notify admin
-      await supabase.from("notifications").insert({
-        type: "admin",
-        title: "New Enquiry Message",
-        message: `New message from user in enquiry #${enquiry_id}`,
-        related_type: "enquiry",
-        related_id: enquiry_id,
-        read: false,
-      });
-    } else {
+    // Update enquiry status to NEGOTIATING if it's OPEN
+    if (enquiry.status === "OPEN") {
+      await supabase
+        .from("product_enquiries")
+        .update({ status: "NEGOTIATING" })
+        .eq("id", enquiry_id);
+    }
+
+    // Send notification to the other party
+    if (sender_type === "ADMIN") {
       // Notify user
       await supabase.from("notifications").insert({
         user_id: enquiry.user_id,
         type: "user",
         title: "New Message from Admin",
         message: `You have a new message regarding your enquiry`,
+        related_type: "enquiry",
+        related_id: enquiry_id,
+        read: false,
+      });
+    } else {
+      // Notify admin
+      await supabase.from("notifications").insert({
+        type: "admin",
+        title: "New Message from User",
+        message: `User sent a message in enquiry #${enquiry_id}`,
         related_type: "enquiry",
         related_id: enquiry_id,
         read: false,
@@ -114,13 +125,12 @@ export const sendMessage = async (req, res) => {
 export const getMessages = async (req, res) => {
   try {
     const { enquiry_id } = req.params;
-    const { page = 1, limit = 50 } = req.query;
-    const offset = (page - 1) * limit;
+    const { user_id } = req.query;
 
-    // Verify enquiry exists
+    // Verify enquiry exists and user has access
     const { data: enquiry, error: enquiryError } = await supabase
       .from("product_enquiries")
-      .select("id")
+      .select("id, user_id")
       .eq("id", enquiry_id)
       .single();
 
@@ -131,13 +141,20 @@ export const getMessages = async (req, res) => {
       });
     }
 
+    // Verify user owns this enquiry (unless admin)
+    if (user_id && enquiry.user_id !== user_id) {
+      return res.status(403).json({
+        success: false,
+        error: "Unauthorized access to this enquiry",
+      });
+    }
+
     // Get messages
-    const { data: messages, error: messagesError, count } = await supabase
+    const { data: messages, error: messagesError } = await supabase
       .from("enquiry_messages")
-      .select("*", { count: "exact" })
+      .select("*")
       .eq("enquiry_id", enquiry_id)
-      .order("created_at", { ascending: true })
-      .range(offset, offset + limit - 1);
+      .order("created_at", { ascending: true });
 
     if (messagesError) {
       console.error("Error fetching messages:", messagesError);
@@ -150,12 +167,6 @@ export const getMessages = async (req, res) => {
     return res.json({
       success: true,
       messages: messages || [],
-      pagination: {
-        total: count,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(count / limit),
-      },
     });
   } catch (error) {
     console.error("Unexpected error in getMessages:", error);
@@ -168,42 +179,59 @@ export const getMessages = async (req, res) => {
 
 /**
  * Mark messages as read
- * PUT /api/enquiry-messages/read
+ * PUT /api/enquiry-messages/:enquiry_id/read
  */
-export const markMessagesAsRead = async (req, res) => {
+export const markAsRead = async (req, res) => {
   try {
-    const { message_ids, enquiry_id, sender_type } = req.body;
+    const { enquiry_id } = req.params;
+    const { sender_type, user_id } = req.body;
 
-    if (!message_ids && !enquiry_id) {
+    if (!sender_type) {
       return res.status(400).json({
         success: false,
-        error: "Either message_ids or enquiry_id is required",
+        error: "sender_type is required",
       });
     }
 
-    let query = supabase
-      .from("enquiry_messages")
-      .update({ is_read: true });
+    // Verify enquiry exists and user has access
+    const { data: enquiry, error: enquiryError } = await supabase
+      .from("product_enquiries")
+      .select("id, user_id")
+      .eq("id", enquiry_id)
+      .single();
 
-    if (message_ids && message_ids.length > 0) {
-      query = query.in("id", message_ids);
-    } else if (enquiry_id) {
-      query = query.eq("enquiry_id", enquiry_id);
-      
-      // If sender_type is provided, only mark messages from opposite sender as read
-      if (sender_type) {
-        const oppositeSender = sender_type === "USER" ? "ADMIN" : "USER";
-        query = query.eq("sender_type", oppositeSender);
-      }
+    if (enquiryError || !enquiry) {
+      return res.status(404).json({
+        success: false,
+        error: "Enquiry not found",
+      });
     }
 
-    const { error } = await query;
+    // Verify user owns this enquiry (unless admin)
+    if (sender_type === "USER" && user_id && enquiry.user_id !== user_id) {
+      return res.status(403).json({
+        success: false,
+        error: "Unauthorized",
+      });
+    }
 
-    if (error) {
-      console.error("Error marking messages as read:", error);
+    // Mark messages as read
+    // If USER is reading, mark ADMIN messages as read
+    // If ADMIN is reading, mark USER messages as read
+    const markSenderType = sender_type === "USER" ? "ADMIN" : "USER";
+
+    const { error: updateError } = await supabase
+      .from("enquiry_messages")
+      .update({ is_read: true })
+      .eq("enquiry_id", enquiry_id)
+      .eq("sender_type", markSenderType)
+      .eq("is_read", false);
+
+    if (updateError) {
+      console.error("Error marking messages as read:", updateError);
       return res.status(500).json({
         success: false,
-        error: error.message,
+        error: updateError.message,
       });
     }
 
@@ -212,7 +240,7 @@ export const markMessagesAsRead = async (req, res) => {
       message: "Messages marked as read",
     });
   } catch (error) {
-    console.error("Unexpected error in markMessagesAsRead:", error);
+    console.error("Unexpected error in markAsRead:", error);
     return res.status(500).json({
       success: false,
       error: "Internal server error",
@@ -227,24 +255,27 @@ export const markMessagesAsRead = async (req, res) => {
 export const getUnreadCount = async (req, res) => {
   try {
     const { enquiry_id } = req.params;
-    const { sender_type } = req.query; // USER or ADMIN
+    const { sender_type } = req.query;
 
-    let query = supabase
+    if (!sender_type) {
+      return res.status(400).json({
+        success: false,
+        error: "sender_type query parameter is required",
+      });
+    }
+
+    // Count unread messages from the opposite sender type
+    const countSenderType = sender_type === "USER" ? "ADMIN" : "USER";
+
+    const { count, error } = await supabase
       .from("enquiry_messages")
       .select("*", { count: "exact", head: true })
       .eq("enquiry_id", enquiry_id)
+      .eq("sender_type", countSenderType)
       .eq("is_read", false);
 
-    // Count unread messages from opposite sender
-    if (sender_type) {
-      const oppositeSender = sender_type === "USER" ? "ADMIN" : "USER";
-      query = query.eq("sender_type", oppositeSender);
-    }
-
-    const { count, error } = await query;
-
     if (error) {
-      console.error("Error getting unread count:", error);
+      console.error("Error counting unread messages:", error);
       return res.status(500).json({
         success: false,
         error: error.message,
