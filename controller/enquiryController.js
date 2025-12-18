@@ -111,7 +111,7 @@ export const getUserEnquiries = async (req, res) => {
       .select(
         `
         *,
-        products:product_id (id, name, image_url, price)
+        products:product_id (id, name, image, price)
       `,
         { count: "exact" }
       )
@@ -160,24 +160,30 @@ export const getEnquiryDetails = async (req, res) => {
     const { id } = req.params;
     const { user_id } = req.query;
 
+    console.log(`[Enquiry Details] Fetching enquiry ID: ${id} for user: ${user_id}`);
+
     // Get enquiry
     const { data: enquiry, error: enquiryError } = await supabase
       .from("product_enquiries")
       .select(
         `
         *,
-        products:product_id (id, name, image_url, price, gst_percentage)
+        products:product_id (id, name, image, price)
       `
       )
       .eq("id", id)
       .single();
 
     if (enquiryError || !enquiry) {
+      console.log(`[Enquiry Details] Enquiry not found. ID: ${id}`);
+      console.log(`[Enquiry Details] Supabase error:`, JSON.stringify(enquiryError, null, 2));
       return res.status(404).json({
         success: false,
         error: "Enquiry not found",
       });
     }
+
+    console.log(`[Enquiry Details] Found enquiry ID: ${id}, User ID: ${enquiry.user_id}`);
 
     // Verify user owns this enquiry (unless admin)
     if (user_id && enquiry.user_id !== user_id) {
