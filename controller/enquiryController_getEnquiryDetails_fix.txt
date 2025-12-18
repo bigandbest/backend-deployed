@@ -1,0 +1,82 @@
+Replace lines 158-230 with:
+
+export const getEnquiryDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { user_id } = req.query;
+
+    // Get enquiry without product join
+    const { data: enquiry, error: enquiryError } = await supabase
+      .from("product_enquiries")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (enquiryError || !enquiry) {
+      console.error("Error fetching enquiry:", enquiryError);
+      return res.status(404).json({
+        success: false,
+        error: "Enquiry not found",
+      });
+    }
+
+    // Verify user owns this enquiry (unless admin)
+    if (user_id && enquiry.user_id !== user_id) {
+      return res.status(403).json({
+        success: false,
+        error: "Unauthorized access to this enquiry",
+      });
+    }
+
+    // Fetch product details separately
+    if (enquiry.product_id) {
+      const { data: product, error: productError } = await supabase
+        .from("products")
+        .select("id, name, image, price, gst_percentage")
+        .eq("id", enquiry.product_id)
+        .single();
+
+      if (!productError && product) {
+        enquiry.products = product;
+      }
+    }
+
+    // Get messages
+    const { data: messages, error: messagesError } = await supabase
+      .from("enquiry_messages")
+      .select("*")
+      .eq("enquiry_id", id)
+      .order("created_at", { ascending: true });
+
+    if (messagesError) {
+      console.error("Error fetching messages:", messagesError);
+    }
+
+    // Get bids
+    const { data: bids, error: bidsError} = await supabase
+      .from("enquiry_bids")
+      .select(\`
+        *,
+        bid_products (*)
+      \`)
+      .eq("enquiry_id", id)
+      .order("created_at", { ascending: false});
+
+    if (bidsError) {
+      console.error("Error fetching bids:", bidsError);
+    }
+
+    return res.json({
+      success: true,
+      enquiry,
+      messages: messages || [],
+      bids: bids || [],
+    });
+  } catch (error) {
+    console.error("Unexpected error in getEnquiryDetails:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};

@@ -362,14 +362,7 @@ export const getAllEnquiries = async (req, res) => {
 
     let query = supabase
       .from("product_enquiries")
-      .select(
-        `
-        *,
-        products:product_id (id, name, image_url, price),
-        users:user_id (id, name, email, phone)
-      `,
-        { count: "exact" }
-      )
+      .select("*", { count: "exact" })
       .order("created_at", { ascending: false });
 
     if (status) {
@@ -390,6 +383,44 @@ export const getAllEnquiries = async (req, res) => {
         success: false,
         error: error.message,
       });
+    }
+
+    // Fetch related products and users separately
+    if (data && data.length > 0) {
+      const productIds = [...new Set(data.map(e => e.product_id).filter(Boolean))];
+      const userIds = [...new Set(data.map(e => e.user_id).filter(Boolean))];
+
+      // Fetch products
+      if (productIds.length > 0) {
+        const { data: products } = await supabase
+          .from("products")
+          .select("id, name, image, price")
+          .in("id", productIds);
+
+        if (products) {
+          const productMap = {};
+          products.forEach(p => { productMap[p.id] = p; });
+          data.forEach(enquiry => {
+            enquiry.products = productMap[enquiry.product_id] || null;
+          });
+        }
+      }
+
+      // Fetch users
+      if (userIds.length > 0) {
+        const { data: users } = await supabase
+          .from("users")
+          .select("id, name, email, phone")
+          .in("id", userIds);
+
+        if (users) {
+          const userMap = {};
+          users.forEach(u => { userMap[u.id] = u; });
+          data.forEach(enquiry => {
+            enquiry.users = userMap[enquiry.user_id] || null;
+          });
+        }
+      }
     }
 
     return res.json({
