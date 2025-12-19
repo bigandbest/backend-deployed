@@ -54,16 +54,21 @@ export const runAutoExpiry = async () => {
 /**
  * Initialize cron jobs
  * Call this function in server.js to start scheduled tasks
+ * 
+ * NOTE: Currently disabled because database functions don't exist yet
+ * To enable: Create the required database functions in Supabase first
  */
 export const initializeCronJobs = () => {
-  console.log("🕐 Initializing cron jobs for enquiry & bid auto-expiry...");
+  console.log("🕐 Cron jobs are currently disabled");
+  console.log("⚠️  Database functions (expire_old_enquiries, expire_old_bids, release_expired_bid_stock) need to be created first");
+  console.log("💡 To enable: Run the SQL schema script in Supabase, then uncomment the cron.schedule below");
 
-  // Run every 5 minutes
-  cron.schedule("*/5 * * * *", async () => {
-    await runAutoExpiry();
-  });
-
-  console.log("✅ Cron jobs initialized - Running every 5 minutes");
+  // DISABLED: Run every 5 minutes
+  // Uncomment this after creating the database functions
+  // cron.schedule("*/5 * * * *", async () => {
+  //   await runAutoExpiry();
+  // });
+  // console.log("✅ Cron jobs initialized - Running every 5 minutes");
 };
 
 /**

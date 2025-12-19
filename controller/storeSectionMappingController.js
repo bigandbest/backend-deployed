@@ -232,10 +232,14 @@ export async function updateMappingStatus(req, res) {
       .update({ is_active })
       .eq("id", id)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error)
       return res.status(400).json({ success: false, error: error.message });
+
+    if (!data)
+      return res.status(404).json({ success: false, error: "Mapping not found" });
+
     res.json({ success: true, mapping: data });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -321,7 +325,7 @@ export async function getProductsBySection(req, res) {
       .select("*")
       .eq("section_key", section_key)
       .eq("is_active", true)
-      .single();
+      .maybeSingle();
 
     if (sectionError) {
       console.error("❌ Section query error:", sectionError);
@@ -334,7 +338,7 @@ export async function getProductsBySection(req, res) {
       console.log("⚠️ Section not found:", section_key);
       return res
         .status(404)
-        .json({ success: false, error: "Section not found" });
+        .json({ success: false, error: `Section '${section_key}' not found or inactive` });
     }
 
     console.log("✅ Found section:", sectionData);
