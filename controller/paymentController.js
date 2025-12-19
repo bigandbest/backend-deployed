@@ -11,8 +11,8 @@ console.log("RAZORPAY_KEY_ID exists:", !!process.env.RAZORPAY_KEY_ID);
 console.log("RAZORPAY_KEY_ID prefix:", process.env.RAZORPAY_KEY_ID?.substring(0, 12) || "MISSING");
 console.log("RAZORPAY_KEY_SECRET exists:", !!process.env.RAZORPAY_KEY_SECRET);
 console.log("RAZORPAY_KEY_SECRET length:", process.env.RAZORPAY_KEY_SECRET?.length || 0);
-console.log("Key type:", process.env.RAZORPAY_KEY_ID?.startsWith("rzp_live_") ? "LIVE" : 
-                        process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "UNKNOWN");
+console.log("Key type:", process.env.RAZORPAY_KEY_ID?.startsWith("rzp_live_") ? "LIVE" :
+  process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "UNKNOWN");
 console.log("================================");
 
 // Validate credentials before initialization
@@ -70,9 +70,9 @@ export const createRazorpayOrder = async (req, res) => {
 
     console.log("Creating Razorpay order with options:", options);
     console.log("Using Razorpay instance with key:", process.env.RAZORPAY_KEY_ID?.substring(0, 12));
-    
+
     const order = await razorpay.orders.create(options);
-    
+
     console.log("✅ Razorpay order created successfully");
     console.log("Order ID:", order.id);
     console.log("Order amount:", order.amount);
@@ -87,41 +87,69 @@ export const createRazorpayOrder = async (req, res) => {
     });
   } catch (error) {
     console.error("\n❌ RAZORPAY ORDER CREATION FAILED");
+    console.error("Timestamp:", new Date().toISOString());
     console.error("Error type:", error.constructor.name);
-    console.error("Error message:", error.message);
-    console.error("Error code:", error.code);
-    console.error("Error stack:", error.stack);
-    
-    if (error.response) {
-      console.error("API Response status:", error.response.status);
-      console.error("API Response data:", JSON.stringify(error.response.data, null, 2));
-    }
-    
+
+    // Log the complete error object first
+    console.error("Full error object:", JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+
+    // Log specific error properties
+    console.error("Error details:", {
+      message: error.message,
+      code: error.code,
+      statusCode: error.statusCode,
+      stack: error.stack?.split('\n').slice(0, 3).join('\n'), // First 3 lines of stack
+    });
+
+    // Log Razorpay-specific error object
     if (error.error) {
-      console.error("Razorpay error details:", JSON.stringify(error.error, null, 2));
+      console.error("Razorpay error object:", {
+        description: error.error.description,
+        code: error.error.code,
+        field: error.error.field,
+        source: error.error.source,
+        step: error.error.step,
+        reason: error.error.reason,
+        metadata: error.error.metadata,
+      });
     }
-    
-    console.error("Current credentials status:", {
+
+    // Log HTTP response if available
+    if (error.response) {
+      console.error("HTTP Response:", {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data,
+      });
+    }
+
+    // Log current credentials status (without exposing actual values)
+    console.error("Credentials status:", {
       key_id_present: !!process.env.RAZORPAY_KEY_ID,
-      key_id_value: process.env.RAZORPAY_KEY_ID?.substring(0, 12) || "MISSING",
+      key_id_prefix: process.env.RAZORPAY_KEY_ID?.substring(0, 12) || "MISSING",
       key_secret_present: !!process.env.RAZORPAY_KEY_SECRET,
+      key_secret_length: process.env.RAZORPAY_KEY_SECRET?.length || 0,
     });
     console.error("=====================================\n");
-    
-    // Check if it's an authentication error
-    const isAuthError = error.message?.toLowerCase().includes("authentication") ||
-                        error.message?.toLowerCase().includes("invalid") ||
-                        error.message?.toLowerCase().includes("key") ||
-                        error.statusCode === 401;
-    
+
+    // Determine error type and provide appropriate response
+    const isAuthError = error.statusCode === 401 ||
+      error.statusCode === 403 ||
+      error.message?.toLowerCase().includes("authentication") ||
+      error.message?.toLowerCase().includes("invalid") ||
+      error.message?.toLowerCase().includes("key");
+
+    const errorMessage = error.error?.description || error.message || "Razorpay order creation failed";
+
     return res.status(500).json({
       success: false,
-      error: isAuthError ? 
-        "Payment gateway authentication failed. Please contact support." : 
-        "Razorpay order creation failed",
-      details: isAuthError ? 
-        "Invalid Razorpay credentials configured on the server." : 
+      error: isAuthError ?
+        "Payment gateway authentication failed. Please contact support." :
+        errorMessage,
+      details: isAuthError ?
+        "Invalid Razorpay credentials configured on the server." :
         error.message,
+      code: error.statusCode || error.code,
     });
   }
 };
@@ -129,7 +157,7 @@ export const createRazorpayOrder = async (req, res) => {
 export const verifyRazorpayPayment = async (req, res) => {
   console.log("\n=== VERIFY RAZORPAY PAYMENT ===");
   console.log("Timestamp:", new Date().toISOString());
-  
+
   const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
     req.body;
 
@@ -165,7 +193,7 @@ export const verifyRazorpayPayment = async (req, res) => {
 export const verifyRazorpaySignature = (req, res) => {
   console.log("\n=== VERIFY RAZORPAY SIGNATURE ===");
   console.log("Timestamp:", new Date().toISOString());
-  
+
   const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
     req.body;
 
