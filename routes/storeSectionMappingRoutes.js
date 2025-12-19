@@ -6,7 +6,6 @@ import {
   getAllMappings,
   updateMappingStatus,
   deleteMapping,
-  deleteMapping,
   getProductsBySection,
   createSectionCategoryMapping,
 } from "../controller/storeSectionMappingController.js";
