@@ -68,6 +68,32 @@ export async function createSectionProductMapping(req, res) {
   }
 }
 
+// Create section-category mapping
+export async function createSectionCategoryMapping(req, res) {
+  try {
+    const { section_id, category_ids } = req.body;
+
+    // Create mappings for each category
+    const mappings = category_ids.map((category_id) => ({
+      section_id: parseInt(section_id),
+      category_id: parseInt(category_id),
+      mapping_type: "section_category",
+      is_active: true,
+    }));
+
+    const { data, error } = await supabase
+      .from("store_section_mappings")
+      .insert(mappings)
+      .select();
+
+    if (error)
+      return res.status(400).json({ success: false, error: error.message });
+    res.status(201).json({ success: true, mappings: data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
 // Get all mappings with related data
 export async function getAllMappings(req, res) {
   try {
@@ -104,9 +130,27 @@ export async function getAllMappings(req, res) {
       console.error("Section product error:", sectionProductError);
     }
 
+    // Get section-category mappings
+    const { data: sectionCategoryData, error: sectionCategoryError } =
+      await supabase
+        .from("store_section_mappings")
+        .select(
+          `
+        *,
+        product_sections:section_id(*),
+        categories:category_id(*)
+      `
+        )
+        .eq("mapping_type", "section_category");
+
+    if (sectionCategoryError) {
+      console.error("Section category error:", sectionCategoryError);
+    }
+
     // Group mappings by type
     const groupedStoreSections = {};
     const groupedSectionProducts = {};
+    const groupedSectionCategories = {};
 
     // Group store-section mappings by store
     (storeSectionData || []).forEach((mapping) => {
@@ -145,9 +189,29 @@ export async function getAllMappings(req, res) {
       }
     });
 
+    // Group section-category mappings by section
+    (sectionCategoryData || []).forEach((mapping) => {
+      const sectionId = mapping.section_id;
+      if (!groupedSectionCategories[sectionId]) {
+        groupedSectionCategories[sectionId] = {
+          id: `section_cat_${sectionId}`,
+          type: "section-category",
+          section_id: sectionId,
+          section_name:
+            mapping.product_sections?.section_name || "Unknown Section",
+          categories: [],
+          is_active: true,
+        };
+      }
+      if (mapping.categories) {
+        groupedSectionCategories[sectionId].categories.push(mapping.categories);
+      }
+    });
+
     const allMappings = [
       ...Object.values(groupedStoreSections),
       ...Object.values(groupedSectionProducts),
+      ...Object.values(groupedSectionCategories),
     ];
 
     res.json({ success: true, mappings: allMappings });
@@ -214,6 +278,21 @@ export async function deleteMapping(req, res) {
         success: true,
         message: "Section-product mappings deleted successfully",
       });
+    } else if (id.startsWith("section_cat_")) {
+      // Delete all section-category mappings for this section
+      const sectionId = id.replace("section_cat_", "");
+      const { error } = await supabase
+        .from("store_section_mappings")
+        .delete()
+        .eq("section_id", parseInt(sectionId))
+        .eq("mapping_type", "section_category");
+
+      if (error)
+        return res.status(400).json({ success: false, error: error.message });
+      res.json({
+        success: true,
+        message: "Section-category mappings deleted successfully",
+      });
     } else {
       // Delete individual mapping record
       const { error } = await supabase
@@ -262,6 +341,7 @@ export async function getProductsBySection(req, res) {
 
     let allProducts = [];
     let directMappingsData = null;
+    let categoryMappingsData = null;
     let storeProductsData = null;
 
     // First, get direct section-product mappings
@@ -284,6 +364,39 @@ export async function getProductsBySection(req, res) {
       const directProducts = directMappings.map((mapping) => mapping.products);
       allProducts = [...allProducts, ...directProducts];
       console.log("✅ Found direct products:", directProducts.length);
+    }
+
+    // Get section-category mappings
+    const { data: categoryMappings, error: categoryMappingsError } =
+      await supabase
+        .from("store_section_mappings")
+        .select("category_id")
+        .eq("section_id", sectionData.id)
+        .eq("mapping_type", "section_category")
+        .eq("is_active", true);
+
+    if (categoryMappingsError) {
+      console.error("❌ Category mappings query error:", categoryMappingsError);
+    } else if (categoryMappings && categoryMappings.length > 0) {
+      const categoryIds = categoryMappings.map((m) => m.category_id);
+      console.log("✅ Found category mappings:", categoryIds);
+
+      // Fetch products for these categories
+      const { data: categoryProducts, error: catProductsError } = await supabase
+        .from("products")
+        .select("*")
+        .in("category_id", categoryIds)
+        .eq("active", true)
+        .order("created_at", { ascending: false })
+        .limit(20); // Limit per category load if needed, or rely on pagination
+
+      if (catProductsError) {
+        console.error("❌ Category products query error:", catProductsError);
+      } else if (categoryProducts) {
+        categoryMappingsData = categoryMappings;
+        allProducts = [...allProducts, ...categoryProducts];
+        console.log("✅ Found category products:", categoryProducts.length);
+      }
     }
 
     // Also get products from stores mapped to this section
@@ -335,6 +448,9 @@ export async function getProductsBySection(req, res) {
       products: uniqueProducts,
       mapping_types: {
         direct_products: directMappingsData ? directMappingsData.length : 0,
+        category_products: categoryMappingsData
+          ? categoryMappingsData.length
+          : 0,
         store_products: storeProductsData ? storeProductsData.length : 0,
         total_unique_products: uniqueProducts.length,
       },
