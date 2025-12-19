@@ -163,49 +163,158 @@ export async function deleteRecommendedStore(req, res) {
 
 // View All Recommended Stores
 export async function getAllRecommendedStores(req, res) {
-  try {
-    // Get all stores with their associated products
-    const { data, error } = await supabase
-      .from("recommended_store")
-      .select(`
-        id,
-        name,
-        description,
-        image_url,
-        is_active,
-        product_recommended_store (
-          products (
-            id,
-            name,
-            image,
-            category,
-            price,
-            rating
-          )
-        )
-      `);
+  const startTime = Date.now();
+  const requestId = Math.random().toString(36).substr(2, 9);
 
-    if (error)
-      return res.status(400).json({ success: false, error: error.message });
+  try {
+    console.log(`[${requestId}] === getAllRecommendedStores called ===`);
+    console.log(`[${requestId}] Request headers:`, req.headers);
+    console.log(`[${requestId}] Timestamp:`, new Date().toISOString());
+
+    // Helper function to execute query with retry logic
+    const executeWithRetry = async (maxRetries = 2) => {
+      let lastError;
+
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          if (attempt > 0) {
+            console.log(`[${requestId}] Retry attempt ${attempt}/${maxRetries}`);
+            // Wait before retry (exponential backoff)
+            await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
+          }
+
+          console.log(`[${requestId}] Executing Supabase query (attempt ${attempt + 1})...`);
+
+          // Get all stores with their associated products
+          const { data, error } = await supabase
+            .from("recommended_store")
+            .select(`
+              id,
+              name,
+              description,
+              image_url,
+              is_active,
+              product_recommended_store (
+                products (
+                  id,
+                  name,
+                  image,
+                  category,
+                  price,
+                  rating
+                )
+              )
+            `)
+            .order('id', { ascending: true }); // Add ordering for consistency
+
+          if (error) {
+            console.error(`[${requestId}] Supabase error on attempt ${attempt + 1}:`, error);
+            lastError = error;
+
+            // Don't retry on certain errors
+            if (error.code === 'PGRST116' || error.message?.includes('not found')) {
+              throw error; // Table/column not found - don't retry
+            }
+
+            continue; // Retry on other errors
+          }
+
+          console.log(`[${requestId}] Query successful on attempt ${attempt + 1}`);
+          console.log(`[${requestId}] Raw data count:`, data?.length || 0);
+
+          return { data, error: null };
+
+        } catch (err) {
+          console.error(`[${requestId}] Exception on attempt ${attempt + 1}:`, err.message);
+          lastError = err;
+
+          if (attempt === maxRetries) {
+            throw err;
+          }
+        }
+      }
+
+      // If we get here, all retries failed
+      throw lastError || new Error('Query failed after retries');
+    };
+
+    // Execute query with retry logic
+    const { data, error } = await executeWithRetry();
+
+    if (error) {
+      console.error(`[${requestId}] Final error after retries:`, error);
+      return res.status(400).json({
+        success: false,
+        error: error.message || 'Failed to fetch stores',
+        requestId
+      });
+    }
+
+    // Validate data
+    if (!data) {
+      console.warn(`[${requestId}] No data returned from query`);
+      return res.json({
+        success: true,
+        recommendedStores: [],
+        requestId
+      });
+    }
+
+    console.log(`[${requestId}] Processing ${data.length} stores...`);
 
     // Transform the data to include products array
-    const formattedStores = data.map(store => {
-      const products = store.product_recommended_store?.map(mapping => mapping.products).filter(p => p) || [];
+    const formattedStores = data.map((store, index) => {
+      try {
+        const products = store.product_recommended_store?.map(mapping => mapping.products).filter(p => p) || [];
 
-      return {
-        id: store.id,
-        name: store.name,
-        description: store.description,
-        image_url: store.image_url,
-        is_active: store.is_active,
-        products: products,
-        product_count: products.length
-      };
+        return {
+          id: store.id,
+          name: store.name,
+          description: store.description,
+          image_url: store.image_url,
+          is_active: store.is_active,
+          products: products,
+          product_count: products.length
+        };
+      } catch (err) {
+        console.error(`[${requestId}] Error processing store at index ${index}:`, err);
+        // Return store without products if processing fails
+        return {
+          id: store.id,
+          name: store.name,
+          description: store.description,
+          image_url: store.image_url,
+          is_active: store.is_active,
+          products: [],
+          product_count: 0
+        };
+      }
     });
 
-    res.json({ success: true, recommendedStores: formattedStores });
+    const duration = Date.now() - startTime;
+    console.log(`[${requestId}] Successfully formatted ${formattedStores.length} stores`);
+    console.log(`[${requestId}] Request completed in ${duration}ms`);
+    console.log(`[${requestId}] Returning success response`);
+
+    res.json({
+      success: true,
+      recommendedStores: formattedStores,
+      requestId,
+      duration
+    });
+
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const duration = Date.now() - startTime;
+    console.error(`[${requestId}] ❌ Exception in getAllRecommendedStores:`, err.message);
+    console.error(`[${requestId}] Error stack:`, err.stack);
+    console.error(`[${requestId}] Failed after ${duration}ms`);
+
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Internal server error',
+      requestId,
+      duration
+    });
   }
 }
 
@@ -213,64 +322,152 @@ export async function getAllRecommendedStores(req, res) {
 
 // Get Active Recommended Stores (for website)
 export async function getActiveRecommendedStores(req, res) {
-  try {
-    console.log("=== getActiveRecommendedStores called ===");
-    console.log("Request headers:", req.headers);
-    
-    // Get active stores with their associated products
-    const { data, error } = await supabase
-      .from("recommended_store")
-      .select(`
-        id,
-        name,
-        description,
-        image_url,
-        is_active,
-        product_recommended_store (
-          products (
-            id,
-            name,
-            image,
-            category,
-            price,
-            rating
-          )
-        )
-      `)
-      .eq("is_active", true);
+  const startTime = Date.now();
+  const requestId = Math.random().toString(36).substr(2, 9);
 
-    console.log("Supabase query completed");
-    console.log("Data count:", data?.length || 0);
-    console.log("Error:", error);
+  try {
+    console.log(`[${requestId}] === getActiveRecommendedStores called ===`);
+    console.log(`[${requestId}] Request headers:`, req.headers);
+    console.log(`[${requestId}] Timestamp:`, new Date().toISOString());
+
+    // Helper function to execute query with retry logic
+    const executeWithRetry = async (maxRetries = 2) => {
+      let lastError;
+
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          if (attempt > 0) {
+            console.log(`[${requestId}] Retry attempt ${attempt}/${maxRetries}`);
+            await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
+          }
+
+          console.log(`[${requestId}] Executing Supabase query for active stores (attempt ${attempt + 1})...`);
+
+          // Get active stores with their associated products
+          const { data, error } = await supabase
+            .from("recommended_store")
+            .select(`
+              id,
+              name,
+              description,
+              image_url,
+              is_active,
+              product_recommended_store (
+                products (
+                  id,
+                  name,
+                  image,
+                  category,
+                  price,
+                  rating
+                )
+              )
+            `)
+            .eq("is_active", true)
+            .order('id', { ascending: true });
+
+          if (error) {
+            console.error(`[${requestId}] Supabase error on attempt ${attempt + 1}:`, error);
+            lastError = error;
+
+            if (error.code === 'PGRST116' || error.message?.includes('not found')) {
+              throw error;
+            }
+
+            continue;
+          }
+
+          console.log(`[${requestId}] Query successful on attempt ${attempt + 1}`);
+          console.log(`[${requestId}] Active stores count:`, data?.length || 0);
+
+          return { data, error: null };
+
+        } catch (err) {
+          console.error(`[${requestId}] Exception on attempt ${attempt + 1}:`, err.message);
+          lastError = err;
+
+          if (attempt === maxRetries) {
+            throw err;
+          }
+        }
+      }
+
+      throw lastError || new Error('Query failed after retries');
+    };
+
+    const { data, error } = await executeWithRetry();
 
     if (error) {
-      console.error("Supabase error:", error);
-      return res.status(400).json({ success: false, error: error.message });
+      console.error(`[${requestId}] Final error:`, error);
+      return res.status(400).json({
+        success: false,
+        error: error.message || 'Failed to fetch active stores',
+        requestId
+      });
     }
 
-    // Transform the data to include products array
-    const formattedStores = data.map(store => {
-      const products = store.product_recommended_store?.map(mapping => mapping.products).filter(p => p) || [];
+    if (!data) {
+      console.warn(`[${requestId}] No data returned`);
+      return res.json({
+        success: true,
+        recommendedStores: [],
+        requestId
+      });
+    }
 
-      return {
-        id: store.id,
-        name: store.name,
-        description: store.description,
-        image_url: store.image_url,
-        is_active: store.is_active,
-        products: products,
-        product_count: products.length
-      };
+    console.log(`[${requestId}] Processing ${data.length} active stores...`);
+
+    // Transform the data to include products array
+    const formattedStores = data.map((store, index) => {
+      try {
+        const products = store.product_recommended_store?.map(mapping => mapping.products).filter(p => p) || [];
+
+        return {
+          id: store.id,
+          name: store.name,
+          description: store.description,
+          image_url: store.image_url,
+          is_active: store.is_active,
+          products: products,
+          product_count: products.length
+        };
+      } catch (err) {
+        console.error(`[${requestId}] Error processing store at index ${index}:`, err);
+        return {
+          id: store.id,
+          name: store.name,
+          description: store.description,
+          image_url: store.image_url,
+          is_active: store.is_active,
+          products: [],
+          product_count: 0
+        };
+      }
     });
 
-    console.log("Formatted stores count:", formattedStores.length);
-    console.log("Returning success response");
-    
-    res.json({ success: true, recommendedStores: formattedStores });
+    const duration = Date.now() - startTime;
+    console.log(`[${requestId}] Successfully formatted ${formattedStores.length} active stores`);
+    console.log(`[${requestId}] Request completed in ${duration}ms`);
+
+    res.json({
+      success: true,
+      recommendedStores: formattedStores,
+      requestId,
+      duration
+    });
+
   } catch (err) {
-    console.error("Exception in getActiveRecommendedStores:", err);
-    console.error("Error stack:", err.stack);
-    res.status(500).json({ success: false, error: err.message });
+    const duration = Date.now() - startTime;
+    console.error(`[${requestId}] ❌ Exception in getActiveRecommendedStores:`, err.message);
+    console.error(`[${requestId}] Error stack:`, err.stack);
+    console.error(`[${requestId}] Failed after ${duration}ms`);
+
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Internal server error',
+      requestId,
+      duration
+    });
   }
 }
 
