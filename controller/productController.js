@@ -146,11 +146,32 @@ export const getAllProducts = async (req, res) => {
 export const getProductsByCategory = async (req, res) => {
   try {
     const { category } = req.params;
-    const { data, error } = await supabase
+    
+    // First, try to find the category by name to get its ID
+    const { data: categoryData, error: catError } = await supabase
+      .from("categories")
+      .select("id, name")
+      .eq("name", category)
+      .single();
+    
+    if (catError && catError.code !== 'PGRST116') {
+      console.error("Category lookup error:", catError);
+    }
+    
+    // Query products by category_id if we found the category, otherwise try by name
+    let query = supabase
       .from("products")
       .select(`*, ${VARIANT_JOIN}`)
-      .eq("active", true)
-      .eq("category", category);
+      .eq("active", true);
+    
+    if (categoryData) {
+      query = query.eq("category_id", categoryData.id);
+    } else {
+      // Fallback: try querying by category field (if it exists)
+      query = query.eq("category", category);
+    }
+    
+    const { data, error } = await query;
 
     if (error) {
       console.error("Supabase error:", error);
@@ -188,6 +209,7 @@ export const getProductsByCategory = async (req, res) => {
       products: transformedProducts,
       total: transformedProducts.length,
       category: category,
+      category_id: categoryData?.id || null,
     });
   } catch (error) {
     console.error("Server error:", error);
