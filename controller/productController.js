@@ -1428,3 +1428,180 @@ export const getProductVariants = async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
+// Get products by category with discount filter and sorting
+export const getProductsByCategoryWithDiscount = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    const { minDiscount = 0, maxDiscount = 100, limit = 50 } = req.query;
+
+    // First, get the category to verify it exists
+    const { data: categoryData, error: catError } = await supabase
+      .from("categories")
+      .select("id, name")
+      .eq("id", categoryId)
+      .eq("active", true)
+      .single();
+
+    if (catError || !categoryData) {
+      return res.status(404).json({ 
+        success: false,
+        error: "Category not found" 
+      });
+    }
+
+    // Get products for this category with discount filter
+    const { data, error } = await supabase
+      .from("products")
+      .select(`*, ${VARIANT_JOIN}`)
+      .eq("active", true)
+      .eq("category_id", categoryId)
+      .gte("discount", parseFloat(minDiscount))
+      .lte("discount", parseFloat(maxDiscount))
+      .order("discount", { ascending: false })
+      .limit(parseInt(limit));
+
+    if (error) {
+      console.error("Supabase error:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    const transformedProducts = data.map((product) => {
+      const activeVariants = (product.product_variants || []).filter(v => v.active !== false);
+      const defaultVariant = activeVariants.find(v => v.is_default === true);
+      
+      return {
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        price: product.price,
+        oldPrice: product.old_price,
+        rating: product.rating || 4.0,
+        reviews: product.review_count || 0,
+        discount: product.discount || 0,
+        image: product.image,
+        images: product.images,
+        inStock: (product.stock_quantity || product.stock || 0) > 0,
+        stock: product.stock_quantity || product.stock || 0,
+        popular: product.popular,
+        featured: product.featured,
+        category: product.category,
+        category_id: product.category_id,
+        subcategory_id: product.subcategory_id,
+        weight: product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
+        brand: product.brand_name || "BigandBest",
+        shipping_amount: product.shipping_amount || 0,
+        created_at: product.created_at,
+        hasVariants: activeVariants.length > 0,
+        variants: activeVariants,
+        defaultVariant: defaultVariant || null,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      products: transformedProducts,
+      total: transformedProducts.length,
+      category: categoryData,
+      filters: {
+        minDiscount: parseFloat(minDiscount),
+        maxDiscount: parseFloat(maxDiscount),
+      },
+    });
+  } catch (error) {
+    console.error("Server error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Get products by subcategory with discount filter and sorting
+export const getProductsBySubcategoryWithDiscount = async (req, res) => {
+  try {
+    const { subcategoryId } = req.params;
+    const { minDiscount = 0, maxDiscount = 100, limit = 50 } = req.query;
+
+    // First, get the subcategory to verify it exists
+    const { data: subcategoryData, error: subError } = await supabase
+      .from("subcategories")
+      .select(`
+        id, 
+        name,
+        categories (
+          id,
+          name
+        )
+      `)
+      .eq("id", subcategoryId)
+      .eq("active", true)
+      .single();
+
+    if (subError || !subcategoryData) {
+      return res.status(404).json({ 
+        success: false,
+        error: "Subcategory not found" 
+      });
+    }
+
+    // Get products for this subcategory with discount filter
+    const { data, error } = await supabase
+      .from("products")
+      .select(`*, ${VARIANT_JOIN}`)
+      .eq("active", true)
+      .eq("subcategory_id", subcategoryId)
+      .gte("discount", parseFloat(minDiscount))
+      .lte("discount", parseFloat(maxDiscount))
+      .order("discount", { ascending: false })
+      .limit(parseInt(limit));
+
+    if (error) {
+      console.error("Supabase error:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    const transformedProducts = data.map((product) => {
+      const activeVariants = (product.product_variants || []).filter(v => v.active !== false);
+      const defaultVariant = activeVariants.find(v => v.is_default === true);
+      
+      return {
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        price: product.price,
+        oldPrice: product.old_price,
+        rating: product.rating || 4.0,
+        reviews: product.review_count || 0,
+        discount: product.discount || 0,
+        image: product.image,
+        images: product.images,
+        inStock: (product.stock_quantity || product.stock || 0) > 0,
+        stock: product.stock_quantity || product.stock || 0,
+        popular: product.popular,
+        featured: product.featured,
+        category: product.category,
+        category_id: product.category_id,
+        subcategory_id: product.subcategory_id,
+        weight: product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
+        brand: product.brand_name || "BigandBest",
+        shipping_amount: product.shipping_amount || 0,
+        created_at: product.created_at,
+        hasVariants: activeVariants.length > 0,
+        variants: activeVariants,
+        defaultVariant: defaultVariant || null,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      products: transformedProducts,
+      total: transformedProducts.length,
+      subcategory: subcategoryData,
+      filters: {
+        minDiscount: parseFloat(minDiscount),
+        maxDiscount: parseFloat(maxDiscount),
+      },
+    });
+  } catch (error) {
+    console.error("Server error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};

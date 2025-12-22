@@ -13,6 +13,8 @@ import {
   checkProductsDelivery,
   getProductsByDeliveryZone,
   getProductVariants,
+  getProductsByCategoryWithDiscount,
+  getProductsBySubcategoryWithDiscount,
 } from "../controller/productController.js";
 import { getProductBulkSettings } from "../controller/bulkProductController.js";
 import { getProductVisibilityMatrix } from "../controller/productWarehouseController.js";
@@ -25,6 +27,11 @@ router.get("/featured", getFeaturedProducts);
 router.get("/filter", getProductsWithFilters);
 router.get("/quick-picks", getQuickPicks);
 router.get("/delivery-zone", getProductsByDeliveryZone);
+
+// Discount-based routes (must come before generic routes)
+router.get("/category/:categoryId/discount", getProductsByCategoryWithDiscount);
+router.get("/subcategory/:subcategoryId/discount", getProductsBySubcategoryWithDiscount);
+
 router.get("/category/:category", getProductsByCategory);
 router.get("/subcategory/:subcategoryId", getProductsBySubcategory);
 router.get("/group/:groupId", getProductsByGroup);
