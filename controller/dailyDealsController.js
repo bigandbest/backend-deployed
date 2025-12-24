@@ -3,7 +3,7 @@ import { supabase } from "../config/supabaseClient.js";
 // Add a Daily Deal
 export async function addDailyDeal(req, res) {
   try {
-    const { title, discount, badge, sort_order } = req.body;
+    const { title, discount, badge, sort_order, banner_id } = req.body;
     const imageFile = req.file;
     let imageUrl = null;
 
@@ -30,10 +30,34 @@ export async function addDailyDeal(req, res) {
       imageUrl = urlData.publicUrl;
     }
 
+    // Validate banner_id if provided
+    if (banner_id) {
+      const { data: bannerData, error: bannerError } = await supabase
+        .from("add_banner")
+        .select("id, banner_type")
+        .eq("id", banner_id)
+        .eq("banner_type", "daily_deals")
+        .single();
+
+      if (bannerError || !bannerData) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid banner_id. Banner must exist and have type "daily_deals".',
+        });
+      }
+    }
+
     // Insert new daily deal into the 'daily_deals' table
     const { data, error } = await supabase
       .from("daily_deals")
-      .insert([{ title, image_url: imageUrl, discount, badge, sort_order }])
+      .insert([{
+        title,
+        image_url: imageUrl,
+        discount,
+        badge,
+        sort_order,
+        banner_id: banner_id || null,
+      }])
       .select()
       .single();
     if (error)
@@ -48,9 +72,16 @@ export async function addDailyDeal(req, res) {
 export async function updateDailyDeal(req, res) {
   try {
     const { id } = req.params;
-    const { title, discount, badge, sort_order, active } = req.body;
+    const { title, discount, badge, sort_order, active, banner_id } = req.body;
     const imageFile = req.file;
-    let updateData = { title, discount, badge, sort_order, active };
+
+    // Only include fields that are actually provided
+    let updateData = {};
+    if (title !== undefined) updateData.title = title;
+    if (discount !== undefined) updateData.discount = discount;
+    if (badge !== undefined) updateData.badge = badge;
+    if (sort_order !== undefined) updateData.sort_order = sort_order;
+    if (active !== undefined) updateData.active = active;
 
     // Update image if a new one is provided
     if (imageFile) {
@@ -74,16 +105,43 @@ export async function updateDailyDeal(req, res) {
       updateData.image_url = urlData.publicUrl;
     }
 
+    // Validate banner_id if provided
+    if (banner_id !== undefined) {
+      if (banner_id === null || banner_id === "") {
+        // Allow removing banner by setting to null
+        updateData.banner_id = null;
+      } else {
+        const { data: bannerData, error: bannerError } = await supabase
+          .from("add_banner")
+          .select("id, banner_type")
+          .eq("id", banner_id)
+          .eq("banner_type", "daily_deals")
+          .single();
+
+        if (bannerError || !bannerData) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid banner_id. Banner must exist and have type "daily_deals".',
+          });
+        }
+        updateData.banner_id = banner_id;
+      }
+    }
+
     // Update the record in the 'daily_deals' table
     const { data, error } = await supabase
       .from("daily_deals")
       .update(updateData)
       .eq("id", id)
-      .select()
-      .single();
+      .select();
+
     if (error)
       return res.status(400).json({ success: false, error: error.message });
-    res.json({ success: true, deal: data });
+
+    if (!data || data.length === 0)
+      return res.status(404).json({ success: false, error: "Deal not found" });
+
+    res.json({ success: true, deal: data[0] });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -107,7 +165,10 @@ export async function getAllDailyDeals(req, res) {
   try {
     const { data, error } = await supabase
       .from("daily_deals")
-      .select("*")
+      .select(`
+        *,
+        banner:add_banner(id, name, image_url, banner_type, description, link, active)
+      `)
       .order("sort_order", { ascending: true });
     if (error)
       return res.status(400).json({ success: false, error: error.message });
@@ -120,10 +181,13 @@ export async function getAllDailyDeals(req, res) {
 // View All Daily Deals WITH Products (Optimized - Single API Call)
 export async function getAllDailyDealsWithProducts(req, res) {
   try {
-    // Step 1: Fetch all active deals
+    // Step 1: Fetch all active deals with banner data
     const { data: deals, error: dealsError } = await supabase
       .from("daily_deals")
-      .select("*")
+      .select(`
+        *,
+        banner:add_banner(id, name, image_url, banner_type, description, link, active)
+      `)
       .eq("active", true)
       .order("sort_order", { ascending: true });
 
@@ -153,7 +217,7 @@ export async function getAllDailyDealsWithProducts(req, res) {
 
     // Step 3: Fetch all products with variants
     const productIds = [...new Set(mappings?.map(m => m.product_id) || [])];
-    
+
     let products = [];
     if (productIds.length > 0) {
       const { fetchProductsWithVariants, transformProductWithVariants } = await import('./productHelpers.js');
