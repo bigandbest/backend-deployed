@@ -148,9 +148,8 @@ export const checkReturnEligibility = async (req, res) => {
 
       if (daysSinceDelivery <= 7 && daysSinceDelivery >= 0) {
         eligibility.can_return = true;
-        eligibility.reason = `Product can be returned within 7 days of delivery. ${
-          7 - daysSinceDelivery
-        } days remaining.`;
+        eligibility.reason = `Product can be returned within 7 days of delivery. ${7 - daysSinceDelivery
+          } days remaining.`;
       } else if (daysSinceDelivery > 7) {
         eligibility.reason =
           "Return period has expired. Products can only be returned within 7 days of delivery.";
@@ -199,6 +198,20 @@ export const createReturnRequest = async (req, res) => {
   } = req.body;
 
   try {
+    // Debug logging
+    console.log("=== CREATE RETURN REQUEST ===");
+    console.log("Request body:", JSON.stringify(req.body, null, 2));
+    console.log("Validation check:", {
+      order_id: !!order_id,
+      user_id: !!user_id,
+      return_type: !!return_type,
+      reason: !!reason,
+      bank_account_holder_name: !!bank_account_holder_name,
+      bank_account_number: !!bank_account_number,
+      bank_ifsc_code: !!bank_ifsc_code,
+      bank_name: !!bank_name,
+    });
+
     // Validate required fields
     if (
       !order_id ||
@@ -210,6 +223,7 @@ export const createReturnRequest = async (req, res) => {
       !bank_ifsc_code ||
       !bank_name
     ) {
+      console.log("❌ Validation failed - missing required fields");
       return res.status(400).json({
         success: false,
         error: "All required fields must be provided",
@@ -217,6 +231,11 @@ export const createReturnRequest = async (req, res) => {
     }
 
     // Check if order exists and belongs to user
+    console.log("Checking order ownership:", {
+      order_id,
+      user_id_from_request: user_id,
+    });
+
     const { data: order, error: orderError } = await supabase
       .from("orders")
       .select("*")
@@ -224,10 +243,35 @@ export const createReturnRequest = async (req, res) => {
       .eq("user_id", user_id)
       .single();
 
+    console.log("Order query result:", {
+      found: !!order,
+      error: orderError?.message,
+      order_user_id: order?.user_id,
+      request_user_id: user_id,
+    });
+
     if (orderError || !order) {
+      // Try to fetch order without user_id filter to see if it exists
+      const { data: orderCheck } = await supabase
+        .from("orders")
+        .select("user_id")
+        .eq("id", order_id)
+        .single();
+
+      console.log("Order exists check:", {
+        exists: !!orderCheck,
+        actual_user_id: orderCheck?.user_id,
+        provided_user_id: user_id,
+        match: orderCheck?.user_id === user_id,
+      });
+
       return res.status(404).json({
         success: false,
         error: "Order not found or doesn't belong to user",
+        debug: {
+          order_exists: !!orderCheck,
+          user_id_match: orderCheck?.user_id === user_id,
+        },
       });
     }
 
@@ -247,25 +291,28 @@ export const createReturnRequest = async (req, res) => {
       .single();
 
     let isEligible = false;
-    if (
-      return_type === "return" &&
-      eligibilityCheck.status.toLowerCase() === "delivered"
-    ) {
-      const daysSince = calculateDaysSinceDelivery(
-        eligibilityCheck.updated_at,
-        eligibilityCheck.status
-      );
-      isEligible = daysSince <= 7;
-    } else if (
-      return_type === "cancellation" &&
-      ["pending", "processing", "shipped"].includes(
-        eligibilityCheck.status.toLowerCase()
-      )
-    ) {
-      isEligible = true;
+    const orderStatus = eligibilityCheck.status.toLowerCase();
+
+    if (return_type === "return") {
+      // For returns, order must be delivered and within 7 days
+      if (orderStatus === "delivered") {
+        const daysSince = calculateDaysSinceDelivery(
+          eligibilityCheck.updated_at || eligibilityCheck.created_at,
+          eligibilityCheck.status
+        );
+        isEligible = daysSince <= 7 && daysSince >= 0;
+      }
+    } else if (return_type === "cancellation") {
+      // For cancellations, order must be pending, processing, or shipped
+      isEligible = ["pending", "processing", "shipped"].includes(orderStatus);
     }
 
     if (!isEligible) {
+      console.log("Eligibility check failed:", {
+        return_type,
+        orderStatus,
+        isEligible,
+      });
       return res.status(400).json({
         success: false,
         error: "Order is not eligible for this type of request",
@@ -533,7 +580,7 @@ export const updateReturnRequestStatus = async (req, res) => {
     // Create detailed notification for status update
     console.log("Creating notification for user:", data.user_id, "status:", status);
     const notificationMessage = getNotificationMessage(status, data.return_type);
-    
+
     try {
       // Create notification using helper
       const notification = await createNotificationHelper(
@@ -543,7 +590,7 @@ export const updateReturnRequestStatus = async (req, res) => {
         'return',
         data.order_id
       );
-      
+
       if (notification) {
         console.log("✅ Notification created successfully:", notification.id);
       } else {
