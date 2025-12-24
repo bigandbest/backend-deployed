@@ -262,7 +262,10 @@ export async function getDailyDealById(req, res) {
     const { id } = req.params;
     const { data, error } = await supabase
       .from("daily_deals")
-      .select("*")
+      .select(`
+        *,
+        banner:add_banner(id, name, image_url, banner_type, description, link, active)
+      `)
       .eq("id", id)
       .single();
 
