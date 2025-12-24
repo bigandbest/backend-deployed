@@ -3,7 +3,7 @@ import { supabase } from "../config/supabaseClient.js";
 // Add Recommended Store
 export async function addRecommendedStore(req, res) {
   try {
-    const { name, description, is_active = false } = req.body;
+    const { name, description, is_active = false, banner_id } = req.body;
     const imageFile = req.file;
     let imageUrl = null;
 
@@ -48,10 +48,27 @@ export async function addRecommendedStore(req, res) {
       imageUrl = urlData.publicUrl;
     }
 
+    // Validate banner_id if provided
+    if (banner_id) {
+      const { data: bannerData, error: bannerError } = await supabase
+        .from("add_banner")
+        .select("id, banner_type")
+        .eq("id", banner_id)
+        .eq("banner_type", "shop_by_store")
+        .single();
+
+      if (bannerError || !bannerData) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid banner_id. Banner must exist and have type "shop_by_store".',
+        });
+      }
+    }
+
     // Insert new Recommended Store into the 'recommended_store' table
     const { data, error } = await supabase
       .from("recommended_store")
-      .insert([{ name, description, image_url: imageUrl, is_active }])
+      .insert([{ name, description, image_url: imageUrl, is_active, banner_id: banner_id || null }])
       .select()
       .single();
     if (error)
@@ -66,7 +83,7 @@ export async function addRecommendedStore(req, res) {
 export async function editRecommendedStore(req, res) {
   try {
     const { id } = req.params;
-    const { name, description, is_active } = req.body;
+    const { name, description, is_active, banner_id } = req.body;
     const imageFile = req.file;
     let updateData = { name, description };
 
@@ -124,6 +141,29 @@ export async function editRecommendedStore(req, res) {
         .from("recommended_store")
         .getPublicUrl(fileName);
       updateData.image_url = urlData.publicUrl;
+    }
+
+    // Validate banner_id if provided
+    if (banner_id !== undefined) {
+      if (banner_id === null || banner_id === "") {
+        // Allow removing banner by setting to null
+        updateData.banner_id = null;
+      } else {
+        const { data: bannerData, error: bannerError } = await supabase
+          .from("add_banner")
+          .select("id, banner_type")
+          .eq("id", banner_id)
+          .eq("banner_type", "shop_by_store")
+          .single();
+
+        if (bannerError || !bannerData) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid banner_id. Banner must exist and have type "shop_by_store".',
+          });
+        }
+        updateData.banner_id = banner_id;
+      }
     }
 
     // Update the record in the 'recommended_store' table
@@ -185,7 +225,7 @@ export async function getAllRecommendedStores(req, res) {
 
           console.log(`[${requestId}] Executing Supabase query (attempt ${attempt + 1})...`);
 
-          // Get all stores with their associated products
+          // Get all stores with their associated products and banner data
           const { data, error } = await supabase
             .from("recommended_store")
             .select(`
@@ -194,6 +234,7 @@ export async function getAllRecommendedStores(req, res) {
               description,
               image_url,
               is_active,
+              banner:add_banner(id, name, image_url, banner_type, description, link, active),
               product_recommended_store (
                 products (
                   id,
@@ -343,7 +384,7 @@ export async function getActiveRecommendedStores(req, res) {
 
           console.log(`[${requestId}] Executing Supabase query for active stores (attempt ${attempt + 1})...`);
 
-          // Get active stores with their associated products
+          // Get active stores with their associated products and banner data
           const { data, error } = await supabase
             .from("recommended_store")
             .select(`
@@ -352,6 +393,7 @@ export async function getActiveRecommendedStores(req, res) {
               description,
               image_url,
               is_active,
+              banner:add_banner(id, name, image_url, banner_type, description, link, active),
               product_recommended_store (
                 products (
                   id,
@@ -477,7 +519,10 @@ export async function getSingleRecommendedStore(req, res) {
     const { id } = req.params;
     const { data, error } = await supabase
       .from("recommended_store")
-      .select("*")
+      .select(`
+        *,
+        banner:add_banner(id, name, image_url, banner_type, description, link, active)
+      `)
       .eq("id", id)
       .single();
 
