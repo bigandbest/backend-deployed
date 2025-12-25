@@ -11,6 +11,10 @@ import {
   getProductsInSection,
   updateProductOrderInSection,
   getSectionsForProduct,
+  addCategoriesToSection,
+  removeCategoryFromSection,
+  getCategoriesInSection,
+  getSectionsForCategory,
 } from "../controller/productSectionController.js";
 
 const router = express.Router();
@@ -49,5 +53,19 @@ router.put("/:id/products/order", updateProductOrderInSection);
 
 // Get sections for a specific product
 router.get("/products/:productId/sections", getSectionsForProduct);
+
+// ========== CATEGORY-SECTION MAPPING ROUTES ==========
+
+// Add categories to a section
+router.post("/:id/categories", addCategoriesToSection);
+
+// Get all categories mapped to a section
+router.get("/:id/categories", getCategoriesInSection);
+
+// Remove a category from a section
+router.delete("/:id/categories/:categoryId", removeCategoryFromSection);
+
+// Get sections for a specific category
+router.get("/categories/:categoryId/sections", getSectionsForCategory);
 
 export default router;

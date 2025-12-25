@@ -7,7 +7,7 @@ import {
   updateMappingStatus,
   deleteMapping,
   getProductsBySection,
-  createSectionCategoryMapping,
+  createSectionGroupMapping,
 } from "../controller/storeSectionMappingController.js";
 
 const router = express.Router();
@@ -18,7 +18,7 @@ router.get("/product-sections/list", getAllProductSections);
 // Store-section mapping routes
 router.post("/store-sections", createStoreSectionMapping);
 router.post("/section-products", createSectionProductMapping);
-router.post("/section-category", createSectionCategoryMapping);
+router.post("/section-group", createSectionGroupMapping);
 router.get("/list", getAllMappings);
 router.put("/:id/status", updateMappingStatus);
 router.delete("/:id", deleteMapping);

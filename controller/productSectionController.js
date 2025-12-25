@@ -141,9 +141,8 @@ export const toggleSectionStatus = async (req, res) => {
     res.status(200).json({
       success: true,
       data,
-      message: `Section ${
-        newStatus ? "activated" : "deactivated"
-      } successfully`,
+      message: `Section ${newStatus ? "activated" : "deactivated"
+        } successfully`,
     });
   } catch (error) {
     console.error("Error toggling section status:", error);
@@ -290,8 +289,19 @@ export const getProductsInSection = async (req, res) => {
 
     const offset = (page - 1) * limit;
 
-    // Get products with their details
-    const { data, error, count } = await supabase
+    // First, check if this section has any mapped categories
+    const { data: mappedCategories, error: categoryError } = await supabase
+      .from("product_section_categories")
+      .select("category_id")
+      .eq("section_id", id);
+
+    if (categoryError) {
+      console.error("Error fetching mapped categories:", categoryError);
+      return res.status(500).json({ error: categoryError.message });
+    }
+
+    // Build the query for products
+    let query = supabase
       .from("product_section_products")
       .select(`
         id,
@@ -311,8 +321,9 @@ export const getProductsInSection = async (req, res) => {
         )
       `, { count: 'exact' })
       .eq("section_id", id)
-      .order("display_order", { ascending: true })
-      .range(offset, offset + limit - 1);
+      .order("display_order", { ascending: true });
+
+    const { data, error, count } = await query.range(offset, offset + limit - 1);
 
     if (error) {
       console.error("Supabase error:", error);
@@ -320,12 +331,20 @@ export const getProductsInSection = async (req, res) => {
     }
 
     // Transform data to flatten product details
-    const products = data.map(item => ({
+    let products = data.map(item => ({
       assignment_id: item.id,
       display_order: item.display_order,
       assigned_at: item.created_at,
       ...item.products
     }));
+
+    // Filter by mapped categories if any exist
+    if (mappedCategories && mappedCategories.length > 0) {
+      const categoryIds = mappedCategories.map(mc => mc.category_id);
+      products = products.filter(product =>
+        product.category_id && categoryIds.includes(product.category_id)
+      );
+    }
 
     res.status(200).json({
       success: true,
@@ -333,9 +352,11 @@ export const getProductsInSection = async (req, res) => {
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        total: count,
-        totalPages: Math.ceil(count / limit),
+        total: products.length, // Use filtered count
+        totalPages: Math.ceil(products.length / limit),
       },
+      filtered_by_categories: mappedCategories && mappedCategories.length > 0,
+      mapped_category_count: mappedCategories ? mappedCategories.length : 0,
     });
   } catch (error) {
     console.error("Error fetching products in section:", error);
@@ -425,6 +446,154 @@ export const getSectionsForProduct = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching sections for product:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// ========== CATEGORY-SECTION MAPPING FUNCTIONS ==========
+
+// Add categories to a section
+export const addCategoriesToSection = async (req, res) => {
+  try {
+    const { id } = req.params; // section_id
+    const { category_ids } = req.body;
+
+    if (!category_ids || !Array.isArray(category_ids) || category_ids.length === 0) {
+      return res.status(400).json({
+        error: "category_ids array is required and must not be empty",
+      });
+    }
+
+    // Verify section exists
+    const { data: section, error: sectionError } = await supabase
+      .from("product_sections")
+      .select("id")
+      .eq("id", id)
+      .single();
+
+    if (sectionError || !section) {
+      return res.status(404).json({ error: "Product section not found" });
+    }
+
+    // Create category mappings
+    const mappings = category_ids.map((category_id) => ({
+      section_id: parseInt(id),
+      category_id: parseInt(category_id),
+    }));
+
+    const { data, error } = await supabase
+      .from("product_section_categories")
+      .upsert(mappings, { onConflict: "section_id,category_id" })
+      .select();
+
+    if (error) {
+      console.error("Supabase error:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.status(200).json({
+      success: true,
+      data,
+      message: `${category_ids.length} category/categories mapped to section successfully`,
+    });
+  } catch (error) {
+    console.error("Error adding categories to section:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Remove a category from a section
+export const removeCategoryFromSection = async (req, res) => {
+  try {
+    const { id, categoryId } = req.params; // section_id, category_id
+
+    const { error } = await supabase
+      .from("product_section_categories")
+      .delete()
+      .eq("section_id", id)
+      .eq("category_id", categoryId);
+
+    if (error) {
+      console.error("Supabase error:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Category removed from section successfully",
+    });
+  } catch (error) {
+    console.error("Error removing category from section:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Get all categories mapped to a section
+export const getCategoriesInSection = async (req, res) => {
+  try {
+    const { id } = req.params; // section_id
+
+    const { data, error } = await supabase
+      .from("product_section_categories")
+      .select("category_id, created_at")
+      .eq("section_id", id)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error("Supabase error:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.status(200).json({
+      success: true,
+      data,
+      total: data.length,
+    });
+  } catch (error) {
+    console.error("Error fetching categories in section:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Get sections for a specific category
+export const getSectionsForCategory = async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+
+    const { data, error } = await supabase
+      .from("product_section_categories")
+      .select(`
+        id,
+        created_at,
+        product_sections:section_id (
+          id,
+          section_key,
+          section_name,
+          is_active,
+          component_name
+        )
+      `)
+      .eq("category_id", categoryId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error("Supabase error:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    // Transform data
+    const sections = data.map(item => ({
+      mapping_id: item.id,
+      mapped_at: item.created_at,
+      ...item.product_sections
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: sections,
+    });
+  } catch (error) {
+    console.error("Error fetching sections for category:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
