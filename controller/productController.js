@@ -90,7 +90,7 @@ export const getAllProducts = async (req, res) => {
       const activeVariants = (product.product_variants || []).filter(v => v.active !== false);
       // Find default variant if exists
       const defaultVariant = activeVariants.find(v => v.is_default === true);
-      
+
       return {
         id: product.id,
         name: product.name,
@@ -146,31 +146,31 @@ export const getAllProducts = async (req, res) => {
 export const getProductsByCategory = async (req, res) => {
   try {
     const { category } = req.params;
-    
+
     // First, try to find the category by name to get its ID
     const { data: categoryData, error: catError } = await supabase
       .from("categories")
       .select("id, name")
       .eq("name", category)
       .single();
-    
+
     if (catError && catError.code !== 'PGRST116') {
       console.error("Category lookup error:", catError);
     }
-    
+
     // Query products by category_id if we found the category, otherwise try by name
     let query = supabase
       .from("products")
       .select(`*, ${VARIANT_JOIN}`)
       .eq("active", true);
-    
+
     if (categoryData) {
       query = query.eq("category_id", categoryData.id);
     } else {
       // Fallback: try querying by category field (if it exists)
       query = query.eq("category", category);
     }
-    
+
     const { data, error } = await query;
 
     if (error) {
@@ -853,11 +853,51 @@ export const getProductsByDeliveryZone = async (req, res) => {
 // Get Quick Picks - products that are popular, most_orders, or top_sale
 export const getQuickPicks = async (req, res) => {
   try {
-    const { limit = 30, filter } = req.query;
+    const { limit = 30, filter, section_key } = req.query;
 
     let products = [];
 
-    if (filter === "new_arrivals") {
+    // If section_key is provided, fetch products from section mappings
+    if (section_key) {
+      // Get section info
+      const { data: sectionData, error: sectionError } = await supabase
+        .from("product_sections")
+        .select("*")
+        .eq("section_key", section_key)
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (!sectionError && sectionData) {
+        // Get direct section-product mappings
+        const { data: directMappings, error: directMappingsError } = await supabase
+          .from("store_section_mappings")
+          .select(`
+            products!inner(*)
+          `)
+          .eq("section_id", sectionData.id)
+          .eq("mapping_type", "section_product")
+          .eq("is_active", true)
+          .limit(parseInt(limit));
+
+        if (!directMappingsError && directMappings) {
+          products = directMappings.map((mapping) => mapping.products);
+        }
+      }
+
+      // If no products found from section mappings, fall back to latest products
+      if (products.length === 0) {
+        const { data: latestData, error: latestError } = await supabase
+          .from("products")
+          .select(`*, ${VARIANT_JOIN}`)
+          .eq("active", true)
+          .order("created_at", { ascending: false })
+          .limit(parseInt(limit));
+
+        if (!latestError && latestData) {
+          products = latestData;
+        }
+      }
+    } else if (filter === "new_arrivals") {
       // Get latest products
       const { data: productDetails, error: detailsError } = await supabase
         .from("products")
@@ -1061,7 +1101,7 @@ export const getQuickPicks = async (req, res) => {
     // Transform the data to match frontend expectations
     const transformedProducts = products.map((product) => {
       const defaultVariant = product.product_variants?.find(v => v.is_default === true);
-      
+
       return {
         id: product.id,
         name: product.name,
@@ -1444,9 +1484,9 @@ export const getProductsByCategoryWithDiscount = async (req, res) => {
       .single();
 
     if (catError || !categoryData) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: "Category not found" 
+        error: "Category not found"
       });
     }
 
@@ -1469,7 +1509,7 @@ export const getProductsByCategoryWithDiscount = async (req, res) => {
     const transformedProducts = data.map((product) => {
       const activeVariants = (product.product_variants || []).filter(v => v.active !== false);
       const defaultVariant = activeVariants.find(v => v.is_default === true);
-      
+
       return {
         id: product.id,
         name: product.name,
@@ -1536,9 +1576,9 @@ export const getProductsBySubcategoryWithDiscount = async (req, res) => {
       .single();
 
     if (subError || !subcategoryData) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: "Subcategory not found" 
+        error: "Subcategory not found"
       });
     }
 
@@ -1561,7 +1601,7 @@ export const getProductsBySubcategoryWithDiscount = async (req, res) => {
     const transformedProducts = data.map((product) => {
       const activeVariants = (product.product_variants || []).filter(v => v.active !== false);
       const defaultVariant = activeVariants.find(v => v.is_default === true);
-      
+
       return {
         id: product.id,
         name: product.name,
