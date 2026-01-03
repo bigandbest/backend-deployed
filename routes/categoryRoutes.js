@@ -6,6 +6,8 @@ import {
   getGroupsBySubcategory,
   getCategoriesHierarchy,
   getSubcategoryDetails,
+  getSubcategoriesForSection,
+  getCategoriesForSection,
 } from "../controller/categoryController.js";
 
 const router = express.Router();
@@ -23,5 +25,9 @@ router.get("/subcategory/:subcategoryId", getSubcategoryDetails);
 
 // Full hierarchy route
 router.get("/hierarchy", getCategoriesHierarchy);
+
+// Section-specific routes
+router.get("/section/:sectionKey/subcategories", getSubcategoriesForSection);
+router.get("/section/:sectionKey/categories", getCategoriesForSection);
 
 export default router;
