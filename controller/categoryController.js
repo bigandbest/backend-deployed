@@ -231,3 +231,221 @@ export const getSubcategoryDetails = async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
+// Get subcategories for a specific section (by section key)
+export const getSubcategoriesForSection = async (req, res) => {
+  try {
+    const { sectionKey } = req.params;
+
+    // First, get the section ID from the section key
+    const { data: section, error: sectionError } = await supabase
+      .from("product_sections")
+      .select("id")
+      .eq("section_key", sectionKey)
+      .single();
+
+    if (sectionError || !section) {
+      return res.status(404).json({ error: "Section not found" });
+    }
+
+    // Get subcategory mappings for this section
+    const { data: mappings, error: mappingsError } = await supabase
+      .from("section_subcategory_mappings")
+      .select("subcategory_id, display_order, is_active")
+      .eq("section_id", section.id)
+      .eq("is_active", true)
+      .order("display_order", { ascending: true });
+
+    if (mappingsError) {
+      console.error("Mappings error:", mappingsError);
+      return res.status(500).json({ error: mappingsError.message });
+    }
+
+    if (!mappings || mappings.length === 0) {
+      return res.status(200).json({
+        success: true,
+        subcategories: [],
+        total: 0,
+      });
+    }
+
+    // Get subcategory IDs from mappings
+    const subcategoryIds = mappings.map(m => m.subcategory_id);
+
+    // Fetch subcategory details with their category info
+    const { data: subcategories, error: subError } = await supabase
+      .from("subcategories")
+      .select(`
+        *,
+        categories (
+          id,
+          name,
+          image_url,
+          icon
+        )
+      `)
+      .in("id", subcategoryIds)
+      .eq("active", true);
+
+    if (subError) {
+      console.error("Subcategories error:", subError);
+      return res.status(500).json({ error: subError.message });
+    }
+
+    // Merge subcategory data with display_order from mappings
+    const orderedSubcategories = mappings
+      .map(mapping => {
+        const subcategory = subcategories.find(s => s.id === mapping.subcategory_id);
+        if (subcategory) {
+          return {
+            ...subcategory,
+            display_order: mapping.display_order,
+          };
+        }
+        return null;
+      })
+      .filter(s => s !== null);
+
+    res.status(200).json({
+      success: true,
+      subcategories: orderedSubcategories,
+      total: orderedSubcategories.length,
+    });
+  } catch (error) {
+    console.error("Server error in getSubcategoriesForSection:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Get categories for a specific section (by section key)
+export const getCategoriesForSection = async (req, res) => {
+  try {
+    const { sectionKey } = req.params;
+
+    // First, get the section ID from the section key
+    const { data: section, error: sectionError } = await supabase
+      .from("product_sections")
+      .select("id")
+      .eq("section_key", sectionKey)
+      .single();
+
+    if (sectionError || !section) {
+      return res.status(404).json({ error: "Section not found" });
+    }
+
+    // Get category mappings for this section
+    const { data: categoryMappings, error: categoryMappingsError } = await supabase
+      .from("product_section_categories")
+      .select("category_id")
+      .eq("section_id", section.id);
+
+    if (categoryMappingsError) {
+      console.error("Category mappings error:", categoryMappingsError);
+      return res.status(500).json({ error: categoryMappingsError.message });
+    }
+
+    // Get subcategory mappings for this section
+    const { data: subcategoryMappings, error: subcategoryMappingsError } = await supabase
+      .from("section_subcategory_mappings")
+      .select("subcategory_id, display_order, is_active")
+      .eq("section_id", section.id)
+      .eq("is_active", true)
+      .order("display_order", { ascending: true });
+
+    if (subcategoryMappingsError) {
+      console.error("Subcategory mappings error:", subcategoryMappingsError);
+      return res.status(500).json({ error: subcategoryMappingsError.message });
+    }
+
+    // If no mappings exist, return empty result
+    if ((!categoryMappings || categoryMappings.length === 0) &&
+      (!subcategoryMappings || subcategoryMappings.length === 0)) {
+      return res.status(200).json({
+        success: true,
+        categories: [],
+        total: 0,
+      });
+    }
+
+    // Get all categories
+    const { data: allCategories, error: catError } = await supabase
+      .from("categories")
+      .select("*")
+      .eq("active", true)
+      .order("name");
+
+    if (catError) {
+      console.error("Categories error:", catError);
+      return res.status(500).json({ error: catError.message });
+    }
+
+    // Get all subcategories
+    const { data: allSubcategories, error: subError } = await supabase
+      .from("subcategories")
+      .select("*")
+      .eq("active", true)
+      .order("sort_order");
+
+    if (subError) {
+      console.error("Subcategories error:", subError);
+      return res.status(500).json({ error: subError.message });
+    }
+
+    // Build category IDs set from both category and subcategory mappings
+    const categoryIdsSet = new Set();
+
+    // Add directly mapped categories
+    if (categoryMappings && categoryMappings.length > 0) {
+      categoryMappings.forEach(m => categoryIdsSet.add(m.category_id));
+    }
+
+    // Add categories from mapped subcategories
+    if (subcategoryMappings && subcategoryMappings.length > 0) {
+      const mappedSubcategoryIds = subcategoryMappings.map(m => m.subcategory_id);
+      allSubcategories
+        .filter(sub => mappedSubcategoryIds.includes(sub.id))
+        .forEach(sub => categoryIdsSet.add(sub.category_id));
+    }
+
+    // Filter categories and build hierarchy
+    const filteredCategories = allCategories
+      .filter(cat => categoryIdsSet.has(cat.id))
+      .map(category => {
+        // Get subcategories for this category
+        let subcategories = allSubcategories.filter(sub => sub.category_id === category.id);
+
+        // If we have subcategory mappings, filter and order them
+        if (subcategoryMappings && subcategoryMappings.length > 0) {
+          const mappedSubIds = subcategoryMappings.map(m => m.subcategory_id);
+          subcategories = subcategories.filter(sub => mappedSubIds.includes(sub.id));
+
+          // Add display_order from mappings
+          subcategories = subcategories.map(sub => {
+            const mapping = subcategoryMappings.find(m => m.subcategory_id === sub.id);
+            return {
+              ...sub,
+              display_order: mapping ? mapping.display_order : 999,
+            };
+          });
+
+          // Sort by display_order
+          subcategories.sort((a, b) => a.display_order - b.display_order);
+        }
+
+        return {
+          ...category,
+          subcategories,
+        };
+      });
+
+    res.status(200).json({
+      success: true,
+      categories: filteredCategories,
+      total: filteredCategories.length,
+    });
+  } catch (error) {
+    console.error("Server error in getCategoriesForSection:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
