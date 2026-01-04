@@ -28,7 +28,7 @@ export const addSubcategoriesToSection = async (req, res) => {
         // Create subcategory mappings
         const mappings = subcategory_ids.map((subcategory_id, index) => ({
             section_id: parseInt(sectionId),
-            subcategory_id: parseInt(subcategory_id),
+            subcategory_id: subcategory_id,
             display_order: display_orders && display_orders[index] !== undefined
                 ? display_orders[index]
                 : index,
@@ -124,13 +124,22 @@ export const updateSubcategoryMappings = async (req, res) => {
             });
         }
 
-        // Insert new mappings
-        const newMappings = mappings.map((mapping) => ({
-            section_id: parseInt(sectionId),
-            subcategory_id: parseInt(mapping.subcategory_id),
-            display_order: mapping.display_order || 0,
-            is_active: mapping.is_active !== undefined ? mapping.is_active : true,
-        }));
+        // Filter invalid IDs and deduplicate by subcategory_id
+        const uniqueMappingsMap = new Map();
+
+        mappings.forEach(mapping => {
+            const subId = mapping.subcategory_id;
+            if (subId && subId !== 'undefined' && subId !== 'null') {
+                uniqueMappingsMap.set(subId, {
+                    section_id: parseInt(sectionId),
+                    subcategory_id: subId,
+                    display_order: mapping.display_order || 0,
+                    is_active: mapping.is_active !== undefined ? mapping.is_active : true,
+                });
+            }
+        });
+
+        const newMappings = Array.from(uniqueMappingsMap.values());
 
         const { data, error } = await supabase
             .from("section_subcategory_mappings")
