@@ -1,5 +1,4 @@
 import { supabase } from "../config/supabaseClient.js";
-import { uploadToCloudinary } from "../config/cloudinaryConfig.js";
 
 // Add new category
 export const addCategory = async (req, res) => {
@@ -9,8 +8,31 @@ export const addCategory = async (req, res) => {
 
     // Handle image upload if file is provided
     if (req.file) {
-      const uploadResult = await uploadToCloudinary(req.file.buffer, "categories");
-      imageUrl = uploadResult.secure_url;
+      const fileExt = req.file.originalname.split(".").pop();
+      const fileName = `${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("categories")
+        .upload(fileName, req.file.buffer, {
+          contentType: req.file.mimetype,
+          upsert: true,
+        });
+
+      if (uploadError) {
+        console.error("Upload error:", uploadError);
+        return res.status(400).json({
+          success: false,
+          error: `Failed to upload image: ${uploadError.message}`,
+        });
+      }
+
+      const { data: urlData } = supabase.storage
+        .from("categories")
+        .getPublicUrl(fileName);
+
+      imageUrl = urlData.publicUrl;
     }
 
     const { data, error } = await supabase
@@ -47,8 +69,31 @@ export const updateCategory = async (req, res) => {
 
     // Handle image upload if file is provided
     if (req.file) {
-      const uploadResult = await uploadToCloudinary(req.file.buffer, "categories");
-      imageUrl = uploadResult.secure_url;
+      const fileExt = req.file.originalname.split(".").pop();
+      const fileName = `${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("categories")
+        .upload(fileName, req.file.buffer, {
+          contentType: req.file.mimetype,
+          upsert: true,
+        });
+
+      if (uploadError) {
+        console.error("Upload error:", uploadError);
+        return res.status(400).json({
+          success: false,
+          error: `Failed to upload image: ${uploadError.message}`,
+        });
+      }
+
+      const { data: urlData } = supabase.storage
+        .from("categories")
+        .getPublicUrl(fileName);
+
+      imageUrl = urlData.publicUrl;
     }
 
     const { data, error } = await supabase
