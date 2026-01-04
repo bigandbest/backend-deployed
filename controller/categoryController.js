@@ -1,4 +1,82 @@
 import { supabase } from "../config/supabaseClient.js";
+import { uploadToCloudinary } from "../config/cloudinaryConfig.js";
+
+// Add new category
+export const addCategory = async (req, res) => {
+  try {
+    const categoryData = req.body;
+    let imageUrl = categoryData.image_url;
+
+    // Handle image upload if file is provided
+    if (req.file) {
+      const uploadResult = await uploadToCloudinary(req.file.buffer, "categories");
+      imageUrl = uploadResult.secure_url;
+    }
+
+    const { data, error } = await supabase
+      .from("categories")
+      .insert([{
+        ...categoryData,
+        image_url: imageUrl,
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error adding category:", error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    res.status(201).json({
+      success: true,
+      category: data,
+      message: "Category added successfully",
+    });
+  } catch (error) {
+    console.error("Error in addCategory:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+// Update category (for toggling active status or other updates)
+export const updateCategory = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+    let imageUrl = updates.image_url;
+
+    // Handle image upload if file is provided
+    if (req.file) {
+      const uploadResult = await uploadToCloudinary(req.file.buffer, "categories");
+      imageUrl = uploadResult.secure_url;
+    }
+
+    const { data, error } = await supabase
+      .from("categories")
+      .update({
+        ...updates,
+        image_url: imageUrl,
+      })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error updating category:", error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    res.status(200).json({
+      success: true,
+      category: data,
+      message: "Category updated successfully",
+    });
+  } catch (error) {
+    console.error("Error in updateCategory:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
 
 // Get all subcategories with their category info
 export const getAllSubcategories = async (req, res) => {
