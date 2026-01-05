@@ -45,7 +45,7 @@ const findWarehouseForProduct = async (productId, pincode, productType) => {
 
 /** Get all orders (admin usage) */
 export const getAllOrders = async (req, res) => {
-  const { page = 1, limit = 10, payment_method = 'prepaid' } = req.query;
+  const { page = 1, limit = 10, payment_method = "prepaid" } = req.query;
   const offset = (page - 1) * limit;
 
   let query = supabase
@@ -69,8 +69,8 @@ export const getAllOrders = async (req, res) => {
     .order("created_at", { ascending: false });
 
   // Filter by payment method unless 'all' is specified
-  if (payment_method && payment_method !== 'all') {
-    query = query.eq('payment_method', payment_method);
+  if (payment_method && payment_method !== "all") {
+    query = query.eq("payment_method", payment_method);
   }
 
   const { data, error, count } = await query.range(offset, offset + limit - 1);
@@ -125,7 +125,7 @@ export const getUserOrders = async (req, res) => {
     const { user_id } = req.params;
     const limit = parseInt(req.query.limit) || 10;
     const offset = parseInt(req.query.offset) || 0;
-    
+
     console.log(
       "Getting orders for user_id:",
       user_id,
@@ -148,12 +148,14 @@ export const getUserOrders = async (req, res) => {
       console.error("Database error:", error);
       return res.status(500).json({ success: false, error: error.message });
     }
-    
+
     console.log("Sending response with orders count:", data?.length || 0);
     return res.json({ success: true, orders: data });
   } catch (error) {
     console.error("Unexpected error in getUserOrders:", error);
-    return res.status(500).json({ success: false, error: "Internal server error" });
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
   }
 };
 
@@ -161,14 +163,14 @@ export const getUserOrders = async (req, res) => {
 export const getMyOrders = async (req, res) => {
   try {
     const { user } = req;
-    
+
     if (!user || !user.id) {
       return res.status(401).json({ success: false, error: "Unauthorized" });
     }
 
     const limit = parseInt(req.query.limit) || 10;
     const offset = parseInt(req.query.offset) || 0;
-    
+
     console.log(
       "Getting orders for authenticated user:",
       user.id,
@@ -191,12 +193,14 @@ export const getMyOrders = async (req, res) => {
       console.error("Database error:", error);
       return res.status(500).json({ success: false, error: error.message });
     }
-    
+
     console.log("Sending response with orders count:", data?.length || 0);
     return res.json({ success: true, orders: data || [] });
   } catch (error) {
     console.error("Unexpected error in getMyOrders:", error);
-    return res.status(500).json({ success: false, error: "Internal server error" });
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
   }
 };
 
@@ -382,11 +386,11 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
     // Check if this item qualifies for bulk pricing
     try {
       const { data: bulkSettings, error: bulkError } = await supabase
-        .from('bulk_product_settings')
-        .select('*')
-        .eq('product_id', productId)
-        .is('variant_id', null)
-        .eq('is_bulk_enabled', true)
+        .from("bulk_product_settings")
+        .select("*")
+        .eq("product_id", productId)
+        .is("variant_id", null)
+        .eq("is_bulk_enabled", true)
         .maybeSingle();
 
       if (!bulkError && bulkSettings && quantity >= bulkSettings.min_quantity) {
@@ -394,14 +398,16 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
         isBulkOrder = true;
         hasBulkOrder = true;
         finalPrice = bulkSettings.bulk_price;
-        bulkRange = bulkSettings.max_quantity 
+        bulkRange = bulkSettings.max_quantity
           ? `${bulkSettings.min_quantity}-${bulkSettings.max_quantity}`
           : `${bulkSettings.min_quantity}+`;
-        
-        console.log(`Bulk pricing applied for product ${productId}: ${quantity} units at ₹${finalPrice} (was ₹${originalPrice})`);
+
+        console.log(
+          `Bulk pricing applied for product ${productId}: ${quantity} units at ₹${finalPrice} (was ₹${originalPrice})`
+        );
       }
     } catch (bulkCheckError) {
-      console.error('Error checking bulk settings:', bulkCheckError);
+      console.error("Error checking bulk settings:", bulkCheckError);
       // Continue with regular pricing if bulk check fails
     }
 
@@ -419,9 +425,9 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
   // Update order with bulk order flag if any item is bulk
   if (hasBulkOrder) {
     await supabase
-      .from('orders')
+      .from("orders")
       .update({ is_bulk_order: true })
-      .eq('id', order.id);
+      .eq("id", order.id);
   }
 
   const { error: itemsError } = await supabase
@@ -443,47 +449,57 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       // 1. Reduce from warehouse stock (product_warehouse_stock table)
       // Find warehouse with available stock for this product
       const { data: warehouseStock, error: warehouseError } = await supabase
-        .from('product_warehouse_stock')
-        .select('*')
-        .eq('product_id', productId)
-        .gt('stock_quantity', 0)
-        .order('stock_quantity', { ascending: false })
+        .from("product_warehouse_stock")
+        .select("*")
+        .eq("product_id", productId)
+        .gt("stock_quantity", 0)
+        .order("stock_quantity", { ascending: false })
         .limit(1)
         .single();
 
       if (!warehouseError && warehouseStock) {
-        const newWarehouseStock = Math.max(0, warehouseStock.stock_quantity - quantity);
+        const newWarehouseStock = Math.max(
+          0,
+          warehouseStock.stock_quantity - quantity
+        );
         await supabase
-          .from('product_warehouse_stock')
+          .from("product_warehouse_stock")
           .update({ stock_quantity: newWarehouseStock })
-          .eq('id', warehouseStock.id);
-        
-        console.log(`Reduced warehouse stock for product ${productId}: ${quantity} units from warehouse ${warehouseStock.warehouse_id}`);
+          .eq("id", warehouseStock.id);
+
+        console.log(
+          `Reduced warehouse stock for product ${productId}: ${quantity} units from warehouse ${warehouseStock.warehouse_id}`
+        );
       }
 
       // 2. Reduce from products table total stock
       const { data: product, error: productError } = await supabase
-        .from('products')
-        .select('stock_quantity, stock')
-        .eq('id', productId)
+        .from("products")
+        .select("stock_quantity, stock")
+        .eq("id", productId)
         .single();
 
       if (!productError && product) {
         const currentStock = product.stock_quantity || product.stock || 0;
         const newStock = Math.max(0, currentStock - quantity);
-        
+
         await supabase
-          .from('products')
-          .update({ 
+          .from("products")
+          .update({
             stock_quantity: newStock,
-            stock: newStock  // Update both fields for compatibility
+            stock: newStock, // Update both fields for compatibility
           })
-          .eq('id', productId);
-        
-        console.log(`Reduced product stock for ${productId}: ${currentStock} -> ${newStock}`);
+          .eq("id", productId);
+
+        console.log(
+          `Reduced product stock for ${productId}: ${currentStock} -> ${newStock}`
+        );
       }
     } catch (stockError) {
-      console.error(`Error reducing stock for product ${productId}:`, stockError);
+      console.error(
+        `Error reducing stock for product ${productId}:`,
+        stockError
+      );
       // Continue with other products even if one fails
     }
   }

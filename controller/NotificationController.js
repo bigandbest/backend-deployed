@@ -77,10 +77,10 @@ export async function getUserNotifications(req, res) {
       .order("created_at", { ascending: false });
 
     // If user_id column doesn't exist, try fallback approach
-    if (userError && userError.code === '42703') {
+    if (userError && userError.code === "42703") {
       console.log("Fallback: Getting all notifications and filtering");
       console.log("Fallback error:", userError);
-      
+
       const { data: allNotifications, error: fallbackError } = await supabase
         .from("notifications")
         .select("*")
@@ -89,29 +89,39 @@ export async function getUserNotifications(req, res) {
 
       if (fallbackError) {
         console.error("Fallback error:", fallbackError);
-        return res.status(500).json({ success: false, message: fallbackError.message });
+        return res
+          .status(500)
+          .json({ success: false, message: fallbackError.message });
       }
 
       // Filter by user pattern in description
-      userNotifications = (allNotifications || []).filter(notification => {
+      userNotifications = (allNotifications || []).filter((notification) => {
         const userPattern = new RegExp(`\\[USER:${user_id}\\]`);
-        return userPattern.test(notification.description) || !notification.user_id;
+        return (
+          userPattern.test(notification.description) || !notification.user_id
+        );
       });
     } else if (userError) {
       console.error("Database error:", userError);
-      return res.status(500).json({ success: false, message: userError.message });
+      return res
+        .status(500)
+        .json({ success: false, message: userError.message });
     }
 
     // Clean up descriptions and apply filters
-    let cleanedNotifications = (userNotifications || []).map((notification) => ({
-      ...notification,
-      description: notification.description?.replace(/\[USER:[^\]]+\]\s*/, "") || notification.description,
-      is_read: notification.is_read || false // Ensure is_read has a default value
-    }));
+    let cleanedNotifications = (userNotifications || []).map(
+      (notification) => ({
+        ...notification,
+        description:
+          notification.description?.replace(/\[USER:[^\]]+\]\s*/, "") ||
+          notification.description,
+        is_read: notification.is_read || false, // Ensure is_read has a default value
+      })
+    );
 
     // Apply unread filter if requested
     if (unread_only === "true") {
-      cleanedNotifications = cleanedNotifications.filter(n => !n.is_read);
+      cleanedNotifications = cleanedNotifications.filter((n) => !n.is_read);
     }
 
     // Limit results
@@ -144,15 +154,17 @@ export async function markNotificationRead(req, res) {
 
     if (checkError) {
       console.error("Error checking notification:", checkError);
-      return res.status(404).json({ success: false, message: "Notification not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Notification not found" });
     }
 
     // Update the notification
     const { data, error } = await supabase
       .from("notifications")
-      .update({ 
+      .update({
         is_read: true,
-        read_at: new Date().toISOString()
+        read_at: new Date().toISOString(),
       })
       .eq("id", id)
       .select();
@@ -163,7 +175,12 @@ export async function markNotificationRead(req, res) {
     }
 
     if (!data || data.length === 0) {
-      return res.status(404).json({ success: false, message: "Notification not found or already updated" });
+      return res
+        .status(404)
+        .json({
+          success: false,
+          message: "Notification not found or already updated",
+        });
     }
 
     res.json({ success: true, notification: data[0] });
@@ -179,24 +196,28 @@ export async function markAllNotificationsRead(req, res) {
     const { user_id } = req.params;
 
     if (!user_id) {
-      return res.status(400).json({ success: false, message: "User ID is required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "User ID is required" });
     }
 
     // Try to update user-specific notifications first
     let { data, error } = await supabase
       .from("notifications")
-      .update({ 
+      .update({
         is_read: true,
-        read_at: new Date().toISOString()
+        read_at: new Date().toISOString(),
       })
       .eq("user_id", user_id)
       .eq("is_read", false)
       .select();
 
     // If user_id column doesn't exist, use fallback approach
-    if (error && error.code === '42703') {
-      console.log("Fallback: Getting all notifications and updating by pattern");
-      
+    if (error && error.code === "42703") {
+      console.log(
+        "Fallback: Getting all notifications and updating by pattern"
+      );
+
       // Get all unread notifications
       const { data: allNotifications, error: fetchError } = await supabase
         .from("notifications")
@@ -205,29 +226,35 @@ export async function markAllNotificationsRead(req, res) {
 
       if (fetchError) {
         console.error("Error fetching notifications:", fetchError);
-        return res.status(500).json({ success: false, message: fetchError.message });
+        return res
+          .status(500)
+          .json({ success: false, message: fetchError.message });
       }
 
       // Filter notifications for this user
-      const userNotificationIds = (allNotifications || []).filter(notification => {
-        const userPattern = new RegExp(`\\[USER:${user_id}\\]`);
-        return userPattern.test(notification.description);
-      }).map(n => n.id);
+      const userNotificationIds = (allNotifications || [])
+        .filter((notification) => {
+          const userPattern = new RegExp(`\\[USER:${user_id}\\]`);
+          return userPattern.test(notification.description);
+        })
+        .map((n) => n.id);
 
       if (userNotificationIds.length > 0) {
         // Update notifications by IDs
         const { data: updateData, error: updateError } = await supabase
           .from("notifications")
-          .update({ 
+          .update({
             is_read: true,
-            read_at: new Date().toISOString()
+            read_at: new Date().toISOString(),
           })
           .in("id", userNotificationIds)
           .select();
 
         if (updateError) {
           console.error("Error updating notifications:", updateError);
-          return res.status(500).json({ success: false, message: updateError.message });
+          return res
+            .status(500)
+            .json({ success: false, message: updateError.message });
         }
 
         data = updateData;
@@ -240,10 +267,10 @@ export async function markAllNotificationsRead(req, res) {
     }
 
     const updatedCount = data ? data.length : 0;
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       message: `${updatedCount} notifications marked as read`,
-      updated_count: updatedCount
+      updated_count: updatedCount,
     });
   } catch (err) {
     console.error("markAllNotificationsRead error:", err);
@@ -499,10 +526,10 @@ export async function getUnreadCount(req, res) {
       .gte("expiry_date", new Date().toISOString());
 
     // If user_id column doesn't exist, try fallback approach
-    if (error && error.code === '42703') {
+    if (error && error.code === "42703") {
       console.log("Fallback: Getting all notifications and filtering");
       console.log("Fallback error:", error);
-      
+
       const { data: allNotifications, error: fallbackError } = await supabase
         .from("notifications")
         .select("id, is_read, description")
@@ -514,9 +541,10 @@ export async function getUnreadCount(req, res) {
       }
 
       // Filter by user pattern in description and unread status
-      userNotifications = (allNotifications || []).filter(notification => {
+      userNotifications = (allNotifications || []).filter((notification) => {
         const userPattern = new RegExp(`\\[USER:${user_id}\\]`);
-        const isForUser = userPattern.test(notification.description) || !notification.user_id;
+        const isForUser =
+          userPattern.test(notification.description) || !notification.user_id;
         const isUnread = !notification.is_read;
         return isForUser && isUnread;
       });
