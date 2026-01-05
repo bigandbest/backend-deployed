@@ -67,7 +67,11 @@ INSERT INTO product_sections (section_key, section_name, is_active, display_orde
     ('instagram_reels', 'Instagram Reels', false, 27, 'InstagramReels', 'Social media integrated content'),
     ('blog', 'Blog', false, 28, 'Blog', 'Blog posts and articles section'),
     ('customer_reviews', 'Customer Reviews', true, 29, 'CustomerReviews', 'Customer testimonials and reviews'),
-    ('brand_partners', 'Brand Partners', true, 30, 'BrandPartners', 'Our brand partners and collaborations')
+    ('brand_partners', 'Brand Partners', true, 30, 'BrandPartners', 'Our brand partners and collaborations'),
+    ('dual_deals_left', 'Dual Deals - Best Selling (Left)', true, 31, 'DualDeals', 'Left panel of Dual Deals section - displays subcategories from mapped category'),
+    ('dual_deals_right', 'Dual Deals - Trending (Right)', true, 32, 'DualDeals', 'Right panel of Dual Deals section - displays subcategories from mapped category'),
+    ('discount_corner_left', 'Discount Corner - Left Panel', true, 33, 'DiscountCorner', 'Left panel of Discount Corner section - displays subcategories from mapped category'),
+    ('discount_corner_right', 'Discount Corner - Right Panel', true, 34, 'DiscountCorner', 'Right panel of Discount Corner section - displays subcategories from mapped category')
 ON CONFLICT (section_key) DO UPDATE SET
     section_name = EXCLUDED.section_name,
     component_name = EXCLUDED.component_name,
