@@ -89,8 +89,12 @@ export const parseExcel = (
           const cleanedRow = {
             zone_name: zone_name,
             pincode: pincode,
-            city: row[2] ? row[2].toString().trim() : null,
-            state: row[3] ? row[3].toString().trim() : null,
+            district: row[2] ? row[2].toString().trim() : null,
+            location_name: row[3] ? row[3].toString().trim() : null,
+            village: row[4] ? row[4].toString().trim() : null,
+            city: row[5] ? row[5].toString().trim() : null,
+            state: row[6] ? row[6].toString().trim() : null,
+            others: row[7] ? row[7].toString().trim() : null,
           };
 
           results.push(cleanedRow);
@@ -173,8 +177,12 @@ export const parseCSVText = (
           results.push({
             zone_name,
             pincode,
-            city: values[2] || null,
-            state: values[3] || null,
+            district: values[2] || null,
+            location_name: values[3] || null,
+            village: values[4] || null,
+            city: values[5] || null,
+            state: values[6] || null,
+            others: values[7] || null,
           });
         } catch (err) {
           errors.push({
@@ -319,26 +327,26 @@ export const validateFile = (file) => {
  */
 export const generateSampleExcel = () => {
   const sampleData = [
-    ["zone_name", "pincode", "city", "state"],
-    ["DelhiZone", "110001", "New Delhi", "Delhi"],
-    ["DelhiZone", "110002", "Delhi Cantt", "Delhi"],
-    ["DelhiZone", "110003", "New Delhi GPO", "Delhi"],
-    ["DelhiZone", "122001", "Gurgaon", "Haryana"],
-    ["DelhiZone", "122002", "Sector 14 Gurgaon", "Haryana"],
-    ["MumbaiZone", "400001", "Fort Mumbai", "Maharashtra"],
-    ["MumbaiZone", "400002", "Kalbadevi", "Maharashtra"],
-    ["MumbaiZone", "400003", "Mumbai GPO", "Maharashtra"],
-    ["MumbaiZone", "400004", "Girgaon", "Maharashtra"],
-    ["ChennaiZone", "600001", "Chennai GPO", "Tamil Nadu"],
-    ["ChennaiZone", "600002", "Anna Salai", "Tamil Nadu"],
-    ["ChennaiZone", "600003", "Egmore", "Tamil Nadu"],
-    ["BangaloreZone", "560001", "Bangalore GPO", "Karnataka"],
-    ["BangaloreZone", "560002", "Bangalore East", "Karnataka"],
-    ["BangaloreZone", "560003", "Malleswaram", "Karnataka"],
-    ["PuneZone", "411001", "Pune Camp", "Maharashtra"],
-    ["PuneZone", "411002", "Pune Cantt", "Maharashtra"],
-    ["HyderabadZone", "500001", "Hyderabad GPO", "Telangana"],
-    ["HyderabadZone", "500003", "Secunderabad", "Telangana"],
+    ["zone_name", "pincode", "district", "location_name", "village", "city", "state", "others"],
+    ["DelhiZone", "110001", "Central Delhi", "Connaught Place", "", "New Delhi", "Delhi", "Commercial Hub"],
+    ["DelhiZone", "110002", "South West Delhi", "Cantonment Area", "", "Delhi Cantt", "Delhi", "Military Area"],
+    ["DelhiZone", "110003", "Central Delhi", "GPO", "", "New Delhi GPO", "Delhi", "Government Office"],
+    ["DelhiZone", "122001", "Gurgaon", "Sector 1", "", "Gurgaon", "Haryana", "Residential"],
+    ["DelhiZone", "122002", "Gurgaon", "Sector 14", "", "Sector 14 Gurgaon", "Haryana", "Residential"],
+    ["MumbaiZone", "400001", "Mumbai City", "Fort Area", "", "Fort Mumbai", "Maharashtra", "Business District"],
+    ["MumbaiZone", "400002", "Mumbai City", "Kalbadevi", "", "Kalbadevi", "Maharashtra", "Market Area"],
+    ["MumbaiZone", "400003", "Mumbai City", "GPO", "", "Mumbai GPO", "Maharashtra", "Post Office"],
+    ["MumbaiZone", "400004", "Mumbai City", "Girgaon", "", "Girgaon", "Maharashtra", "Residential"],
+    ["ChennaiZone", "600001", "Chennai", "GPO", "", "Chennai GPO", "Tamil Nadu", "Central"],
+    ["ChennaiZone", "600002", "Chennai", "Anna Salai", "", "Anna Salai", "Tamil Nadu", "Commercial"],
+    ["ChennaiZone", "600003", "Chennai", "Egmore", "", "Egmore", "Tamil Nadu", "Residential"],
+    ["BangaloreZone", "560001", "Bangalore Urban", "GPO", "", "Bangalore GPO", "Karnataka", "Central"],
+    ["BangaloreZone", "560002", "Bangalore Urban", "East Zone", "", "Bangalore East", "Karnataka", "Industrial"],
+    ["BangaloreZone", "560003", "Bangalore Urban", "Malleswaram", "", "Malleswaram", "Karnataka", "Residential"],
+    ["PuneZone", "411001", "Pune", "Camp Area", "", "Pune Camp", "Maharashtra", "Commercial"],
+    ["PuneZone", "411002", "Pune", "Cantonment", "", "Pune Cantt", "Maharashtra", "Military"],
+    ["HyderabadZone", "500001", "Hyderabad", "GPO", "", "Hyderabad GPO", "Telangana", "Central"],
+    ["HyderabadZone", "500003", "Hyderabad", "Secunderabad", "", "Secunderabad", "Telangana", "Residential"],
   ];
 
   // Create a new workbook
@@ -351,8 +359,12 @@ export const generateSampleExcel = () => {
   worksheet["!cols"] = [
     { width: 15 }, // zone_name
     { width: 10 }, // pincode
+    { width: 18 }, // district
+    { width: 20 }, // location_name
+    { width: 15 }, // village
     { width: 20 }, // city
     { width: 15 }, // state
+    { width: 20 }, // others
   ];
 
   // Add worksheet to workbook
