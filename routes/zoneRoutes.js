@@ -6,6 +6,7 @@ import {
   getZoneById,
   createZone,
   updateZone,
+  toggleZoneActive,
   deleteZone,
   validatePincode,
   downloadSampleExcel,
@@ -61,6 +62,7 @@ router.get("/:zoneId/product-visibility", getZoneProductVisibility);
 router.get("/:id", getZoneById);
 router.post("/", createZone);
 router.put("/:id", updateZone);
+router.patch("/:id/toggle-active", toggleZoneActive);
 router.delete("/:id", deleteZone);
 
 // Delivery Validation

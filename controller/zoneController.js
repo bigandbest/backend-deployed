@@ -128,6 +128,10 @@ export const uploadZonePincodes = async (req, res) => {
                 .update({
                   city: pincodeData.city,
                   state: pincodeData.state,
+                  district: pincodeData.district,
+                  location_name: pincodeData.location_name,
+                  village: pincodeData.village,
+                  others: pincodeData.others,
                   is_active: true,
                 })
                 .eq("id", existingPincode.id);
@@ -148,6 +152,10 @@ export const uploadZonePincodes = async (req, res) => {
                   pincode: pincodeData.pincode,
                   city: pincodeData.city,
                   state: pincodeData.state,
+                  district: pincodeData.district,
+                  location_name: pincodeData.location_name,
+                  village: pincodeData.village,
+                  others: pincodeData.others,
                   is_active: true,
                 });
 
@@ -379,7 +387,7 @@ export const getZoneById = async (req, res) => {
  */
 export const createZone = async (req, res) => {
   try {
-    const { name, display_name, description, is_nationwide = false } = req.body;
+    const { name, display_name, description, is_nationwide = false, pincodes = [] } = req.body;
 
     if (!name || !display_name) {
       return res.status(400).json({
@@ -398,7 +406,8 @@ export const createZone = async (req, res) => {
       });
     }
 
-    const { data, error } = await supabase
+    // Create zone
+    const { data: zoneData, error: zoneError } = await supabase
       .from("delivery_zones")
       .insert({
         name,
@@ -410,16 +419,45 @@ export const createZone = async (req, res) => {
       .select()
       .single();
 
-    if (error) {
+    if (zoneError) {
       return res.status(400).json({
         success: false,
-        error: error.message,
+        error: zoneError.message,
       });
+    }
+
+    // Insert pincodes if provided and not nationwide
+    if (!is_nationwide && pincodes.length > 0) {
+      const pincodesToInsert = pincodes.map((pincode) => ({
+        zone_id: zoneData.id,
+        pincode: pincode.pincode,
+        city: pincode.city || null,
+        state: pincode.state || null,
+        district: pincode.district || null,
+        location_name: pincode.location_name || null,
+        village: pincode.village || null,
+        others: pincode.others || null,
+        is_active: true,
+      }));
+
+      const { error: pincodeError } = await supabase
+        .from("zone_pincodes")
+        .insert(pincodesToInsert);
+
+      if (pincodeError) {
+        // Rollback zone creation if pincode insertion fails
+        await supabase.from("delivery_zones").delete().eq("id", zoneData.id);
+        return res.status(400).json({
+          success: false,
+          error: "Failed to create pincodes",
+          details: pincodeError.message,
+        });
+      }
     }
 
     res.status(201).json({
       success: true,
-      zone: data,
+      zone: zoneData,
       message: "Zone created successfully",
     });
   } catch (error) {
@@ -438,7 +476,7 @@ export const createZone = async (req, res) => {
 export const updateZone = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, display_name, description, is_nationwide, is_active } =
+    const { name, display_name, description, is_nationwide, is_active, pincodes } =
       req.body;
 
     // Validate zone name if provided
@@ -481,6 +519,38 @@ export const updateZone = async (req, res) => {
       });
     }
 
+    // Handle pincode updates if provided
+    if (pincodes !== undefined) {
+      // If zone is nationwide or pincodes array is empty, delete all pincodes
+      if (data.is_nationwide || pincodes.length === 0) {
+        await supabase.from("zone_pincodes").delete().eq("zone_id", id);
+      } else {
+        // Delete all existing pincodes and insert new ones (simpler than diff logic)
+        await supabase.from("zone_pincodes").delete().eq("zone_id", id);
+
+        const pincodesToInsert = pincodes.map((pincode) => ({
+          zone_id: parseInt(id),
+          pincode: pincode.pincode,
+          city: pincode.city || null,
+          state: pincode.state || null,
+          district: pincode.district || null,
+          location_name: pincode.location_name || null,
+          village: pincode.village || null,
+          others: pincode.others || null,
+          is_active: true,
+        }));
+
+        const { error: pincodeError } = await supabase
+          .from("zone_pincodes")
+          .insert(pincodesToInsert);
+
+        if (pincodeError) {
+          console.error("Failed to update pincodes:", pincodeError);
+          // Don't fail the whole update if pincodes fail, just log it
+        }
+      }
+    }
+
     res.status(200).json({
       success: true,
       zone: data,
@@ -491,6 +561,65 @@ export const updateZone = async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Failed to update zone",
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * Toggle zone active status
+ */
+export const toggleZoneActive = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get current zone status
+    const { data: currentZone, error: fetchError } = await supabase
+      .from("delivery_zones")
+      .select("is_active, name")
+      .eq("id", id)
+      .single();
+
+    if (fetchError || !currentZone) {
+      return res.status(404).json({
+        success: false,
+        error: "Zone not found",
+      });
+    }
+
+    // Don't allow toggling nationwide zone
+    if (currentZone.name === "nationwide") {
+      return res.status(400).json({
+        success: false,
+        error: "Cannot deactivate nationwide zone",
+      });
+    }
+
+    // Toggle the status
+    const { data, error } = await supabase
+      .from("delivery_zones")
+      .update({ is_active: !currentZone.is_active })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        error: error.message,
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      zone: data,
+      message: `Zone ${data.is_active ? "activated" : "deactivated"} successfully`,
+    });
+  } catch (error) {
+    console.error("Toggle zone active error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to toggle zone status",
       message: error.message,
     });
   }
