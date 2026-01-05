@@ -300,8 +300,7 @@ export const checkCartAvailability = async (req, res) => {
 
             if (zonalStock) {
               const availableQty =
-                zonalStock.stock_quantity -
-                (zonalStock.reserved_quantity || 0);
+                zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0);
 
               if (availableQty >= quantity) {
                 availabilityInfo = {

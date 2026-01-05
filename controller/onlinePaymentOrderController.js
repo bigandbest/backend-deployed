@@ -3,8 +3,8 @@ import { supabase } from "../config/supabaseClient.js";
 // Create Online Payment Order (Razorpay, etc.) - No amount limit
 export const createOnlinePaymentOrder = async (req, res) => {
   try {
-    console.log('Online Payment Order Creation Request:', req.body);
-    
+    console.log("Online Payment Order Creation Request:", req.body);
+
     const {
       user_id,
       items,
@@ -20,17 +20,17 @@ export const createOnlinePaymentOrder = async (req, res) => {
 
     // Validate required fields
     if (!user_id || !items || !Array.isArray(items) || items.length === 0) {
-      console.log('Validation Error: Missing required fields');
+      console.log("Validation Error: Missing required fields");
       return res.status(400).json({
         success: false,
-        error: "Missing required fields: user_id, items"
+        error: "Missing required fields: user_id, items",
       });
     }
 
     if (!detailedAddress) {
       return res.status(400).json({
         success: false,
-        error: "Delivery address is required"
+        error: "Delivery address is required",
       });
     }
 
@@ -58,7 +58,7 @@ export const createOnlinePaymentOrder = async (req, res) => {
       total: parseFloat(total),
       address: addressString,
       payment_method,
-      status: 'confirmed', // Online payments are pre-paid
+      status: "confirmed", // Online payments are pre-paid
       shipping_house_number: detailedAddress.houseNumber,
       shipping_street_address: detailedAddress.streetAddress,
       shipping_suite_unit_floor: detailedAddress.suiteUnitFloor,
@@ -74,7 +74,7 @@ export const createOnlinePaymentOrder = async (req, res) => {
       razorpay_signature,
     };
 
-    console.log('Creating online payment order:', orderData);
+    console.log("Creating online payment order:", orderData);
 
     const { data: order, error: orderError } = await supabase
       .from("orders")
@@ -83,10 +83,10 @@ export const createOnlinePaymentOrder = async (req, res) => {
       .single();
 
     if (orderError) {
-      console.error('Order creation error:', orderError);
+      console.error("Order creation error:", orderError);
       return res.status(500).json({
         success: false,
-        error: orderError.message
+        error: orderError.message,
       });
     }
 
@@ -105,25 +105,31 @@ export const createOnlinePaymentOrder = async (req, res) => {
       // Check if this item qualifies for bulk pricing
       try {
         const { data: bulkSettings, error: bulkError } = await supabase
-          .from('bulk_product_settings')
-          .select('*')
-          .eq('product_id', productId)
-          .is('variant_id', null)
-          .eq('is_bulk_enabled', true)
+          .from("bulk_product_settings")
+          .select("*")
+          .eq("product_id", productId)
+          .is("variant_id", null)
+          .eq("is_bulk_enabled", true)
           .maybeSingle();
 
-        if (!bulkError && bulkSettings && quantity >= bulkSettings.min_quantity) {
+        if (
+          !bulkError &&
+          bulkSettings &&
+          quantity >= bulkSettings.min_quantity
+        ) {
           isBulkOrder = true;
           hasBulkOrder = true;
           finalPrice = bulkSettings.bulk_price;
-          bulkRange = bulkSettings.max_quantity 
+          bulkRange = bulkSettings.max_quantity
             ? `${bulkSettings.min_quantity}-${bulkSettings.max_quantity}`
             : `${bulkSettings.min_quantity}+`;
-          
-          console.log(`Bulk pricing applied for product ${productId}: ${quantity} units at ₹${finalPrice}`);
+
+          console.log(
+            `Bulk pricing applied for product ${productId}: ${quantity} units at ₹${finalPrice}`
+          );
         }
       } catch (bulkCheckError) {
-        console.error('Error checking bulk settings:', bulkCheckError);
+        console.error("Error checking bulk settings:", bulkCheckError);
       }
 
       orderItemsToInsert.push({
@@ -140,9 +146,9 @@ export const createOnlinePaymentOrder = async (req, res) => {
     // Update order with bulk flag if needed
     if (hasBulkOrder) {
       await supabase
-        .from('orders')
+        .from("orders")
         .update({ is_bulk_order: true })
-        .eq('id', order.id);
+        .eq("id", order.id);
     }
 
     const { error: itemsError } = await supabase
@@ -150,12 +156,12 @@ export const createOnlinePaymentOrder = async (req, res) => {
       .insert(orderItemsToInsert);
 
     if (itemsError) {
-      console.error('Order items error:', itemsError);
+      console.error("Order items error:", itemsError);
       // Rollback order
       await supabase.from("orders").delete().eq("id", order.id);
       return res.status(500).json({
         success: false,
-        error: itemsError.message
+        error: itemsError.message,
       });
     }
 
@@ -167,64 +173,74 @@ export const createOnlinePaymentOrder = async (req, res) => {
       try {
         // Reduce from warehouse stock
         const { data: warehouseStock, error: warehouseError } = await supabase
-          .from('product_warehouse_stock')
-          .select('*')
-          .eq('product_id', productId)
-          .gt('stock_quantity', 0)
-          .order('stock_quantity', { ascending: false })
+          .from("product_warehouse_stock")
+          .select("*")
+          .eq("product_id", productId)
+          .gt("stock_quantity", 0)
+          .order("stock_quantity", { ascending: false })
           .limit(1)
           .single();
 
         if (!warehouseError && warehouseStock) {
-          const newWarehouseStock = Math.max(0, warehouseStock.stock_quantity - quantity);
+          const newWarehouseStock = Math.max(
+            0,
+            warehouseStock.stock_quantity - quantity
+          );
           await supabase
-            .from('product_warehouse_stock')
+            .from("product_warehouse_stock")
             .update({ stock_quantity: newWarehouseStock })
-            .eq('id', warehouseStock.id);
-          
-          console.log(`Reduced warehouse stock for product ${productId}: ${quantity} units`);
+            .eq("id", warehouseStock.id);
+
+          console.log(
+            `Reduced warehouse stock for product ${productId}: ${quantity} units`
+          );
         }
 
         // Reduce from products table
         const { data: product, error: productError } = await supabase
-          .from('products')
-          .select('stock_quantity, stock')
-          .eq('id', productId)
+          .from("products")
+          .select("stock_quantity, stock")
+          .eq("id", productId)
           .single();
 
         if (!productError && product) {
           const currentStock = product.stock_quantity || product.stock || 0;
           const newStock = Math.max(0, currentStock - quantity);
-          
+
           await supabase
-            .from('products')
-            .update({ 
+            .from("products")
+            .update({
               stock_quantity: newStock,
-              stock: newStock
+              stock: newStock,
             })
-            .eq('id', productId);
-          
-          console.log(`Reduced product stock for ${productId}: ${currentStock} -> ${newStock}`);
+            .eq("id", productId);
+
+          console.log(
+            `Reduced product stock for ${productId}: ${currentStock} -> ${newStock}`
+          );
         }
       } catch (stockError) {
-        console.error(`Error reducing stock for product ${productId}:`, stockError);
+        console.error(
+          `Error reducing stock for product ${productId}:`,
+          stockError
+        );
       }
     }
 
     // Clear cart
     await supabase.from("cart_items").delete().eq("user_id", user_id);
 
-    console.log('Online payment order created successfully:', order.id);
+    console.log("Online payment order created successfully:", order.id);
     return res.status(201).json({
       success: true,
       message: "Order created successfully",
-      order: order
+      order: order,
     });
   } catch (error) {
-    console.error('Server Error:', error);
+    console.error("Server Error:", error);
     return res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 };

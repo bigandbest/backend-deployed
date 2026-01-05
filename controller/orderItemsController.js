@@ -1,5 +1,5 @@
 // controllers/orderItemController.js
-import {supabase} from "../config/supabaseClient.js";
+import { supabase } from "../config/supabaseClient.js";
 
 // Get all order items (admin access or for analytics)
 export const getAllOrderItems = async (req, res) => {
@@ -7,7 +7,8 @@ export const getAllOrderItems = async (req, res) => {
     .from("order_items")
     .select("*, products(*)");
 
-  if (error) return res.status(500).json({ success: false, error: error.message });
+  if (error)
+    return res.status(500).json({ success: false, error: error.message });
   return res.json({ success: true, orderItems: data });
 };
 
@@ -20,7 +21,8 @@ export const getOrderItemsByOrderId = async (req, res) => {
     .select("*, products(*)")
     .eq("order_id", order_id);
 
-  if (error) return res.status(500).json({ success: false, error: error.message });
+  if (error)
+    return res.status(500).json({ success: false, error: error.message });
   return res.json({ success: true, items: data });
 };
 
@@ -33,7 +35,8 @@ export const getOrderItemsByProductId = async (req, res) => {
     .select("*, orders(user_id, created_at)")
     .eq("product_id", product_id);
 
-  if (error) return res.status(500).json({ success: false, error: error.message });
+  if (error)
+    return res.status(500).json({ success: false, error: error.message });
   return res.json({ success: true, items: data });
 };
 
@@ -46,6 +49,10 @@ export const deleteOrderItemsByOrderId = async (req, res) => {
     .delete()
     .eq("order_id", order_id);
 
-  if (error) return res.status(500).json({ success: false, error: error.message });
-  return res.json({ success: true, message: "Order items deleted successfully" });
+  if (error)
+    return res.status(500).json({ success: false, error: error.message });
+  return res.json({
+    success: true,
+    message: "Order items deleted successfully",
+  });
 };
