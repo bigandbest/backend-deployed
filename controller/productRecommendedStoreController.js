@@ -64,21 +64,180 @@ export const getRecommendedStoresForProduct = async (req, res) => {
   }
 };
 
-// 4️⃣ Get all products in a Recommended Store
+// 4️⃣ Get all products in a Recommended Store with filters
 export const getProductsForRecommendedStore = async (req, res) => {
   try {
     const { recommended_store_id } = req.params;
+    const {
+      minPrice,
+      maxPrice,
+      categories,
+      brands,
+      sortBy = 'none'
+    } = req.query;
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('product_recommended_store')
-      .select('product_id, products (id, name, price, rating, image, category)')
+      .select(`
+        product_id,
+        products (
+          id,
+          name,
+          description,
+          price,
+          old_price,
+          discount,
+          rating,
+          review_count,
+          image,
+          images,
+          video,
+          category,
+          subcategory_id,
+          group_id,
+          brand_name,
+          stock,
+          stock_quantity,
+          in_stock,
+          active,
+          popular,
+          featured,
+          shipping_amount,
+          specifications,
+          uom,
+          uom_value,
+          uom_unit,
+          delivery_type,
+          created_at,
+          product_variants (
+            id,
+            variant_name,
+            variant_price,
+            variant_old_price,
+            variant_discount,
+            variant_stock,
+            variant_weight,
+            variant_unit,
+            variant_image,
+            is_default,
+            active
+          )
+        )
+      `)
       .eq('recommended_store_id', recommended_store_id);
 
-    if (error) return res.status(500).json({ error: error.message });
+    const { data, error } = await query;
 
-    res.status(200).json(data);
+    if (error) {
+      console.error('Error fetching products for store:', error);
+      return res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+
+    if (!data || data.length === 0) {
+      return res.status(200).json({
+        success: true,
+        products: [],
+        total: 0
+      });
+    }
+
+    // Transform the data to match frontend expectations
+    let transformedProducts = data
+      .filter(item => item.products && item.products.active)
+      .map(item => {
+        const product = item.products;
+        const activeVariants = (product.product_variants || []).filter(v => v.active !== false);
+
+        return {
+          id: product.id,
+          name: product.name,
+          description: product.description,
+          price: product.price,
+          oldPrice: product.old_price,
+          rating: product.rating || 4.0,
+          reviews: product.review_count || 0,
+          discount: product.discount || 0,
+          image: product.image,
+          images: product.images || [],
+          video: product.video,
+          inStock: (product.stock_quantity || product.stock || 0) > 0,
+          stock: product.stock_quantity || product.stock || 0,
+          popular: product.popular,
+          featured: product.featured,
+          category: product.category,
+          subcategory_id: product.subcategory_id,
+          group_id: product.group_id,
+          weight: product.uom || `${product.uom_value || 1} ${product.uom_unit || 'kg'}`,
+          brand: product.brand_name || 'BigandBest',
+          shipping_amount: product.shipping_amount || 0,
+          specifications: product.specifications,
+          delivery_type: product.delivery_type,
+          created_at: product.created_at,
+          hasVariants: activeVariants.length > 0,
+          variants: activeVariants,
+          defaultVariant: activeVariants.find(v => v.is_default === true) || null,
+        };
+      });
+
+    // Apply filters
+    if (minPrice || maxPrice) {
+      const min = parseFloat(minPrice) || 0;
+      const max = parseFloat(maxPrice) || Infinity;
+      transformedProducts = transformedProducts.filter(p => {
+        const price = p.price || p.oldPrice;
+        return price >= min && price <= max;
+      });
+    }
+
+    if (categories) {
+      const categoryList = categories.split(',');
+      transformedProducts = transformedProducts.filter(p =>
+        categoryList.includes(p.category)
+      );
+    }
+
+    if (brands) {
+      const brandList = brands.split(',');
+      transformedProducts = transformedProducts.filter(p =>
+        brandList.includes(p.brand)
+      );
+    }
+
+    // Apply sorting
+    switch (sortBy) {
+      case 'lowest_price':
+        transformedProducts.sort((a, b) => (a.price || a.oldPrice) - (b.price || b.oldPrice));
+        break;
+      case 'highest_price':
+        transformedProducts.sort((a, b) => (b.price || b.oldPrice) - (a.price || a.oldPrice));
+        break;
+      case 'highest_rating':
+        transformedProducts.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+        break;
+      case 'most_reviews':
+        transformedProducts.sort((a, b) => (b.reviews || 0) - (a.reviews || 0));
+        break;
+      case 'newest':
+        transformedProducts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        break;
+      default:
+        break;
+    }
+
+    res.status(200).json({
+      success: true,
+      products: transformedProducts,
+      total: transformedProducts.length
+    });
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    console.error('Server error in getProductsForRecommendedStore:', err);
+    res.status(500).json({
+      success: false,
+      error: 'Server error'
+    });
   }
 };
 
