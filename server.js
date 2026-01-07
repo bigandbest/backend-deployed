@@ -80,6 +80,7 @@ import adminWalletRoutes from "./routes/adminWalletRoutes.js";
 import productAvailabilityRoutes from "./routes/productAvailabilityRoutes.js";
 import userAddressRoutes from "./routes/userAddressRoutes.js";
 import reviewRoutes from "./routes/reviewRoutes.js";
+import customerTestimonialRoutes from "./routes/customerTestimonialRoutes.js";
 import wishlistRoutes from "./routes/wishlistRoutes.js";
 import enquiryMessagesRoutes from "./routes/enquiryMessagesRoutes.js";
 import bidRoutes from "./routes/bidRoutes.js";
@@ -224,6 +225,7 @@ const createApp = () => {
   app.use("/api/product-availability", productAvailabilityRoutes);
   app.use("/api/user/addresses", userAddressRoutes);
   app.use("/api/reviews", reviewRoutes);
+  app.use("/api/customer-testimonials", customerTestimonialRoutes);
   app.use("/api/wishlist", wishlistRoutes);
   app.use("/api/enquiry-messages", enquiryMessagesRoutes);
   app.use("/api/bids", bidRoutes);
