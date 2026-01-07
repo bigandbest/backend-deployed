@@ -15,6 +15,7 @@ import {
   getProductVariants,
   getProductsByCategoryWithDiscount,
   getProductsBySubcategoryWithDiscount,
+  getProductsByBrand,
 } from "../controller/productController.js";
 import { getProductBulkSettings } from "../controller/bulkProductController.js";
 import { getProductVisibilityMatrix } from "../controller/productWarehouseController.js";
@@ -35,6 +36,7 @@ router.get("/subcategory/:subcategoryId/discount", getProductsBySubcategoryWithD
 router.get("/category/:category", getProductsByCategory);
 router.get("/subcategory/:subcategoryId", getProductsBySubcategory);
 router.get("/group/:groupId", getProductsByGroup);
+router.get("/brand/:brandId", getProductsByBrand);
 router.get("/:productId/visibility", getProductVisibilityMatrix);
 router.get("/:productId/variants", getProductVariants);
 router.get("/:productId/bulk-settings", getProductBulkSettings);

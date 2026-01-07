@@ -73,18 +73,66 @@ export const getProductsForDailyDeal = async (req, res) => {
   try {
     const { daily_deal_id } = req.params;
 
+    // Fetch the daily deal info
+    const { data: dealData, error: dealError } = await supabase
+      .from("daily_deals")
+      .select("id, title, discount, image_url")
+      .eq("id", daily_deal_id)
+      .single();
+
+    if (dealError) {
+      return res.status(404).json({
+        success: false,
+        error: "Daily deal not found"
+      });
+    }
+
+    // Fetch products for this deal
     const { data, error } = await supabase
       .from("daily_deals_product")
       .select(
-        "product_id, products (id, name, price, rating, image, category, uom, discount)"
+        "product_id, products (id, name, price, rating, image, category, uom, discount, old_price, stock, brand_name, description)"
       )
       .eq("daily_deal_id", daily_deal_id);
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) return res.status(500).json({
+      success: false,
+      error: error.message
+    });
 
-    res.status(200).json(data);
+    // Transform the data to match expected format
+    const products = data.map(item => ({
+      id: item.products.id,
+      name: item.products.name,
+      price: item.products.price,
+      oldPrice: item.products.old_price,
+      rating: item.products.rating || 4.0,
+      discount: item.products.discount || 0,
+      image: item.products.image,
+      category: item.products.category,
+      uom: item.products.uom,
+      stock: item.products.stock || 0,
+      inStock: (item.products.stock || 0) > 0,
+      brand: item.products.brand_name || "BigandBest",
+      description: item.products.description,
+    }));
+
+    res.status(200).json({
+      success: true,
+      dailyDeal: {
+        id: dealData.id,
+        title: dealData.title,
+        discount: dealData.discount,
+        image_url: dealData.image_url,
+      },
+      products: products,
+      total: products.length,
+    });
   } catch (err) {
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({
+      success: false,
+      error: "Server error"
+    });
   }
 };
 
