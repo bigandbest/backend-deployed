@@ -1645,3 +1645,93 @@ export const getProductsBySubcategoryWithDiscount = async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
+// Get products by brand
+export const getProductsByBrand = async (req, res) => {
+  try {
+    const { brandId } = req.params;
+
+    // First, get the brand name from the brand table
+    const { data: brandData, error: brandError } = await supabase
+      .from("brand")
+      .select("id, name")
+      .eq("id", brandId)
+      .single();
+
+    if (brandError || !brandData) {
+      console.error("Brand lookup error:", brandError);
+      return res.status(404).json({
+        success: false,
+        error: "Brand not found"
+      });
+    }
+
+    // Now query products by brand_name
+    const { data, error } = await supabase
+      .from("products")
+      .select(
+        `
+        *,
+        categories!products_category_id_fkey(
+          id,
+          name,
+          description,
+          image_url
+        ),
+        ${VARIANT_JOIN}
+      `
+      )
+      .eq("active", true)
+      .eq("brand_name", brandData.name);
+
+    if (error) {
+      console.error("Supabase error:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    const transformedProducts = data.map((product) => ({
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      oldPrice: product.old_price,
+      rating: product.rating || 4.0,
+      reviews: product.review_count || 0,
+      discount: product.discount || 0,
+      image: product.image,
+      images: product.images,
+      inStock: (product.stock || 0) > 0,
+      stock: product.stock || 0,
+      popular: product.popular,
+      featured: product.featured,
+      category: product.category,
+      category_info: product.categories,
+      subcategory_id: product.subcategory_id,
+      group_id: product.group_id,
+      uom: product.uom,
+      brand_name: product.brand_name,
+      shipping_amount: product.shipping_amount || 0,
+      weight:
+        product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
+      brand: product.brand_name || "BigandBest",
+      created_at: product.created_at,
+      hasVariants: product.product_variants?.length > 0,
+      variants: product.product_variants || [],
+      defaultVariant: product.product_variants?.find(v => v.is_default === true) || null,
+    }));
+
+    res.status(200).json({
+      success: true,
+      products: transformedProducts,
+      total: transformedProducts.length,
+      brand: {
+        id: brandData.id,
+        name: brandData.name
+      }
+    });
+  } catch (error) {
+    console.error("Server error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
