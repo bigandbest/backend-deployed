@@ -71,7 +71,9 @@ INSERT INTO product_sections (section_key, section_name, is_active, display_orde
     ('dual_deals_left', 'Dual Deals - Best Selling (Left)', true, 31, 'DualDeals', 'Left panel of Dual Deals section - displays subcategories from mapped category'),
     ('dual_deals_right', 'Dual Deals - Trending (Right)', true, 32, 'DualDeals', 'Right panel of Dual Deals section - displays subcategories from mapped category'),
     ('discount_corner_left', 'Discount Corner - Left Panel', true, 33, 'DiscountCorner', 'Left panel of Discount Corner section - displays subcategories from mapped category'),
-    ('discount_corner_right', 'Discount Corner - Right Panel', true, 34, 'DiscountCorner', 'Right panel of Discount Corner section - displays subcategories from mapped category')
+    ('discount_corner_right', 'Discount Corner - Right Panel', true, 34, 'DiscountCorner', 'Right panel of Discount Corner section - displays subcategories from mapped category'),
+    ('bigbestmart_deals', 'BigBestMart Deals', true, 35, 'BigBestMartDeals', 'Premium products at unbeatable prices - Limited time offers'),
+    ('new_arrivals', 'New Arrivals', true, 36, 'NewArrivals', 'Latest products and newest additions to our catalog')
 ON CONFLICT (section_key) DO UPDATE SET
     section_name = EXCLUDED.section_name,
     component_name = EXCLUDED.component_name,
