@@ -204,6 +204,122 @@ export const getMyOrders = async (req, res) => {
   }
 };
 
+/** Get complete order details by ID for authenticated user */
+export const getOrderDetails = async (req, res) => {
+  try {
+    const { user } = req;
+    const { orderId } = req.params;
+
+    if (!user || !user.id) {
+      return res.status(401).json({ success: false, error: "Unauthorized" });
+    }
+
+    if (!orderId) {
+      return res.status(400).json({ success: false, error: "Order ID required" });
+    }
+
+    // Fetch complete order details with all fields
+    const { data: order, error } = await supabase
+      .from("orders")
+      .select(`
+        *,
+        order_items(
+          id,
+          quantity,
+          price,
+          product_id,
+          is_bulk_order,
+          bulk_range,
+          original_price
+        )
+      `)
+      .eq("id", orderId)
+      .eq("user_id", user.id)
+      .single();
+
+    if (error) {
+      console.error("Database error fetching order details:", error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    if (!order) {
+      return res.status(404).json({ success: false, error: "Order not found" });
+    }
+
+    // Build tracking timeline
+    const timeline = [];
+    
+    if (order.created_at) {
+      timeline.push({
+        key: "placed",
+        title: "Order Placed",
+        timestamp: order.created_at,
+        completed: true
+      });
+    }
+
+    const status = order.status || "pending";
+    
+    if (["confirmed", "shipped", "delivered"].includes(status)) {
+      timeline.push({
+        key: "confirmed",
+        title: "Order Confirmed",
+        timestamp: order.updated_at || order.created_at,
+        completed: true
+      });
+    }
+
+    if (["shipped", "delivered"].includes(status)) {
+      timeline.push({
+        key: "shipped",
+        title: "Shipped",
+        timestamp: order.updated_at || order.created_at,
+        completed: true
+      });
+    }
+
+    if (status === "delivered") {
+      timeline.push({
+        key: "delivered",
+        title: "Delivered",
+        timestamp: order.updated_at || order.created_at,
+        completed: true
+      });
+    }
+
+    if (status === "cancelled") {
+      timeline.push({
+        key: "cancelled",
+        title: "Cancelled",
+        timestamp: order.updated_at || order.created_at,
+        completed: true
+      });
+    }
+
+    // Add pending steps
+    if (!["delivered", "cancelled"].includes(status)) {
+      if (!["confirmed", "shipped", "delivered"].includes(status)) {
+        timeline.push({ key: "confirmed", title: "Order Confirmed", completed: false });
+      }
+      if (!["shipped", "delivered"].includes(status)) {
+        timeline.push({ key: "shipped", title: "Shipped", completed: false });
+      }
+      timeline.push({ key: "delivered", title: "Delivered", completed: false });
+    }
+
+    return res.json({
+      success: true,
+      order: {
+        ...order,
+        timeline
+      }
+    });
+  } catch (error) {
+    console.error("Unexpected error in getOrderDetails:", error);
+    return res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
 /** Place order with a flat address string */
 export const placeOrder = async (req, res) => {
   const { user_id, items, subtotal, shipping, total, address, payment_method } =

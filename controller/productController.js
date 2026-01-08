@@ -272,6 +272,54 @@ export const getAllCategories = async (req, res) => {
   }
 };
 
+// Batch product lookup for cart/order pages
+export const getProductsCartData = async (req, res) => {
+  try {
+    const { product_ids } = req.body || {};
+
+    if (!product_ids || !Array.isArray(product_ids) || product_ids.length === 0) {
+      return res.status(200).json({ success: true, products: [] });
+    }
+
+    const { data, error } = await supabase
+      .from("products")
+      .select(`*, ${VARIANT_JOIN}`)
+      .in("id", product_ids)
+      .eq("active", true);
+
+    if (error) {
+      console.error("Supabase error in getProductsCartData:", error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    const transformed = data.map((product) => ({
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      oldPrice: product.old_price,
+      rating: product.rating || 4.0,
+      reviews: product.review_count || 0,
+      discount: product.discount || 0,
+      image: product.image,
+      images: product.images,
+      inStock: (product.stock_quantity || product.stock || 0) > 0,
+      stock: product.stock_quantity || product.stock || 0,
+      category: product.category,
+      brand: product.brand_name || "BigandBest",
+      shipping_amount: product.shipping_amount || 0,
+      created_at: product.created_at,
+      hasVariants: product.product_variants?.length > 0,
+      variants: product.product_variants || [],
+    }));
+
+    return res.status(200).json({ success: true, products: transformed });
+  } catch (error) {
+    console.error("getProductsCartData error:", error);
+    return res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
 // Get featured products
 export const getFeaturedProducts = async (req, res) => {
   try {

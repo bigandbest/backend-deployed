@@ -16,6 +16,8 @@ import {
   getProductsByCategoryWithDiscount,
   getProductsBySubcategoryWithDiscount,
   getProductsByBrand,
+  // Batch product endpoint for cart / orders
+  getProductsCartData,
 } from "../controller/productController.js";
 import { getProductBulkSettings } from "../controller/bulkProductController.js";
 import { getProductVisibilityMatrix } from "../controller/productWarehouseController.js";
@@ -28,6 +30,9 @@ router.get("/featured", getFeaturedProducts);
 router.get("/filter", getProductsWithFilters);
 router.get("/quick-picks", getQuickPicks);
 router.get("/delivery-zone", getProductsByDeliveryZone);
+
+// Batch lookup for product data used by cart/order UIs
+router.post("/cart-data", getProductsCartData);
 
 // Discount-based routes (must come before generic routes)
 router.get("/category/:categoryId/discount", getProductsByCategoryWithDiscount);
