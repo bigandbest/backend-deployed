@@ -16,6 +16,7 @@ import geoAddressRoute from "./routes/geoAddressRoute.js";
 import warehouseRoute from "./routes/warehouseRoute.js";
 import productWarehouseRoute from "./routes/productWarehouseRoutes.js";
 import productsRoute from "./routes/productRoutes.js";
+import { getProductsCartData } from "./controller/productController.js";
 import locationRoute from "./routes/locationRoutes.js";
 import cartRoutes from "./routes/cartRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
@@ -147,6 +148,9 @@ const createApp = () => {
   app.use("/api/warehouses", warehouseRoute);
   app.use("/api/productwarehouse", productWarehouseRoute);
   app.use("/api/productsroute", productsRoute);
+
+  // Backwards-compatible batch endpoint used by older clients
+  app.post("/api/products/cart-data", getProductsCartData);
   app.use("/api/locationsroute", locationRoute);
   app.use("/api/cart", cartRoutes);
   app.use("/api/order", orderRoutes);

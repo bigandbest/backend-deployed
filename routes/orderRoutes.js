@@ -6,6 +6,7 @@ import {
   placeOrderWithDetailedAddress,
   getUserOrders,
   getMyOrders,
+  getOrderDetails,
   updateOrderStatus,
   cancelOrder,
   deleteOrderById,
@@ -78,6 +79,9 @@ router.get("/status/:id", async (req, res) => {
 
 // Authenticated endpoint for getting user's own orders
 router.get("/my-orders", authenticateUser, getMyOrders);
+
+// Get complete order details by ID for authenticated user
+router.get("/details/:orderId", authenticateUser, getOrderDetails);
 
 // Admin/legacy endpoint with user_id parameter
 router.get("/user/:user_id", getUserOrders);
