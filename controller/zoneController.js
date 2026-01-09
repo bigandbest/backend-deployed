@@ -437,7 +437,7 @@ export const createZone = async (req, res) => {
         location_name: pincode.location_name || null,
         village: pincode.village || null,
         others: pincode.others || null,
-        is_active: true,
+        is_active: pincode.is_active !== undefined ? pincode.is_active : true,
       }));
 
       const { error: pincodeError } = await supabase
@@ -537,7 +537,7 @@ export const updateZone = async (req, res) => {
           location_name: pincode.location_name || null,
           village: pincode.village || null,
           others: pincode.others || null,
-          is_active: true,
+          is_active: pincode.is_active !== undefined ? pincode.is_active : true,
         }));
 
         const { error: pincodeError } = await supabase
