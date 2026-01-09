@@ -529,7 +529,7 @@ export const updateZone = async (req, res) => {
         await supabase.from("zone_pincodes").delete().eq("zone_id", id);
 
         const pincodesToInsert = pincodes.map((pincode) => ({
-          zone_id: parseInt(id),
+          zone_id: data.id,
           pincode: pincode.pincode,
           city: pincode.city || null,
           state: pincode.state || null,
