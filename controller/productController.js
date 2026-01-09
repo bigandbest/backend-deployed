@@ -383,6 +383,134 @@ export const getFeaturedProducts = async (req, res) => {
   }
 };
 
+// Get Everyday Essentials
+export const getEverydayEssentials = async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("products")
+      .select(
+        `
+        *,
+        categories!products_category_id_fkey(
+          id,
+          name,
+          description,
+          image_url
+        ),
+        ${VARIANT_JOIN}
+      `
+      )
+      .eq("active", true)
+      // For now, fetching random or specific products. 
+      // You might want to add a specific flag 'everyday_essential' to products table later.
+      // Or filter by specific categories like "Groceries", "Household", etc.
+      .limit(20);
+
+    if (error) {
+      console.error("Supabase error:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    const transformedProducts = data.map((product) => ({
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      oldPrice: product.old_price,
+      rating: product.rating || 4.0,
+      reviews: product.review_count || 0,
+      discount: product.discount || 0,
+      image: product.image,
+      images: product.images,
+      inStock: (product.stock || 0) > 0,
+      stock: product.stock || 0,
+      popular: product.popular,
+      featured: product.featured,
+      category: product.category,
+      category_info: product.categories,
+      uom: product.uom,
+      brand_name: product.brand_name,
+      shipping_amount: product.shipping_amount || 0,
+      created_at: product.created_at,
+      hasVariants: product.product_variants?.length > 0,
+      variants: product.product_variants || [],
+      defaultVariant: product.product_variants?.find(v => v.is_default === true) || null,
+    }));
+
+    res.status(200).json({
+      success: true,
+      products: transformedProducts,
+      total: transformedProducts.length,
+    });
+  } catch (error) {
+    console.error("Server error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Get Top Products
+export const getTopProducts = async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("products")
+      .select(
+        `
+        *,
+        categories!products_category_id_fkey(
+          id,
+          name,
+          description,
+          image_url
+        ),
+        ${VARIANT_JOIN}
+      `
+      )
+      .eq("active", true)
+      .eq("top_sale", true) // Assuming 'top_sale' flag is used for top products
+      .limit(20);
+
+    if (error) {
+      console.error("Supabase error:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    const transformedProducts = data.map((product) => ({
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      oldPrice: product.old_price,
+      rating: product.rating || 4.0,
+      reviews: product.review_count || 0,
+      discount: product.discount || 0,
+      image: product.image,
+      images: product.images,
+      inStock: (product.stock || 0) > 0,
+      stock: product.stock || 0,
+      popular: product.popular,
+      featured: product.featured,
+      category: product.category,
+      category_info: product.categories,
+      uom: product.uom,
+      brand_name: product.brand_name,
+      shipping_amount: product.shipping_amount || 0,
+      created_at: product.created_at,
+      hasVariants: product.product_variants?.length > 0,
+      variants: product.product_variants || [],
+      defaultVariant: product.product_variants?.find(v => v.is_default === true) || null,
+    }));
+
+    res.status(200).json({
+      success: true,
+      products: transformedProducts,
+      total: transformedProducts.length,
+    });
+  } catch (error) {
+    console.error("Server error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
 // Get products with pagination and filters
 export const getProductsWithFilters = async (req, res) => {
   try {
