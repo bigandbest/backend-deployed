@@ -45,6 +45,7 @@ INSERT INTO product_sections (section_key, section_name, is_active, display_orde
     ('daily_deals', 'Daily Deals', true, 5, 'DailyDeals', 'Special offers and deals updated daily'),
     ('shop_by_category', 'Shop By Category', true, 6, 'ShopByCategory', 'Browse products organized by categories'),
     ('promo_banner', 'Promo Banner', true, 7, 'PromoBanner', 'Promotional banners and advertisements'),
+    ('small_promo_cards', 'Small Promo Cards', true, 7, 'SmallPromoCards', 'Small promotional cards below the main banner'),
     ('price_zone', 'Price Zone', true, 8, 'PriceZone', 'Products organized by price ranges'),
     ('brand_vista', 'Brand Vista', true, 9, 'BrandVista', 'Showcase of different brands and their products'),
     ('dual_deals', 'Dual Deals', true, 10, 'DualDeals', 'Buy one get one and combo deals'),

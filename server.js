@@ -87,6 +87,7 @@ import enquiryMessagesRoutes from "./routes/enquiryMessagesRoutes.js";
 import bidRoutes from "./routes/bidRoutes.js";
 import searchRoutes from "./routes/searchRoutes.js";
 import sectionMappingRoutes from "./routes/sectionMappingRoutes.js";
+import smallPromoCardRoutes from "./routes/smallPromoCardRoutes.js";
 
 // Configuration
 const PORT = process.env.PORT || 8000;
@@ -199,6 +200,7 @@ const createApp = () => {
   app.use("/api/product-sections", productSectionRoutes);
   app.use("/api/promo-banner", promoBannerRoutes);
   app.use("/api/store-section-mappings", storeSectionMappingRoutes);
+  app.use("/api/small-promo-cards", smallPromoCardRoutes);
   app.use("/api/bulk-wholesale", bulkWholesaleRoutes);
 
   // COD Orders routes with logging middleware
