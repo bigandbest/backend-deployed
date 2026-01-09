@@ -41,7 +41,7 @@ export const addCategory = async (req, res) => {
         ...categoryData,
         image_url: imageUrl,
       }])
-      .select()
+      .select("id, name, icon, featured, description, image_url, active")
       .single();
 
     if (error) {
@@ -103,7 +103,7 @@ export const updateCategory = async (req, res) => {
         image_url: imageUrl,
       })
       .eq("id", id)
-      .select()
+      .select("id, name, icon, featured, description, image_url, active")
       .single();
 
     if (error) {
@@ -122,6 +122,105 @@ export const updateCategory = async (req, res) => {
   }
 };
 
+// Delete category
+export const deleteCategory = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const options = req.body || {};
+
+    // Check if category has products
+    const { data: products, error: productsError } = await supabase
+      .from("products")
+      .select("id")
+      .eq("category_id", id)
+      .limit(1);
+
+    if (productsError) {
+      console.error("Error checking products:", productsError);
+      return res.status(500).json({ success: false, error: productsError.message });
+    }
+
+    if (products && products.length > 0) {
+      if (options.forceDelete) {
+        // Force delete: delete all related products
+        const { error: deleteProductsError } = await supabase
+          .from("products")
+          .delete()
+          .eq("category_id", id);
+
+        if (deleteProductsError) {
+          console.error("Error deleting products:", deleteProductsError);
+          return res.status(500).json({
+            success: false,
+            error: "Failed to delete related products"
+          });
+        }
+      } else if (options.reassignProductsTo) {
+        // Reassign products to another category
+        const { error: reassignError } = await supabase
+          .from("products")
+          .update({ category_id: options.reassignProductsTo })
+          .eq("category_id", id);
+
+        if (reassignError) {
+          console.error("Error reassigning products:", reassignError);
+          return res.status(500).json({
+            success: false,
+            error: "Failed to reassign products"
+          });
+        }
+      } else {
+        // Return error indicating category has products
+        return res.status(400).json({
+          success: false,
+          hasProducts: true,
+          error: "Category has products. Please reassign or force delete.",
+        });
+      }
+    }
+
+    // Delete subcategories and groups
+    const { data: subcategories } = await supabase
+      .from("subcategories")
+      .select("id")
+      .eq("category_id", id);
+
+    if (subcategories && subcategories.length > 0) {
+      const subcategoryIds = subcategories.map(sub => sub.id);
+
+      // Delete groups
+      await supabase
+        .from("groups")
+        .delete()
+        .in("subcategory_id", subcategoryIds);
+
+      // Delete subcategories
+      await supabase
+        .from("subcategories")
+        .delete()
+        .eq("category_id", id);
+    }
+
+    // Delete the category
+    const { error } = await supabase
+      .from("categories")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error("Error deleting category:", error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Category deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error in deleteCategory:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
 
 // Get all subcategories with their category info
 export const getAllSubcategories = async (req, res) => {
@@ -183,6 +282,160 @@ export const getSubcategoriesByCategory = async (req, res) => {
   } catch (error) {
     console.error("Server error in getSubcategoriesByCategory:", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Add new subcategory
+export const addSubcategory = async (req, res) => {
+  try {
+    const subcategoryData = req.body;
+    let imageUrl = subcategoryData.image_url;
+
+    // Handle image upload if file is provided
+    if (req.file) {
+      const fileExt = req.file.originalname.split(".").pop();
+      const fileName = `${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("subcategories")
+        .upload(fileName, req.file.buffer, {
+          contentType: req.file.mimetype,
+          upsert: true,
+        });
+
+      if (uploadError) {
+        console.error("Upload error:", uploadError);
+        return res.status(400).json({
+          success: false,
+          error: `Failed to upload image: ${uploadError.message}`,
+        });
+      }
+
+      const { data: urlData } = supabase.storage
+        .from("subcategories")
+        .getPublicUrl(fileName);
+
+      imageUrl = urlData.publicUrl;
+    }
+
+    const { data, error } = await supabase
+      .from("subcategories")
+      .insert([{
+        ...subcategoryData,
+        image_url: imageUrl,
+      }])
+      .select("id, name, icon, description, category_id, featured, active, sort_order, image_url")
+      .single();
+
+    if (error) {
+      console.error("Error adding subcategory:", error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    res.status(201).json({
+      success: true,
+      subcategory: data,
+      message: "Subcategory added successfully",
+    });
+  } catch (error) {
+    console.error("Error in addSubcategory:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+// Update subcategory
+export const updateSubcategory = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+    let imageUrl = updates.image_url;
+
+    // Handle image upload if file is provided
+    if (req.file) {
+      const fileExt = req.file.originalname.split(".").pop();
+      const fileName = `${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("subcategories")
+        .upload(fileName, req.file.buffer, {
+          contentType: req.file.mimetype,
+          upsert: true,
+        });
+
+      if (uploadError) {
+        console.error("Upload error:", uploadError);
+        return res.status(400).json({
+          success: false,
+          error: `Failed to upload image: ${uploadError.message}`,
+        });
+      }
+
+      const { data: urlData } = supabase.storage
+        .from("subcategories")
+        .getPublicUrl(fileName);
+
+      imageUrl = urlData.publicUrl;
+    }
+
+    const { data, error } = await supabase
+      .from("subcategories")
+      .update({
+        ...updates,
+        image_url: imageUrl,
+      })
+      .eq("id", id)
+      .select("id, name, icon, description, category_id, featured, active, sort_order, image_url")
+      .single();
+
+    if (error) {
+      console.error("Error updating subcategory:", error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    res.status(200).json({
+      success: true,
+      subcategory: data,
+      message: "Subcategory updated successfully",
+    });
+  } catch (error) {
+    console.error("Error in updateSubcategory:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+// Delete subcategory
+export const deleteSubcategory = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Delete related groups first
+    await supabase
+      .from("groups")
+      .delete()
+      .eq("subcategory_id", id);
+
+    // Delete the subcategory
+    const { error } = await supabase
+      .from("subcategories")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error("Error deleting subcategory:", error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Subcategory deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error in deleteSubcategory:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 };
 
@@ -252,6 +505,153 @@ export const getGroupsBySubcategory = async (req, res) => {
   } catch (error) {
     console.error("Server error in getGroupsBySubcategory:", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Add new group
+export const addGroup = async (req, res) => {
+  try {
+    const groupData = req.body;
+    let imageUrl = groupData.image_url;
+
+    // Handle image upload if file is provided
+    if (req.file) {
+      const fileExt = req.file.originalname.split(".").pop();
+      const fileName = `${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("groups")
+        .upload(fileName, req.file.buffer, {
+          contentType: req.file.mimetype,
+          upsert: true,
+        });
+
+      if (uploadError) {
+        console.error("Upload error:", uploadError);
+        return res.status(400).json({
+          success: false,
+          error: `Failed to upload image: ${uploadError.message}`,
+        });
+      }
+
+      const { data: urlData } = supabase.storage
+        .from("groups")
+        .getPublicUrl(fileName);
+
+      imageUrl = urlData.publicUrl;
+    }
+
+    const { data, error } = await supabase
+      .from("groups")
+      .insert([{
+        ...groupData,
+        image_url: imageUrl,
+      }])
+      .select("id, name, icon, description, subcategory_id, featured, active, sort_order, image_url")
+      .single();
+
+    if (error) {
+      console.error("Error adding group:", error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    res.status(201).json({
+      success: true,
+      group: data,
+      message: "Group added successfully",
+    });
+  } catch (error) {
+    console.error("Error in addGroup:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+// Update group
+export const updateGroup = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+    let imageUrl = updates.image_url;
+
+    // Handle image upload if file is provided
+    if (req.file) {
+      const fileExt = req.file.originalname.split(".").pop();
+      const fileName = `${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("groups")
+        .upload(fileName, req.file.buffer, {
+          contentType: req.file.mimetype,
+          upsert: true,
+        });
+
+      if (uploadError) {
+        console.error("Upload error:", uploadError);
+        return res.status(400).json({
+          success: false,
+          error: `Failed to upload image: ${uploadError.message}`,
+        });
+      }
+
+      const { data: urlData } = supabase.storage
+        .from("groups")
+        .getPublicUrl(fileName);
+
+      imageUrl = urlData.publicUrl;
+    }
+
+    const { data, error } = await supabase
+      .from("groups")
+      .update({
+        ...updates,
+        image_url: imageUrl,
+      })
+      .eq("id", id)
+      .select("id, name, icon, description, subcategory_id, featured, active, sort_order, image_url")
+      .single();
+
+    if (error) {
+      console.error("Error updating group:", error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    res.status(200).json({
+      success: true,
+      group: data,
+      message: "Group updated successfully",
+    });
+  } catch (error) {
+    console.error("Error in updateGroup:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+// Delete group
+export const deleteGroup = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { error } = await supabase
+      .from("groups")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error("Error deleting group:", error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Group deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error in deleteGroup:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 };
 
@@ -571,4 +971,3 @@ export const getCategoriesForSection = async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 };
-
