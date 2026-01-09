@@ -57,7 +57,7 @@ INSERT INTO product_sections (section_key, section_name, is_active, display_orde
     ('recommended_products', 'Recommended Products', true, 17, 'RecommendedProducts', 'AI-powered product recommendations'),
     ('special_offers', 'Special Offers', true, 18, 'SpecialOffers', 'Limited time special offers and promotions'),
     ('limited_edition', 'Limited Edition', true, 19, 'LimitedEdition', 'Exclusive limited edition products'),
-    ('top_products', 'Top Products', true, 20, 'TopProducts', 'Best-selling and top-rated products'),
+    ('top_products', 'Top Products', true, 20, 'TopProducts', 'Highly rated and best selling products'),
     ('weekly_deal', 'Weekly Deal', false, 21, 'WeeklyDeal', 'Weekly special deals and offers'),
     ('blog', 'Blog', false, 22, 'Blog', 'Blog posts and articles section'),
     ('customer_reviews', 'Customer Reviews', true, 23, 'CustomerReviews', 'Customer testimonials and reviews'),
@@ -67,7 +67,8 @@ INSERT INTO product_sections (section_key, section_name, is_active, display_orde
     ('discount_corner_left', 'Discount Corner - Left Panel', true, 27, 'DiscountCorner', 'Left panel of Discount Corner section - displays subcategories from mapped category'),
     ('discount_corner_right', 'Discount Corner - Right Panel', true, 28, 'DiscountCorner', 'Right panel of Discount Corner section - displays subcategories from mapped category'),
     ('bigbestmart_deals', 'BigBestMart Deals', true, 29, 'BigBestMartDeals', 'Premium products at unbeatable prices - Limited time offers'),
-    ('new_arrivals', 'New Arrivals', true, 30, 'NewArrivals', 'Latest products and newest additions to our catalog')
+    ('new_arrivals', 'New Arrivals', true, 30, 'NewArrivals', 'Latest products and newest additions to our catalog'),
+    ('everyday_essentials', 'Everyday Essentials', true, 31, 'EverydayEssentials', 'Daily essential products for your home')
 ON CONFLICT (section_key) DO UPDATE SET
     section_name = EXCLUDED.section_name,
     component_name = EXCLUDED.component_name,

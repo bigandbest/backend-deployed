@@ -18,6 +18,8 @@ import {
   getProductsByBrand,
   // Batch product endpoint for cart / orders
   getProductsCartData,
+  getEverydayEssentials,
+  getTopProducts,
 } from "../controller/productController.js";
 import { getProductBulkSettings } from "../controller/bulkProductController.js";
 import { getProductVisibilityMatrix } from "../controller/productWarehouseController.js";
@@ -28,6 +30,8 @@ router.get("/allproducts", getAllProducts);
 router.get("/categories", getAllCategories);
 router.get("/featured", getFeaturedProducts);
 router.get("/filter", getProductsWithFilters);
+router.get("/everyday-essentials", getEverydayEssentials);
+router.get("/top-products", getTopProducts);
 router.get("/quick-picks", getQuickPicks);
 router.get("/delivery-zone", getProductsByDeliveryZone);
 
