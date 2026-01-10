@@ -92,6 +92,7 @@ import partnerRoutes from "./routes/partnerRoutes.js";
 import certificationRoutes from "./routes/certificationRoutes.js";
 import aboutContentRoutes from "./routes/aboutContentRoutes.js";
 import contactRoutes from "./routes/contactRoutes.js";
+import teamMemberRoutes from "./routes/teamMemberRoutes.js";
 
 
 // Configuration
@@ -246,6 +247,7 @@ const createApp = () => {
   app.use("/api/certifications", certificationRoutes);
   app.use("/api/about-content", aboutContentRoutes);
   app.use("/api/contact", contactRoutes);
+  app.use("/api/team-members", teamMemberRoutes);
 
 
 
