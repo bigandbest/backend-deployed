@@ -88,6 +88,12 @@ import bidRoutes from "./routes/bidRoutes.js";
 import searchRoutes from "./routes/searchRoutes.js";
 import sectionMappingRoutes from "./routes/sectionMappingRoutes.js";
 import smallPromoCardRoutes from "./routes/smallPromoCardRoutes.js";
+import partnerRoutes from "./routes/partnerRoutes.js";
+import certificationRoutes from "./routes/certificationRoutes.js";
+import aboutContentRoutes from "./routes/aboutContentRoutes.js";
+import contactRoutes from "./routes/contactRoutes.js";
+import teamMemberRoutes from "./routes/teamMemberRoutes.js";
+
 
 // Configuration
 const PORT = process.env.PORT || 8000;
@@ -237,6 +243,13 @@ const createApp = () => {
   app.use("/api/bids", bidRoutes);
   app.use("/api/search", searchRoutes);
   app.use("/api/section-mappings", sectionMappingRoutes);
+  app.use("/api/partners", partnerRoutes);
+  app.use("/api/certifications", certificationRoutes);
+  app.use("/api/about-content", aboutContentRoutes);
+  app.use("/api/contact", contactRoutes);
+  app.use("/api/team-members", teamMemberRoutes);
+
+
 
   // Enhanced health check with cluster and system info
   app.get("/api/health", (req, res) => {
