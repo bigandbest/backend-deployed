@@ -93,6 +93,8 @@ import certificationRoutes from "./routes/certificationRoutes.js";
 import aboutContentRoutes from "./routes/aboutContentRoutes.js";
 import contactRoutes from "./routes/contactRoutes.js";
 import teamMemberRoutes from "./routes/teamMemberRoutes.js";
+import deliveryChargeRoutes from "./routes/deliveryChargeRoutes.js";
+import chargeSettingsRoutes from "./routes/chargeSettingsRoutes.js";
 
 
 // Configuration
@@ -248,6 +250,8 @@ const createApp = () => {
   app.use("/api/about-content", aboutContentRoutes);
   app.use("/api/contact", contactRoutes);
   app.use("/api/team-members", teamMemberRoutes);
+  app.use("/api/delivery-charges", deliveryChargeRoutes);
+  app.use("/api/charge-settings", chargeSettingsRoutes);
 
 
 
