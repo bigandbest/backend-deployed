@@ -11,7 +11,8 @@ export const getWishlist = async (req, res) => {
 
     const { data: wishlistItems, error } = await supabase
       .from("wishlist_items")
-      .select(`
+      .select(
+        `
         *,
         products (
           id,
@@ -22,9 +23,29 @@ export const getWishlist = async (req, res) => {
           rating,
           review_count,
           stock,
-          category
+          category,
+          uom,
+          uom_value,
+          uom_unit,
+          brand_name,
+          product_variants!left(
+            id,
+            variant_name,
+            variant_price,
+            variant_old_price,
+            variant_discount,
+            variant_stock,
+            variant_weight,
+            variant_unit,
+            variant_image_url,
+            shipping_amount,
+            is_default,
+            active,
+            created_at
+          )
         )
-      `)
+      `
+      )
       .eq("user_id", userId);
 
     if (error) {
@@ -35,10 +56,39 @@ export const getWishlist = async (req, res) => {
       });
     }
 
+    // Transform the data to include computed fields
+    const transformedWishlist = wishlistItems.map((item) => {
+      const product = item.products;
+      if (!product) return item;
+
+      // Filter active variants only
+      const activeVariants = (product.product_variants || []).filter(
+        (v) => v.active !== false
+      );
+
+      // Find default variant
+      const defaultVariant = activeVariants.find((v) => v.is_default === true);
+
+      // Compute weight/UOM display
+      const weight =
+        product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`;
+
+      return {
+        ...item,
+        products: {
+          ...product,
+          weight,
+          hasVariants: activeVariants.length > 0,
+          variants: activeVariants,
+          defaultVariant: defaultVariant || null,
+        },
+      };
+    });
+
     res.status(200).json({
       success: true,
-      wishlist: wishlistItems,
-      count: wishlistItems.length,
+      wishlist: transformedWishlist,
+      count: transformedWishlist.length,
     });
   } catch (error) {
     console.error("Error in getWishlist:", error);
