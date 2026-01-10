@@ -20,6 +20,8 @@ import {
   getProductsCartData,
   getEverydayEssentials,
   getTopProducts,
+  // Related products for cart drawer
+  getRelatedProducts,
 } from "../controller/productController.js";
 import { getProductBulkSettings } from "../controller/bulkProductController.js";
 import { getProductVisibilityMatrix } from "../controller/productWarehouseController.js";
@@ -38,9 +40,15 @@ router.get("/delivery-zone", getProductsByDeliveryZone);
 // Batch lookup for product data used by cart/order UIs
 router.post("/cart-data", getProductsCartData);
 
+// Related products for cart drawer (based on cart items' categories)
+router.post("/related", getRelatedProducts);
+
 // Discount-based routes (must come before generic routes)
 router.get("/category/:categoryId/discount", getProductsByCategoryWithDiscount);
-router.get("/subcategory/:subcategoryId/discount", getProductsBySubcategoryWithDiscount);
+router.get(
+  "/subcategory/:subcategoryId/discount",
+  getProductsBySubcategoryWithDiscount
+);
 
 router.get("/category/:category", getProductsByCategory);
 router.get("/subcategory/:subcategoryId", getProductsBySubcategory);
