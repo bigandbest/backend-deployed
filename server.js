@@ -91,6 +91,7 @@ import smallPromoCardRoutes from "./routes/smallPromoCardRoutes.js";
 import partnerRoutes from "./routes/partnerRoutes.js";
 import certificationRoutes from "./routes/certificationRoutes.js";
 import aboutContentRoutes from "./routes/aboutContentRoutes.js";
+import contactRoutes from "./routes/contactRoutes.js";
 
 
 // Configuration
@@ -244,6 +245,7 @@ const createApp = () => {
   app.use("/api/partners", partnerRoutes);
   app.use("/api/certifications", certificationRoutes);
   app.use("/api/about-content", aboutContentRoutes);
+  app.use("/api/contact", contactRoutes);
 
 
 
