@@ -64,8 +64,7 @@ export const getAllProducts = async (req, res) => {
         );
       } else {
         assignmentRows?.forEach((row) => {
-          const assignments =
-            assignmentsByProduct.get(row.product_id) || [];
+          const assignments = assignmentsByProduct.get(row.product_id) || [];
           assignments.push({
             warehouse_id: row.warehouse_id,
             warehouse_name: row.warehouses?.name,
@@ -87,9 +86,11 @@ export const getAllProducts = async (req, res) => {
     // Transform the data to match frontend expectations
     const transformedProducts = data.map((product) => {
       // Filter active variants only
-      const activeVariants = (product.product_variants || []).filter(v => v.active !== false);
+      const activeVariants = (product.product_variants || []).filter(
+        (v) => v.active !== false
+      );
       // Find default variant if exists
-      const defaultVariant = activeVariants.find(v => v.is_default === true);
+      const defaultVariant = activeVariants.find((v) => v.is_default === true);
 
       return {
         id: product.id,
@@ -111,7 +112,9 @@ export const getAllProducts = async (req, res) => {
         most_orders: product.most_orders,
         top_sale: product.top_sale,
         category: product.category,
-        weight: product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
+        weight:
+          product.uom ||
+          `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
         brand: product.brand_name || "BigandBest",
         shipping_amount: product.shipping_amount || 0,
         specifications: product.specifications,
@@ -154,7 +157,7 @@ export const getProductsByCategory = async (req, res) => {
       .eq("name", category)
       .single();
 
-    if (catError && catError.code !== 'PGRST116') {
+    if (catError && catError.code !== "PGRST116") {
       console.error("Category lookup error:", catError);
     }
 
@@ -201,7 +204,8 @@ export const getProductsByCategory = async (req, res) => {
       created_at: product.created_at,
       hasVariants: product.product_variants?.length > 0,
       variants: product.product_variants || [],
-      defaultVariant: product.product_variants?.find(v => v.is_default === true) || null,
+      defaultVariant:
+        product.product_variants?.find((v) => v.is_default === true) || null,
     }));
 
     res.status(200).json({
@@ -277,7 +281,11 @@ export const getProductsCartData = async (req, res) => {
   try {
     const { product_ids } = req.body || {};
 
-    if (!product_ids || !Array.isArray(product_ids) || product_ids.length === 0) {
+    if (
+      !product_ids ||
+      !Array.isArray(product_ids) ||
+      product_ids.length === 0
+    ) {
       return res.status(200).json({ success: true, products: [] });
     }
 
@@ -316,7 +324,9 @@ export const getProductsCartData = async (req, res) => {
     return res.status(200).json({ success: true, products: transformed });
   } catch (error) {
     console.error("getProductsCartData error:", error);
-    return res.status(500).json({ success: false, error: "Internal server error" });
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
   }
 };
 
@@ -369,7 +379,8 @@ export const getFeaturedProducts = async (req, res) => {
       created_at: product.created_at,
       hasVariants: product.product_variants?.length > 0,
       variants: product.product_variants || [],
-      defaultVariant: product.product_variants?.find(v => v.is_default === true) || null,
+      defaultVariant:
+        product.product_variants?.find((v) => v.is_default === true) || null,
     }));
 
     res.status(200).json({
@@ -401,7 +412,7 @@ export const getEverydayEssentials = async (req, res) => {
       `
       )
       .eq("active", true)
-      // For now, fetching random or specific products. 
+      // For now, fetching random or specific products.
       // You might want to add a specific flag 'everyday_essential' to products table later.
       // Or filter by specific categories like "Groceries", "Household", etc.
       .limit(20);
@@ -434,7 +445,8 @@ export const getEverydayEssentials = async (req, res) => {
       created_at: product.created_at,
       hasVariants: product.product_variants?.length > 0,
       variants: product.product_variants || [],
-      defaultVariant: product.product_variants?.find(v => v.is_default === true) || null,
+      defaultVariant:
+        product.product_variants?.find((v) => v.is_default === true) || null,
     }));
 
     res.status(200).json({
@@ -497,7 +509,8 @@ export const getTopProducts = async (req, res) => {
       created_at: product.created_at,
       hasVariants: product.product_variants?.length > 0,
       variants: product.product_variants || [],
-      defaultVariant: product.product_variants?.find(v => v.is_default === true) || null,
+      defaultVariant:
+        product.product_variants?.find((v) => v.is_default === true) || null,
     }));
 
     res.status(200).json({
@@ -614,7 +627,8 @@ export const getProductsWithFilters = async (req, res) => {
       created_at: product.created_at,
       hasVariants: product.product_variants?.length > 0,
       variants: product.product_variants || [],
-      defaultVariant: product.product_variants?.find(v => v.is_default === true) || null,
+      defaultVariant:
+        product.product_variants?.find((v) => v.is_default === true) || null,
     }));
 
     res.status(200).json({
@@ -700,7 +714,9 @@ export const getProductById = async (req, res) => {
     }
 
     // Filter active variants only
-    const activeVariants = (data.product_variants || []).filter(v => v.active !== false);
+    const activeVariants = (data.product_variants || []).filter(
+      (v) => v.active !== false
+    );
 
     // Transform the data to match frontend expectations
     const transformedProduct = {
@@ -729,7 +745,7 @@ export const getProductById = async (req, res) => {
       // Include variants
       variants: activeVariants,
       hasVariants: activeVariants.length > 0,
-      defaultVariant: activeVariants.find(v => v.is_default === true) || null,
+      defaultVariant: activeVariants.find((v) => v.is_default === true) || null,
     };
 
     res.status(200).json({
@@ -1006,7 +1022,8 @@ export const getProductsByDeliveryZone = async (req, res) => {
       created_at: product.created_at,
       hasVariants: product.product_variants?.length > 0,
       variants: product.product_variants || [],
-      defaultVariant: product.product_variants?.find(v => v.is_default === true) || null,
+      defaultVariant:
+        product.product_variants?.find((v) => v.is_default === true) || null,
     }));
 
     res.status(200).json({
@@ -1045,15 +1062,18 @@ export const getQuickPicks = async (req, res) => {
 
       if (!sectionError && sectionData) {
         // Get direct section-product mappings
-        const { data: directMappings, error: directMappingsError } = await supabase
-          .from("store_section_mappings")
-          .select(`
+        const { data: directMappings, error: directMappingsError } =
+          await supabase
+            .from("store_section_mappings")
+            .select(
+              `
             products!inner(*)
-          `)
-          .eq("section_id", sectionData.id)
-          .eq("mapping_type", "section_product")
-          .eq("is_active", true)
-          .limit(parseInt(limit));
+          `
+            )
+            .eq("section_id", sectionData.id)
+            .eq("mapping_type", "section_product")
+            .eq("is_active", true)
+            .limit(parseInt(limit));
 
         if (!directMappingsError && directMappings) {
           products = directMappings.map((mapping) => mapping.products);
@@ -1115,7 +1135,8 @@ export const getQuickPicks = async (req, res) => {
         // Get product details for top selling products
         const { data: productDetails, error: detailsError } = await supabase
           .from("products")
-          .select(`
+          .select(
+            `
             *,
             product_variants!left(
               id,
@@ -1129,7 +1150,8 @@ export const getQuickPicks = async (req, res) => {
               variant_image,
               is_default
             )
-          `)
+          `
+          )
           .in("id", topSellingProductIds)
           .eq("active", true);
 
@@ -1276,7 +1298,9 @@ export const getQuickPicks = async (req, res) => {
 
     // Transform the data to match frontend expectations
     const transformedProducts = products.map((product) => {
-      const defaultVariant = product.product_variants?.find(v => v.is_default === true);
+      const defaultVariant = product.product_variants?.find(
+        (v) => v.is_default === true
+      );
 
       return {
         id: product.id,
@@ -1298,7 +1322,9 @@ export const getQuickPicks = async (req, res) => {
         top_sale: product.top_sale,
         category: product.category,
         category_info: product.categories,
-        weight: product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
+        weight:
+          product.uom ||
+          `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
         brand: product.brand_name || "BigandBest",
         shipping_amount: product.shipping_amount || 0,
         specifications: product.specifications,
@@ -1312,7 +1338,7 @@ export const getQuickPicks = async (req, res) => {
         originalStock: product.stock || 0,
         // ✅ Ensure main product data is never overridden
         cardPrice: product.price,
-        cardOldPrice: product.old_price
+        cardOldPrice: product.old_price,
       };
     });
 
@@ -1382,7 +1408,8 @@ export const getProductsBySubcategory = async (req, res) => {
       created_at: product.created_at,
       hasVariants: product.product_variants?.length > 0,
       variants: product.product_variants || [],
-      defaultVariant: product.product_variants?.find(v => v.is_default === true) || null,
+      defaultVariant:
+        product.product_variants?.find((v) => v.is_default === true) || null,
     }));
 
     res.status(200).json({
@@ -1449,7 +1476,8 @@ export const getProductsByGroup = async (req, res) => {
       created_at: product.created_at,
       hasVariants: product.product_variants?.length > 0,
       variants: product.product_variants || [],
-      defaultVariant: product.product_variants?.find(v => v.is_default === true) || null,
+      defaultVariant:
+        product.product_variants?.find((v) => v.is_default === true) || null,
     }));
 
     res.status(200).json({
@@ -1662,7 +1690,7 @@ export const getProductsByCategoryWithDiscount = async (req, res) => {
     if (catError || !categoryData) {
       return res.status(404).json({
         success: false,
-        error: "Category not found"
+        error: "Category not found",
       });
     }
 
@@ -1683,8 +1711,10 @@ export const getProductsByCategoryWithDiscount = async (req, res) => {
     }
 
     const transformedProducts = data.map((product) => {
-      const activeVariants = (product.product_variants || []).filter(v => v.active !== false);
-      const defaultVariant = activeVariants.find(v => v.is_default === true);
+      const activeVariants = (product.product_variants || []).filter(
+        (v) => v.active !== false
+      );
+      const defaultVariant = activeVariants.find((v) => v.is_default === true);
 
       return {
         id: product.id,
@@ -1704,7 +1734,9 @@ export const getProductsByCategoryWithDiscount = async (req, res) => {
         category: product.category,
         category_id: product.category_id,
         subcategory_id: product.subcategory_id,
-        weight: product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
+        weight:
+          product.uom ||
+          `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
         brand: product.brand_name || "BigandBest",
         shipping_amount: product.shipping_amount || 0,
         created_at: product.created_at,
@@ -1739,14 +1771,16 @@ export const getProductsBySubcategoryWithDiscount = async (req, res) => {
     // First, get the subcategory to verify it exists
     const { data: subcategoryData, error: subError } = await supabase
       .from("subcategories")
-      .select(`
+      .select(
+        `
         id, 
         name,
         categories (
           id,
           name
         )
-      `)
+      `
+      )
       .eq("id", subcategoryId)
       .eq("active", true)
       .single();
@@ -1754,7 +1788,7 @@ export const getProductsBySubcategoryWithDiscount = async (req, res) => {
     if (subError || !subcategoryData) {
       return res.status(404).json({
         success: false,
-        error: "Subcategory not found"
+        error: "Subcategory not found",
       });
     }
 
@@ -1775,8 +1809,10 @@ export const getProductsBySubcategoryWithDiscount = async (req, res) => {
     }
 
     const transformedProducts = data.map((product) => {
-      const activeVariants = (product.product_variants || []).filter(v => v.active !== false);
-      const defaultVariant = activeVariants.find(v => v.is_default === true);
+      const activeVariants = (product.product_variants || []).filter(
+        (v) => v.active !== false
+      );
+      const defaultVariant = activeVariants.find((v) => v.is_default === true);
 
       return {
         id: product.id,
@@ -1796,7 +1832,9 @@ export const getProductsBySubcategoryWithDiscount = async (req, res) => {
         category: product.category,
         category_id: product.category_id,
         subcategory_id: product.subcategory_id,
-        weight: product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
+        weight:
+          product.uom ||
+          `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
         brand: product.brand_name || "BigandBest",
         shipping_amount: product.shipping_amount || 0,
         created_at: product.created_at,
@@ -1838,7 +1876,7 @@ export const getProductsByBrand = async (req, res) => {
       console.error("Brand lookup error:", brandError);
       return res.status(404).json({
         success: false,
-        error: "Brand not found"
+        error: "Brand not found",
       });
     }
 
@@ -1893,7 +1931,8 @@ export const getProductsByBrand = async (req, res) => {
       created_at: product.created_at,
       hasVariants: product.product_variants?.length > 0,
       variants: product.product_variants || [],
-      defaultVariant: product.product_variants?.find(v => v.is_default === true) || null,
+      defaultVariant:
+        product.product_variants?.find((v) => v.is_default === true) || null,
     }));
 
     res.status(200).json({
@@ -1902,8 +1941,8 @@ export const getProductsByBrand = async (req, res) => {
       total: transformedProducts.length,
       brand: {
         id: brandData.id,
-        name: brandData.name
-      }
+        name: brandData.name,
+      },
     });
   } catch (error) {
     console.error("Server error:", error);
@@ -1911,3 +1950,112 @@ export const getProductsByBrand = async (req, res) => {
   }
 };
 
+// Get related products based on cart items (by category)
+export const getRelatedProducts = async (req, res) => {
+  try {
+    const { product_ids } = req.body || {};
+
+    if (
+      !product_ids ||
+      !Array.isArray(product_ids) ||
+      product_ids.length === 0
+    ) {
+      return res.status(200).json({ success: true, products: [] });
+    }
+
+    // 1. Get categories of the cart products
+    const { data: cartProducts, error: cartError } = await supabase
+      .from("products")
+      .select("id, category_id, category")
+      .in("id", product_ids);
+
+    if (cartError) {
+      console.error("Error fetching cart products:", cartError);
+      return res.status(500).json({ success: false, error: cartError.message });
+    }
+
+    // Extract unique category IDs and category names
+    const categoryIds = [
+      ...new Set(cartProducts.map((p) => p.category_id).filter(Boolean)),
+    ];
+    const categoryNames = [
+      ...new Set(cartProducts.map((p) => p.category).filter(Boolean)),
+    ];
+
+    if (categoryIds.length === 0 && categoryNames.length === 0) {
+      return res.status(200).json({ success: true, products: [] });
+    }
+
+    // 2. Fetch related products from same categories, excluding cart items
+    let query = supabase
+      .from("products")
+      .select(`*, ${VARIANT_JOIN}`)
+      .eq("active", true)
+      .not("id", "in", `(${product_ids.join(",")})`)
+      .limit(10);
+
+    // Build category filter
+    if (categoryIds.length > 0 && categoryNames.length > 0) {
+      query = query.or(
+        `category_id.in.(${categoryIds.join(
+          ","
+        )}),category.in.(${categoryNames.join(",")})`
+      );
+    } else if (categoryIds.length > 0) {
+      query = query.in("category_id", categoryIds);
+    } else {
+      query = query.in("category", categoryNames);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error("Error fetching related products:", error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    // 3. Transform data for frontend
+    const transformedProducts = data.map((product) => {
+      const activeVariants = (product.product_variants || []).filter(
+        (v) => v.active !== false
+      );
+      const defaultVariant = activeVariants.find((v) => v.is_default === true);
+
+      return {
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        price: product.price,
+        old_price: product.old_price,
+        oldPrice: product.old_price,
+        rating: product.rating || 4.0,
+        reviews: product.review_count || 0,
+        discount: product.discount || 0,
+        image: product.image,
+        images: product.images,
+        inStock: (product.stock_quantity || product.stock || 0) > 0,
+        stock: product.stock_quantity || product.stock || 0,
+        category: product.category,
+        uom: product.uom,
+        weight:
+          product.uom ||
+          `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
+        brand: product.brand_name || "BigandBest",
+        shipping_amount: product.shipping_amount || 0,
+        created_at: product.created_at,
+        hasVariants: activeVariants.length > 0,
+        variants: activeVariants,
+        defaultVariant: defaultVariant || null,
+      };
+    });
+
+    return res
+      .status(200)
+      .json({ success: true, products: transformedProducts });
+  } catch (error) {
+    console.error("getRelatedProducts error:", error);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
