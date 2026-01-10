@@ -148,8 +148,9 @@ export const checkReturnEligibility = async (req, res) => {
 
       if (daysSinceDelivery <= 7 && daysSinceDelivery >= 0) {
         eligibility.can_return = true;
-        eligibility.reason = `Product can be returned within 7 days of delivery. ${7 - daysSinceDelivery
-          } days remaining.`;
+        eligibility.reason = `Product can be returned within 7 days of delivery. ${
+          7 - daysSinceDelivery
+        } days remaining.`;
       } else if (daysSinceDelivery > 7) {
         eligibility.reason =
           "Return period has expired. Products can only be returned within 7 days of delivery.";
@@ -183,6 +184,7 @@ export const checkReturnEligibility = async (req, res) => {
 };
 
 // Create return/cancellation request
+// Create return/cancellation request
 export const createReturnRequest = async (req, res) => {
   const {
     order_id,
@@ -201,41 +203,17 @@ export const createReturnRequest = async (req, res) => {
     // Debug logging
     console.log("=== CREATE RETURN REQUEST ===");
     console.log("Request body:", JSON.stringify(req.body, null, 2));
-    console.log("Validation check:", {
-      order_id: !!order_id,
-      user_id: !!user_id,
-      return_type: !!return_type,
-      reason: !!reason,
-      bank_account_holder_name: !!bank_account_holder_name,
-      bank_account_number: !!bank_account_number,
-      bank_ifsc_code: !!bank_ifsc_code,
-      bank_name: !!bank_name,
-    });
 
-    // Validate required fields
-    if (
-      !order_id ||
-      !user_id ||
-      !return_type ||
-      !reason ||
-      !bank_account_holder_name ||
-      !bank_account_number ||
-      !bank_ifsc_code ||
-      !bank_name
-    ) {
-      console.log("❌ Validation failed - missing required fields");
+    // 1. Basic Validation (Non-banking fields)
+    if (!order_id || !user_id || !return_type || !reason) {
+      console.log("❌ Validation failed - missing basic required fields");
       return res.status(400).json({
         success: false,
-        error: "All required fields must be provided",
+        error: "Order ID, User ID, Return Type, and Reason are required",
       });
     }
 
-    // Check if order exists and belongs to user
-    console.log("Checking order ownership:", {
-      order_id,
-      user_id_from_request: user_id,
-    });
-
+    // 2. Fetch Order to determine validation rules & eligibility
     const { data: order, error: orderError } = await supabase
       .from("orders")
       .select("*")
@@ -243,62 +221,46 @@ export const createReturnRequest = async (req, res) => {
       .eq("user_id", user_id)
       .single();
 
-    console.log("Order query result:", {
-      found: !!order,
-      error: orderError?.message,
-      order_user_id: order?.user_id,
-      request_user_id: user_id,
-    });
-
     if (orderError || !order) {
-      // Try to fetch order without user_id filter to see if it exists
-      const { data: orderCheck } = await supabase
-        .from("orders")
-        .select("user_id")
-        .eq("id", order_id)
-        .single();
-
-      console.log("Order exists check:", {
-        exists: !!orderCheck,
-        actual_user_id: orderCheck?.user_id,
-        provided_user_id: user_id,
-        match: orderCheck?.user_id === user_id,
-      });
-
       return res.status(404).json({
         success: false,
         error: "Order not found or doesn't belong to user",
-        debug: {
-          order_exists: !!orderCheck,
-          user_id_match: orderCheck?.user_id === user_id,
-        },
       });
     }
 
-    // Check eligibility
-    const eligibilityResponse = await checkReturnEligibility(
-      { params: { order_id } },
-      {
-        json: (data) => data,
+    // 3. Determine if Bank Details are required
+    // Bank details are ONLY required for COD Returns
+    const isCOD = order.payment_method?.toLowerCase() === "cod";
+    const needsBankDetails = isCOD && return_type === "return";
+
+    if (needsBankDetails) {
+      if (
+        !bank_account_holder_name ||
+        !bank_account_number ||
+        !bank_ifsc_code ||
+        !bank_name
+      ) {
+        console.log(
+          "❌ Validation failed - missing bank details for COD return"
+        );
+        return res.status(400).json({
+          success: false,
+          error: "Bank details are required for COD returns",
+        });
       }
-    );
+    }
 
-    // Re-fetch eligibility properly
-    const { data: eligibilityCheck } = await supabase
-      .from("orders")
-      .select("status, created_at, updated_at")
-      .eq("id", order_id)
-      .single();
-
+    // 4. Check Eligibility
+    // Re-fetch eligibility properly (or use current order data)
     let isEligible = false;
-    const orderStatus = eligibilityCheck.status.toLowerCase();
+    const orderStatus = order.status.toLowerCase();
 
     if (return_type === "return") {
       // For returns, order must be delivered and within 7 days
       if (orderStatus === "delivered") {
         const daysSince = calculateDaysSinceDelivery(
-          eligibilityCheck.updated_at || eligibilityCheck.created_at,
-          eligibilityCheck.status
+          order.updated_at || order.created_at,
+          order.status
         );
         isEligible = daysSince <= 7 && daysSince >= 0;
       }
@@ -308,24 +270,42 @@ export const createReturnRequest = async (req, res) => {
     }
 
     if (!isEligible) {
-      console.log("Eligibility check failed:", {
-        return_type,
-        orderStatus,
-        isEligible,
-      });
       return res.status(400).json({
         success: false,
         error: "Order is not eligible for this type of request",
       });
     }
 
-    // Calculate refund amount (for now, full order amount minus any processing fees)
-    const refund_amount =
-      return_type === "cancellation"
-        ? order.total
-        : order.total - (order.shipping || 0); // Subtract shipping for returns
+    // 5. Calculate Refund Amount & Initial Status
+    let refund_amount = 0;
+    let initial_status = "pending";
+    let processed_at = null;
 
-    // Create return request
+    if (return_type === "cancellation") {
+      if (isCOD) {
+        // COD Cancellation: No refund needed, auto-complete
+        refund_amount = 0;
+        initial_status = "completed";
+        processed_at = new Date().toISOString();
+      } else {
+        // Prepaid Cancellation: Full refund needed
+        refund_amount = order.total;
+        initial_status = "pending";
+      }
+    } else {
+      // Returns
+      if (isCOD) {
+        // COD Return: Refund needed to Bank Account (minus shipping if applicable)
+        refund_amount = order.total - (order.shipping || 0);
+        initial_status = "pending";
+      } else {
+        // Prepaid Return: Refund to source
+        refund_amount = order.total - (order.shipping || 0);
+        initial_status = "pending";
+      }
+    }
+
+    // 6. Create return request
     const { data: returnOrder, error: returnError } = await supabase
       .from("return_orders")
       .insert([
@@ -335,12 +315,16 @@ export const createReturnRequest = async (req, res) => {
           return_type,
           reason,
           additional_details,
-          bank_account_holder_name,
-          bank_account_number,
-          bank_ifsc_code,
-          bank_name,
+          // Only save bank details if provided
+          bank_account_holder_name: needsBankDetails
+            ? bank_account_holder_name
+            : null,
+          bank_account_number: needsBankDetails ? bank_account_number : null,
+          bank_ifsc_code: needsBankDetails ? bank_ifsc_code : null,
+          bank_name: needsBankDetails ? bank_name : null,
           refund_amount,
-          status: "pending",
+          status: initial_status,
+          processed_at,
         },
       ])
       .select()
@@ -353,7 +337,7 @@ export const createReturnRequest = async (req, res) => {
       });
     }
 
-    // If partial return, add return items
+    // 7. If partial return items (rare for cancellations but possible for returns)
     if (items.length > 0) {
       const returnItems = items.map((item) => ({
         return_order_id: returnOrder.id,
@@ -376,6 +360,7 @@ export const createReturnRequest = async (req, res) => {
       }
     }
 
+    // 8. Notifications
     // Get user details for admin notification
     const { data: userData } = await supabase
       .from("users")
@@ -383,9 +368,27 @@ export const createReturnRequest = async (req, res) => {
       .eq("id", user_id)
       .single();
 
-    // Create notifications for return request
     await createReturnNotification(user_id, order_id, "requested", return_type);
     await createAdminReturnNotification(order_id, userData?.name, return_type);
+
+    // 9. Update Order Status
+    // If cancellation, update order status to cancelled
+    if (return_type === "cancellation") {
+      const { error: updateError } = await supabase
+        .from("orders")
+        .update({
+          status: "cancelled",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", order_id);
+
+      if (updateError) {
+        console.error(
+          "Failed to update order status to cancelled:",
+          updateError
+        );
+      }
+    }
 
     return res.json({
       success: true,
@@ -578,16 +581,26 @@ export const updateReturnRequestStatus = async (req, res) => {
     }
 
     // Create detailed notification for status update
-    console.log("Creating notification for user:", data.user_id, "status:", status);
-    const notificationMessage = getNotificationMessage(status, data.return_type);
+    console.log(
+      "Creating notification for user:",
+      data.user_id,
+      "status:",
+      status
+    );
+    const notificationMessage = getNotificationMessage(
+      status,
+      data.return_type
+    );
 
     try {
       // Create notification using helper
       const notification = await createNotificationHelper(
         data.user_id,
-        `${data.return_type === 'cancellation' ? 'Cancellation' : 'Return'} Request ${status.charAt(0).toUpperCase() + status.slice(1)}`,
+        `${
+          data.return_type === "cancellation" ? "Cancellation" : "Return"
+        } Request ${status.charAt(0).toUpperCase() + status.slice(1)}`,
         notificationMessage,
-        'return',
+        "return",
         data.order_id
       );
 
@@ -604,7 +617,7 @@ export const updateReturnRequestStatus = async (req, res) => {
       success: true,
       return_request: data,
       message: "Return request updated successfully",
-      notification_sent: true
+      notification_sent: true,
     });
   } catch (error) {
     return res.status(500).json({
