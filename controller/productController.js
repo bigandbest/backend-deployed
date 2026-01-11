@@ -713,6 +713,20 @@ export const getProductById = async (req, res) => {
       deliveryInfo.checked_pincode = pincode;
     }
 
+    // Lookup brand_id if missing but brand_name exists
+    if (!data.brand_id && (data.brand_name || data.brand)) {
+      const brandName = data.brand_name || data.brand;
+      const { data: brandData, error: brandError } = await supabase
+        .from("brand")
+        .select("id")
+        .ilike("name", brandName)
+        .single();
+
+      if (brandData) {
+        data.brand_id = brandData.id;
+      }
+    }
+
     // Filter active variants only
     const activeVariants = (data.product_variants || []).filter(
       (v) => v.active !== false
@@ -737,9 +751,25 @@ export const getProductById = async (req, res) => {
       featured: data.featured,
       category: data.category,
       weight: data.uom || `${data.uom_value || 1} ${data.uom_unit || "kg"}`,
+      // Added comprehensive fields
+      portion: data.portion,
+      uom: data.uom,
+      uom_value: data.uom_value,
+      uom_unit: data.uom_unit,
+      category_id: data.category_id,
+      subcategory_id: data.subcategory_id,
+      subcategory_id: data.subcategory_id,
+      is_brand: data.is_brand,
+      brand_id: data.brand_id,
+      brand_name: data.brand_name,
       brand: data.brand_name || "BigandBest",
       shipping_amount: data.shipping_amount || 0,
       specifications: data.specifications,
+      // Bulk Order Info
+      enable_bulk_pricing: data.enable_bulk_pricing,
+      bulk_min_quantity: data.bulk_min_quantity,
+      bulk_discount_percentage: data.bulk_discount_percentage,
+      faq: data.faq,
       created_at: data.created_at,
       delivery_info: deliveryInfo,
       // Include variants

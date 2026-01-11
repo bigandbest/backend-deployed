@@ -28,6 +28,7 @@ export const getAllProductsForAdmin = async (req, res) => {
       .select(
         `
         *, 
+        category:categories(id, name),
         groups(id, name, subcategories(id, name, categories(id, name))),
         subcategories(id, name, categories(id, name)),
         ${VARIANT_JOIN}
@@ -361,6 +362,12 @@ export const updateProduct = async (req, res) => {
       zone_distribution_quantity,
       ...fieldsToUpdate
     } = updateData;
+
+    // Convert empty strings to null for UUID fields
+    if (fieldsToUpdate.category_id === "") fieldsToUpdate.category_id = null;
+    if (fieldsToUpdate.subcategory_id === "") fieldsToUpdate.subcategory_id = null;
+    if (fieldsToUpdate.group_id === "") fieldsToUpdate.group_id = null;
+    if (fieldsToUpdate.store_id === "") fieldsToUpdate.store_id = null;
 
     // Add updated timestamp
     fieldsToUpdate.updated_at = new Date().toISOString();
