@@ -1,11 +1,27 @@
 // services/scheduled-jobs.js
 import cron from 'node-cron';
 import { supabase } from '../config/supabaseClient.js';
+import { executeScheduledOrders } from './orderExecutor.js';
 
 /**
  * Scheduled Jobs Service
- * Handles automatic expiry of enquiries, bids, and stock release
+ * Handles automatic expiry of enquiries, bids, stock release, and scheduled order execution
  */
+
+/**
+ * Execute scheduled orders
+ * Runs every minute
+ */
+const executeScheduledOrdersJob = cron.schedule('* * * * *', async () => {
+    try {
+        await executeScheduledOrders();
+    } catch (error) {
+        console.error('[CRON] Error in scheduled orders execution:', error);
+    }
+}, {
+    scheduled: false,
+    timezone: "UTC"
+});
 
 /**
  * Auto-expire old enquiries
@@ -129,9 +145,13 @@ const removeExpiredBidsFromCart = async () => {
 export const startScheduledJobs = () => {
     console.log('🕐 Starting scheduled jobs...');
 
+    // Start scheduled order execution
+    executeScheduledOrdersJob.start();
+    console.log('✅ Scheduled order execution job started (runs every minute)');
+
     // NOTE: Bidding system cron jobs are disabled until database functions are created
     // To enable: Run the SQL script at backend-deployed/database/enquiry_bids_schema.sql in Supabase
-    
+
     // expireOldEnquiries.start();
     // console.log('✅ Enquiry expiry job started (runs every 5 minutes)');
 
@@ -151,6 +171,7 @@ export const startScheduledJobs = () => {
 export const stopScheduledJobs = () => {
     console.log('🛑 Stopping scheduled jobs...');
 
+    executeScheduledOrdersJob.stop();
     expireOldEnquiries.stop();
     expireOldBids.stop();
     releaseExpiredBidStock.stop();
