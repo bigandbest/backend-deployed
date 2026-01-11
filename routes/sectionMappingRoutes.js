@@ -7,6 +7,7 @@ import {
     updateMappingDisplayOrder,
     toggleMappingStatus,
     getSectionsForSubcategory,
+    getCategoriesForSection,
 } from "../controller/sectionMappingController.js";
 
 const router = express.Router();
@@ -21,5 +22,8 @@ router.patch("/:sectionId/subcategories/:subcategoryId/toggle", toggleMappingSta
 
 // Get sections for a subcategory
 router.get("/subcategory/:subcategoryId/sections", getSectionsForSubcategory);
+
+// Get categories for a section (by ID or key)
+router.get("/:sectionId/categories", getCategoriesForSection);
 
 export default router;
