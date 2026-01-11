@@ -727,6 +727,20 @@ export const getProductById = async (req, res) => {
       }
     }
 
+    // Lookup Store Name if store_id exists
+    let storeData = null;
+    if (data.store_id) {
+      const { data: store, error: storeError } = await supabase
+        .from("recommended_store")
+        .select("id, name")
+        .eq("id", data.store_id)
+        .single();
+
+      if (store) {
+        storeData = store;
+      }
+    }
+
     // Filter active variants only
     const activeVariants = (data.product_variants || []).filter(
       (v) => v.active !== false
@@ -758,11 +772,12 @@ export const getProductById = async (req, res) => {
       uom_unit: data.uom_unit,
       category_id: data.category_id,
       subcategory_id: data.subcategory_id,
-      subcategory_id: data.subcategory_id,
       is_brand: data.is_brand,
       brand_id: data.brand_id,
       brand_name: data.brand_name,
       brand: data.brand_name || "BigandBest",
+      store_id: data.store_id, // Store ID from DB
+      store_name: storeData ? storeData.name : null, // Fetched Store Name
       shipping_amount: data.shipping_amount || 0,
       specifications: data.specifications,
       // Bulk Order Info
