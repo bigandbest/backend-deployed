@@ -29,7 +29,7 @@ export const getUserAddresses = async (req, res) => {
     }
 
     // Normalize addresses to ensure frontend compatibility
-    const normalizedAddresses = (addresses || []).map(addr => ({
+    const normalizedAddresses = (addresses || []).map((addr) => ({
       ...addr,
       label: addr.label || addr.address_name,
       address_line1: addr.address_line1 || addr.street_address,
@@ -70,11 +70,13 @@ export const getAddressById = async (req, res) => {
     }
 
     // Normalize address
-    const normalizedAddress = address ? {
-      ...address,
-      label: address.label || address.address_name,
-      address_line1: address.address_line1 || address.street_address,
-    } : null;
+    const normalizedAddress = address
+      ? {
+          ...address,
+          label: address.label || address.address_name,
+          address_line1: address.address_line1 || address.street_address,
+        }
+      : null;
 
     return res.json({
       success: true,
@@ -104,13 +106,42 @@ export const createAddress = async (req, res) => {
       pincode,
       landmark,
       is_default,
+      // New fields
+      receiver_name,
+      receiver_phone,
+      building_type,
+      flat_no,
+      building_name,
+      type, // Frontend sends 'type' instead of 'label' sometimes
     } = req.body;
 
+    // Map frontend fields to backend expected variables
+    const nameToSave = receiver_name || full_name;
+    const mobileToSave = receiver_phone || mobile;
+    const addressLabel = type || label;
+
+    // Construct address_line1 if broken down fields are provided
+    let finalAddressLine1 = address_line1;
+    if (flat_no || building_name) {
+      finalAddressLine1 = `${flat_no ? flat_no + ", " : ""}${
+        building_name || ""
+      }`;
+    }
+
     // Validation
-    if (!label || !full_name || !mobile || !address_line1 || !city || !state || !pincode) {
+    if (
+      !addressLabel ||
+      !nameToSave ||
+      !mobileToSave ||
+      !finalAddressLine1 ||
+      !city ||
+      !state ||
+      !pincode
+    ) {
       return res.status(400).json({
         success: false,
-        error: "Required fields: label, full_name, mobile, address_line1, city, state, pincode",
+        error:
+          "Required fields: label/type, receiver_name/full_name, receiver_phone/mobile, address_line1 (or flat_no+building_name), city, state, pincode",
       });
     }
 
@@ -123,7 +154,7 @@ export const createAddress = async (req, res) => {
     }
 
     // Validate mobile (10 digits)
-    if (!/^\d{10}$/.test(mobile)) {
+    if (!/^\d{10}$/.test(mobileToSave)) {
       return res.status(400).json({
         success: false,
         error: "Mobile number must be 10 digits",
@@ -132,13 +163,12 @@ export const createAddress = async (req, res) => {
 
     const addressData = {
       user_id: userId,
-      user_id: userId,
-      label,
-      address_name: label, // Map label to address_name for backward compatibility
-      full_name,
-      mobile,
-      address_line1,
-      street_address: address_line1, // Map address_line1 to street_address
+      label: addressLabel,
+      address_name: addressLabel, // Map label to address_name for backward compatibility
+      full_name: nameToSave,
+      mobile: mobileToSave,
+      address_line1: finalAddressLine1,
+      street_address: finalAddressLine1, // Map address_line1 to street_address
       address_line2: address_line2 || null,
       city,
       state,
@@ -147,6 +177,10 @@ export const createAddress = async (req, res) => {
       landmark: landmark || null,
       is_default: is_default || false,
       is_active: true,
+      // Add building_type if the column exists in your DB, otherwise it might be ignored or error.
+      // Assuming user wants it stored. If DB schema doesn't have it, we might need to add it to address_line2 or similar.
+      // For now, attempting to add it as requested.
+      building_type: building_type || null,
     };
 
     const { data: newAddress, error } = await supabase
@@ -375,11 +409,13 @@ export const getDefaultAddress = async (req, res) => {
     }
 
     // Normalize address
-    const normalizedAddress = address ? {
-      ...address,
-      label: address.label || address.address_name,
-      address_line1: address.address_line1 || address.street_address,
-    } : null;
+    const normalizedAddress = address
+      ? {
+          ...address,
+          label: address.label || address.address_name,
+          address_line1: address.address_line1 || address.street_address,
+        }
+      : null;
 
     return res.json({
       success: true,
