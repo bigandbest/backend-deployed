@@ -148,9 +148,8 @@ export const checkReturnEligibility = async (req, res) => {
 
       if (daysSinceDelivery <= 7 && daysSinceDelivery >= 0) {
         eligibility.can_return = true;
-        eligibility.reason = `Product can be returned within 7 days of delivery. ${
-          7 - daysSinceDelivery
-        } days remaining.`;
+        eligibility.reason = `Product can be returned within 7 days of delivery. ${7 - daysSinceDelivery
+          } days remaining.`;
       } else if (daysSinceDelivery > 7) {
         eligibility.reason =
           "Return period has expired. Products can only be returned within 7 days of delivery.";
@@ -230,8 +229,13 @@ export const createReturnRequest = async (req, res) => {
 
     // 3. Determine if Bank Details are required
     // Bank details are ONLY required for COD Returns
-    const isCOD = order.payment_method?.toLowerCase() === "cod";
-    const needsBankDetails = isCOD && return_type === "return";
+    // 3. Determine if Bank Details are required
+    // Bank details are ONLY required for COD Returns/Cancellations
+    const isCOD = ["cod", "cash", "cash on delivery"].some((method) =>
+      order.payment_method?.toLowerCase().includes(method)
+    );
+    // Require bank details for both returns and cancellations if COD
+    const needsBankDetails = isCOD && (return_type === "return" || return_type === "cancellation");
 
     if (needsBankDetails) {
       if (
@@ -315,13 +319,13 @@ export const createReturnRequest = async (req, res) => {
           return_type,
           reason,
           additional_details,
-          // Only save bank details if provided
+          // Only save bank details if provided, or use N/A to satisfy DB not-null constraint
           bank_account_holder_name: needsBankDetails
             ? bank_account_holder_name
-            : null,
-          bank_account_number: needsBankDetails ? bank_account_number : null,
-          bank_ifsc_code: needsBankDetails ? bank_ifsc_code : null,
-          bank_name: needsBankDetails ? bank_name : null,
+            : "N/A",
+          bank_account_number: needsBankDetails ? bank_account_number : "N/A",
+          bank_ifsc_code: needsBankDetails ? bank_ifsc_code : "N/A",
+          bank_name: needsBankDetails ? bank_name : "N/A",
           refund_amount,
           status: initial_status,
           processed_at,
@@ -596,8 +600,7 @@ export const updateReturnRequestStatus = async (req, res) => {
       // Create notification using helper
       const notification = await createNotificationHelper(
         data.user_id,
-        `${
-          data.return_type === "cancellation" ? "Cancellation" : "Return"
+        `${data.return_type === "cancellation" ? "Cancellation" : "Return"
         } Request ${status.charAt(0).toUpperCase() + status.slice(1)}`,
         notificationMessage,
         "return",
