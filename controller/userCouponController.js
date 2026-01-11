@@ -1,9 +1,8 @@
 /**
  * USER COUPON CONTROLLERS
  */
-const supabase = require('../config/supabaseClient');
-const CouponValidator = require('../services/couponValidator');
-const couponValidator = new CouponValidator();
+import { supabase } from '../config/supabaseClient.js';
+import couponValidator from '../services/couponValidator.js';
 
 /**
  * Validate coupon code

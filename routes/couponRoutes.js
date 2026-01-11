@@ -15,7 +15,7 @@ import {
     getAvailableCoupons,
     getUserCouponHistory
 } from "../controller/userCouponController.js";
-import { authenticateToken, authenticateAdmin } from "../middleware/authenticate.js";
+import { authenticateToken, authenticateAdmin, authenticateTokenOptional } from "../middleware/authenticate.js";
 
 const router = express.Router();
 
@@ -33,7 +33,7 @@ router.post("/apply", authenticateToken, applyCouponCode);
 router.post("/remove", authenticateToken, removeCouponCode);
 
 // Get available coupons for user
-router.get("/available", authenticateToken, getAvailableCoupons);
+router.get("/available", authenticateTokenOptional, getAvailableCoupons);
 
 // Get user's coupon usage history
 router.get("/history", authenticateToken, getUserCouponHistory);

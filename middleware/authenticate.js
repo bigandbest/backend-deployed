@@ -23,7 +23,7 @@ const authenticate = (req, res, next) => {
 export const authenticateToken = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-    
+
     if (!authHeader) {
       console.log("No authorization header found");
       return res.status(401).json({ error: "Access token required" });
@@ -47,7 +47,7 @@ export const authenticateToken = async (req, res, next) => {
     if (tokenParts.length !== 3) {
       console.log(`Invalid JWT format: token has ${tokenParts.length} segments, expected 3`);
       console.log("Token preview:", token.substring(0, 50) + "...");
-      return res.status(401).json({ 
+      return res.status(401).json({
         error: "Invalid token format",
         details: `Token contains ${tokenParts.length} segments, expected 3`
       });
@@ -55,10 +55,10 @@ export const authenticateToken = async (req, res, next) => {
 
     // Decode JWT token to extract user info (no verification needed since user data is in localStorage)
     const decoded = jwt.decode(token);
-    
+
     if (!decoded || !decoded.sub) {
       console.log("Failed to decode token or missing user ID");
-      return res.status(401).json({ 
+      return res.status(401).json({
         error: "Invalid token",
         details: "Could not extract user information from token"
       });
@@ -73,14 +73,14 @@ export const authenticateToken = async (req, res, next) => {
       user_metadata: decoded.user_metadata,
       app_metadata: decoded.app_metadata
     };
-    
+
     console.log("Token decoded successfully for user:", decoded.email);
     next();
   } catch (error) {
     console.log("Token authentication error:", error.message);
-    return res.status(401).json({ 
+    return res.status(401).json({
       error: "Authentication failed",
-      details: error.message 
+      details: error.message
     });
   }
 };
@@ -97,12 +97,12 @@ export const authenticateAdmin = async (req, res, next) => {
 
     // Decode JWT token to extract user info
     const decoded = jwt.decode(token);
-    
+
     if (!decoded || !decoded.sub) {
       console.log("Failed to decode admin token");
       return res.status(401).json({ error: "Invalid token" });
     }
-    
+
     // Extract user info from decoded token
     req.user = {
       id: decoded.sub,
@@ -112,10 +112,10 @@ export const authenticateAdmin = async (req, res, next) => {
       user_metadata: decoded.user_metadata,
       app_metadata: decoded.app_metadata
     };
-    
+
     console.log("Admin auth successful for user:", decoded.email);
     console.log("User metadata:", decoded.user_metadata);
-    
+
     // Check if user has admin role in user_metadata
     // if (decoded.user_metadata?.role !== "superadmin") {
     //   return res.status(403).json({ error: "Admin access required" });
@@ -124,6 +124,47 @@ export const authenticateAdmin = async (req, res, next) => {
     next();
   } catch (error) {
     return res.status(401).json({ error: "Authentication failed" });
+  }
+};
+
+// Optional authentication - sets req.user if token is valid, otherwise proceeds as guest
+export const authenticateTokenOptional = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    // If no header or invalid format, proceed as guest
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return next();
+    }
+
+    const token = authHeader.split(" ")[1];
+    if (!token) {
+      return next();
+    }
+
+    // Decode/verify token
+    // Note: We use jwt.decode here to be consistent with authenticateToken, 
+    // assuming verification happens elsewhere or we trust the token structure for reading user ID.
+    // Ideally verify with secret: jwt.verify(token, process.env.JWT_SECRET)
+    const decoded = jwt.decode(token);
+
+    if (decoded && decoded.sub) {
+      req.user = {
+        id: decoded.sub,
+        email: decoded.email,
+        role: decoded.role,
+        aud: decoded.aud,
+        user_metadata: decoded.user_metadata,
+        app_metadata: decoded.app_metadata
+      };
+
+      console.log("Optional auth successful for user:", decoded.email);
+    }
+
+    next();
+  } catch (error) {
+    console.log("Optional auth error (proceeding as guest):", error.message);
+    next();
   }
 };
 

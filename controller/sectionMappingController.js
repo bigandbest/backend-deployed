@@ -330,3 +330,92 @@ export const getSectionsForSubcategory = async (req, res) => {
         res.status(500).json({ error: "Internal server error" });
     }
 };
+// Get categories for a specific section (supports ID or section_key)
+export const getCategoriesForSection = async (req, res) => {
+    try {
+        const { sectionId } = req.params;
+        let resolvedSectionId = sectionId;
+
+        // If sectionId is not a number, try to look it up as a section_key
+        if (isNaN(parseInt(sectionId))) {
+            const { data: section, error: sectionError } = await supabase
+                .from("product_sections")
+                .select("id")
+                .eq("section_key", sectionId)
+                .single();
+
+            if (sectionError || !section) {
+                return res.status(404).json({
+                    error: "Product section not found",
+                    details: sectionError?.message
+                });
+            }
+            resolvedSectionId = section.id;
+        }
+
+        // 1. Fetch subcategory IDs from mappings (manual join)
+        const { data: mappings, error: mappingError } = await supabase
+            .from("section_subcategory_mappings")
+            .select("subcategory_id")
+            .eq("section_id", resolvedSectionId)
+            .eq("is_active", true);
+
+        if (mappingError) {
+            console.error("Supabase error (mappings):", mappingError);
+            return res.status(500).json({ error: mappingError.message });
+        }
+
+        if (!mappings || mappings.length === 0) {
+            return res.status(200).json({
+                success: true,
+                data: [],
+                count: 0
+            });
+        }
+
+        // Extract IDs
+        const subcategoryIds = mappings.map(m => m.subcategory_id);
+
+        // 2. Fetch subcategories and their parent categories
+        const { data, error } = await supabase
+            .from("subcategories")
+            .select(`
+                id,
+                category_id,
+                categories!inner (
+                    id,
+                    name,
+                    image,
+                    slug
+                )
+            `)
+            .in("id", subcategoryIds);
+
+        if (error) {
+            console.error("Supabase error:", error);
+            return res.status(500).json({ error: error.message });
+        }
+
+        // Extract unique categories
+        const categoriesMap = new Map();
+
+        data.forEach(item => {
+            const category = item.categories;
+            if (category && !categoriesMap.has(category.id)) {
+                categoriesMap.set(category.id, category);
+            }
+        });
+
+        const categories = Array.from(categoriesMap.values());
+
+        res.status(200).json({
+            success: true,
+            data: categories,
+            count: categories.length
+        });
+
+    } catch (error) {
+        console.error("Error fetching categories for section:", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+};
