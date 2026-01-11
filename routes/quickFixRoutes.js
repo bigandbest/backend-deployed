@@ -7,7 +7,7 @@ const router = express.Router();
 router.post('/create-notification', async (req, res) => {
   try {
     const { user_id } = req.body;
-    
+
     if (!user_id) {
       return res.status(400).json({ error: 'user_id is required' });
     }
@@ -61,6 +61,40 @@ router.get('/notifications/:user_id', async (req, res) => {
   } catch (error) {
     console.error('Exception:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Run migration to add quantity column to contact_queries
+router.get("/migrate-contact-quantity", async (req, res) => {
+  try {
+    const { error } = await supabase.rpc('run_sql', {
+      sql: `ALTER TABLE contact_queries ADD COLUMN IF NOT EXISTS quantity TEXT;`
+    });
+
+    // If RPC not available, try direct raw query if supported or inform user
+    // Since we can't easily run raw SQL without RPC 'run_sql' or direct connection, 
+    // we will try to use a dummy insert/select to check if column exists, 
+    // but typically standard Supabase client doesn't support DDL.
+    // HOWEVER, we can try to use the 'rpc' method if a function exists, 
+    // OR we can just instruct the user to run it. 
+
+    // BETTER APPROACH for this environment:
+    // Attempt to just select the column. If it errors, we know we need it.
+    // But we can't CREATE it from here with standard client unless we have a specific setup.
+
+    // Let's assume (based on typical setup) we might need to ask user to run SQL.
+    // BUT, I can try to use a postgres function if one exists for executing sql.
+
+    // Fallback: Just return instructions if we can't auto-run.
+    // Checking if we can use the 'run_migration' pattern seen in some projects.
+
+    return res.status(200).json({
+      message: "Please run this SQL in your Supabase SQL Editor:",
+      sql: "ALTER TABLE contact_queries ADD COLUMN IF NOT EXISTS quantity TEXT;"
+    });
+
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
   }
 });
 
