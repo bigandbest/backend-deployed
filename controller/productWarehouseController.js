@@ -35,8 +35,18 @@ export const createProductWithWarehouse = async (req, res) => {
       quantity,
       faq,
       images,
+      image,
+      video,
+      uom,
+      uom_value,
+      uom_unit,
       store_id,
       delivery_type = "nationwide",
+      allowed_zone_ids = [],
+      has_variants = false,
+      enable_bulk_pricing = false,
+      bulk_min_quantity = 50,
+      bulk_discount_percentage = 0,
       // Warehouse management fields
       warehouse_mapping_type = "nationwide",
       assigned_warehouse_ids = [],
@@ -53,12 +63,18 @@ export const createProductWithWarehouse = async (req, res) => {
     } = req.body;
 
     // Validate required fields
-    if (!name || !price || !category_id) {
+    if (!name || !price) {
       return res.status(400).json({
         success: false,
-        error: "Name, price, and category are required",
+        error: "Name and price are required",
       });
     }
+
+    // Convert empty strings to null for UUID fields
+    if (category_id === "") category_id = null;
+    if (subcategory_id === "") subcategory_id = null;
+    if (group_id === "") group_id = null;
+    if (store_id === "") store_id = null;
 
     // Auto-calculate discount if old_price is provided
     let calculatedDiscount = discount || 0;
@@ -72,7 +88,7 @@ export const createProductWithWarehouse = async (req, res) => {
       price,
       old_price: old_price || 0,
       discount: calculatedDiscount,
-      category_id,
+      category_id: category_id || null,
       subcategory_id: subcategory_id || null,
       group_id: group_id || null,
       description: description || "",
@@ -94,8 +110,18 @@ export const createProductWithWarehouse = async (req, res) => {
       quantity: quantity || "",
       faq: faq || [],
       images: images || [],
+      image: image || null,
+      video: video || null,
+      uom: uom || null,
+      uom_value: uom_value || null,
+      uom_unit: uom_unit || null,
       store_id: store_id || null,
       delivery_type,
+      allowed_zone_ids,
+      has_variants,
+      enable_bulk_pricing,
+      bulk_min_quantity,
+      bulk_discount_percentage,
       warehouse_mapping_type,
       assigned_warehouse_ids,
       primary_warehouses,
