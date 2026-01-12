@@ -120,6 +120,10 @@ export const getAllProducts = async (req, res) => {
         specifications: product.specifications,
         created_at: product.created_at,
         delivery_type: product.delivery_type || "nationwide",
+        // Return policy and delivery settings
+        return_applicable: product.return_applicable !== false,
+        return_days: product.return_days || 7,
+        quick_delivery: product.quick_delivery || false,
         // ✅ Keep variants separate - DON'T let them override main product data
         hasVariants: activeVariants.length > 0,
         variants: activeVariants,
@@ -787,6 +791,10 @@ export const getProductById = async (req, res) => {
       faq: data.faq,
       created_at: data.created_at,
       delivery_info: deliveryInfo,
+      // Return policy and delivery settings
+      return_applicable: data.return_applicable !== false,
+      return_days: data.return_days || 7,
+      quick_delivery: data.quick_delivery || false,
       // Include variants
       variants: activeVariants,
       hasVariants: activeVariants.length > 0,
