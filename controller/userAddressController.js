@@ -180,7 +180,6 @@ export const createAddress = async (req, res) => {
       // Add building_type if the column exists in your DB, otherwise it might be ignored or error.
       // Assuming user wants it stored. If DB schema doesn't have it, we might need to add it to address_line2 or similar.
       // For now, attempting to add it as requested.
-      building_type: building_type || null,
     };
 
     const { data: newAddress, error } = await supabase

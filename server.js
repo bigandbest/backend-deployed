@@ -7,7 +7,10 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-import { startScheduledJobs, stopScheduledJobs } from "./services/scheduled-jobs.js";
+import {
+  startScheduledJobs,
+  stopScheduledJobs,
+} from "./services/scheduled-jobs.js";
 
 import authRoutes from "./routes/authRoute.js";
 import adminAuthRoutes from "./routes/adminAuthRoutes.js";
@@ -98,7 +101,6 @@ import chargeSettingsRoutes from "./routes/chargeSettingsRoutes.js";
 import scheduledOrderRoutes from "./routes/scheduledOrderRoutes.js";
 import couponRoutes from "./routes/couponRoutes.js";
 
-
 // Configuration
 const PORT = process.env.PORT || 8000;
 const NUM_WORKERS = process.env.WORKERS || os.cpus().length;
@@ -153,6 +155,7 @@ const createApp = () => {
 
   // API Routes
   app.use("/api/business", authRoutes);
+  app.use("/api/auth", authRoutes);
   app.use("/api/admin-auth", adminAuthRoutes);
   app.use("/api/print-requests", printRequestRoutes);
   app.use("/api/geo-address", geoAddressRoute);
@@ -256,8 +259,6 @@ const createApp = () => {
   app.use("/api/charge-settings", chargeSettingsRoutes);
   app.use("/api/scheduled-orders", scheduledOrderRoutes);
   app.use("/api/coupons", couponRoutes);
-
-
 
   // Enhanced health check with cluster and system info
   app.get("/api/health", (req, res) => {
@@ -397,7 +398,11 @@ if (IS_CLUSTERED && cluster.isPrimary) {
   console.log(`   Total Memory: ${sysInfo.totalMemory}`);
   console.log(`   Free Memory: ${sysInfo.freeMemory}`);
   console.log(`   Memory Usage: ${sysInfo.memoryUsagePercent}`);
-  console.log(`   Load Average: ${sysInfo.loadAverage.map(l => l.toFixed(2)).join(", ")}`);
+  console.log(
+    `   Load Average: ${sysInfo.loadAverage
+      .map((l) => l.toFixed(2))
+      .join(", ")}`
+  );
   console.log(`\n🔧 Spawning ${NUM_WORKERS} worker processes...`);
 
   // Validate environment before spawning workers
@@ -415,7 +420,9 @@ if (IS_CLUSTERED && cluster.isPrimary) {
 
   cluster.on("exit", (worker, code, signal) => {
     console.log(
-      `⚠️  Worker ${worker.process.pid} (ID: ${worker.id}) died (${signal || code})`
+      `⚠️  Worker ${worker.process.pid} (ID: ${worker.id}) died (${
+        signal || code
+      })`
     );
 
     // Restart the worker
@@ -451,7 +458,6 @@ if (IS_CLUSTERED && cluster.isPrimary) {
       process.exit(0);
     }, 5000);
   });
-
 } else {
   // Worker process - runs the actual server
   const app = createApp();
@@ -460,20 +466,29 @@ if (IS_CLUSTERED && cluster.isPrimary) {
     const workerId = cluster.worker?.id || "standalone";
     const pid = process.pid;
 
-    console.log("\n╔════════════════════════════════════════════════════════════╗");
-    console.log(`║  🚀 Worker ${workerId} (PID: ${pid}) - Server Started on Port ${PORT}  ║`);
-    console.log("╚════════════════════════════════════════════════════════════╝");
+    console.log(
+      "\n╔════════════════════════════════════════════════════════════╗"
+    );
+    console.log(
+      `║  🚀 Worker ${workerId} (PID: ${pid}) - Server Started on Port ${PORT}  ║`
+    );
+    console.log(
+      "╚════════════════════════════════════════════════════════════╝"
+    );
     console.log(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
     console.log(`🌐 CORS: Configured to allow all origins`);
     console.log(
-      `💳 Razorpay Mode: ${process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
+      `💳 Razorpay Mode: ${
+        process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
       }`
     );
     console.log(
       `🔗 Supabase URL: ${process.env.SUPABASE_URL || "Not configured"}`
     );
     console.log(`🔧 Cluster Mode: ${IS_CLUSTERED ? "ENABLED" : "DISABLED"}`);
-    console.log("════════════════════════════════════════════════════════════\n");
+    console.log(
+      "════════════════════════════════════════════════════════════\n"
+    );
 
     // Start scheduled jobs (only in first worker or standalone mode)
     if (!IS_CLUSTERED || workerId === 1) {
