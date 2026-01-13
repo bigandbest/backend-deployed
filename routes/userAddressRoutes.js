@@ -7,6 +7,7 @@ import {
   deleteAddress,
   setDefaultAddress,
   getDefaultAddress,
+  reverseGeocode,
 } from "../controller/userAddressController.js";
 import { authenticateToken } from "../middleware/authenticate.js";
 
@@ -17,6 +18,9 @@ router.get("/", authenticateToken, getUserAddresses);
 
 // Get default address
 router.get("/default", authenticateToken, getDefaultAddress);
+
+// Reverse Geocode (Proxy)
+router.get("/geocode", authenticateToken, reverseGeocode);
 
 // Get a specific address by ID
 router.get("/:id", authenticateToken, getAddressById);

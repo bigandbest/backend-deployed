@@ -1,4 +1,5 @@
 import { supabase } from "../config/supabaseClient.js";
+import axios from "axios";
 
 // Get all addresses for a user
 export const getUserAddresses = async (req, res) => {
@@ -425,6 +426,47 @@ export const getDefaultAddress = async (req, res) => {
     return res.status(500).json({
       success: false,
       error: error.message,
+    });
+  }
+};
+
+// Reverse Geocode using Nominatim (Proxy)
+export const reverseGeocode = async (req, res) => {
+  try {
+    const { lat, lng } = req.query;
+
+    if (!lat || !lng) {
+      return res.status(400).json({
+        success: false,
+        error: "Latitude and Longitude are required",
+      });
+    }
+
+    const response = await axios.get(
+      `https://nominatim.openstreetmap.org/reverse`,
+      {
+        params: {
+          format: "json",
+          lat,
+          lon: lng,
+          zoom: 18,
+          addressdetails: 1,
+        },
+        headers: {
+          "User-Agent": "BigBestMart/1.0 (contact@bigbestmart.com)", // Required by Nominatim policy
+        },
+      }
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: response.data,
+    });
+  } catch (error) {
+    console.error("Geocoding Proxy Error:", error.message);
+    return res.status(502).json({
+      success: false,
+      error: "Failed to fetch address from geocoding service",
     });
   }
 };
