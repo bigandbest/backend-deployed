@@ -1,0 +1,15 @@
+model event_elevate {
+  id            Int       @id @default(autoincrement())
+  title         String    @db.VarChar
+  description   String?   @db.VarChar
+  category      String?   @db.VarChar
+  bg_color      String?   @default("from-purple-400 to-orange-400") @db.VarChar
+  text_color    String?   @default("white") @db.VarChar
+  badge_text    String?   @db.VarChar
+  badge_color   String?   @default("bg-blue-600") @db.VarChar
+  position      String?   @default("grid") @db.VarChar
+  display_order Int?      @default(0)
+  active        Boolean?  @default(true)
+  created_at    DateTime? @default(now()) @db.Timestamp
+  updated_at    DateTime? @default(now()) @db.Timestamp
+}

@@ -1,0 +1,32 @@
+model scheduled_orders {
+  id                     String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                String                  @db.Uuid
+  cart_items             Json
+  address_id             String?                 @db.Uuid
+  scheduled_at           DateTime                @db.Timestamptz
+  timezone               String                  @default("UTC") @db.VarChar
+  created_at             DateTime?               @default(now()) @db.Timestamptz
+  updated_at             DateTime?               @default(now()) @db.Timestamptz
+  status                 String                  @default("SCHEDULED") @db.VarChar
+  payment_method         String                  @db.VarChar
+  payment_intent_id      String?                 @db.VarChar
+  payment_status         String?                 @default("PENDING") @db.VarChar
+  total_amount           Decimal                 @db.Decimal
+  execution_attempts     Int?                    @default(0)
+  last_execution_attempt DateTime?               @db.Timestamptz
+  idempotency_key        String                  @unique @db.VarChar
+  lock_token             String?                 @db.VarChar
+  lock_expires_at        DateTime?               @db.Timestamptz
+  placed_order_id        String?                 @db.Uuid
+  failure_reason         String?
+  metadata               Json?                   @default("{}")
+  warehouse_id           Int?
+  slot_id                Int?
+  scheduled_date         DateTime?               @db.Date
+
+  // Relations
+  warehouse              warehouses?             @relation(fields: [warehouse_id], references: [id])
+  slot                   scheduling_time_slots?  @relation(fields: [slot_id], references: [id])
+  execution_logs         order_execution_logs[]
+  payment_retry_logs     payment_retry_logs[]
+}

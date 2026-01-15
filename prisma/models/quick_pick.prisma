@@ -1,0 +1,8 @@
+model quick_pick {
+  id         String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name       String
+  image_url  String?
+
+  // Relations
+  groups     quick_pick_group[]
+}

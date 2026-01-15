@@ -1,0 +1,24 @@
+model coupons {
+  id                   String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code                 String         @unique @db.VarChar
+  discount_type        String         @db.VarChar
+  discount_value       Decimal        @db.Decimal
+  max_discount         Decimal?       @db.Decimal
+  min_order_value      Decimal?       @default(0) @db.Decimal
+  allowed_brands       Json?          @default("[]")
+  new_user_only        Boolean?       @default(false)
+  usage_limit_total    Int?
+  usage_limit_per_user Int?           @default(1)
+  valid_from           DateTime       @db.Timestamptz
+  valid_to             DateTime       @db.Timestamptz
+  timezone             String?        @default("UTC") @db.VarChar
+  status               String?        @default("ACTIVE") @db.VarChar
+  description          String?
+  terms_conditions     String?
+  created_by           String?        @db.Uuid
+  created_at           DateTime?      @default(now()) @db.Timestamptz
+  updated_at           DateTime?      @default(now()) @db.Timestamptz
+
+  // Relations
+  usages               coupon_usage[]
+}

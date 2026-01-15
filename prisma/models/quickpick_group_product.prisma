@@ -1,0 +1,9 @@
+model quickpick_group_product {
+  id                  String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  quick_pick_group_id String           @db.Uuid
+  product_id          String           @db.Uuid
+
+  // Relations
+  group               quick_pick_group @relation(fields: [quick_pick_group_id], references: [id])
+  product             products         @relation(fields: [product_id], references: [id])
+}

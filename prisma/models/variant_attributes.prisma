@@ -1,0 +1,13 @@
+model variant_attributes {
+  id              Int               @id @default(autoincrement())
+  variant_id      String            @db.Uuid
+  attribute_name  String            @db.VarChar // weight, size, duration, color, moq, unit, tier, speed
+  attribute_value String            @db.VarChar // 1kg, XL, 60min, Red, 50, item, premium, express
+  created_at      DateTime          @default(now()) @db.Timestamptz
+
+  // Relations
+  variant         product_variants  @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+
+  @@unique([variant_id, attribute_name])
+  @@index([attribute_name, attribute_value])
+}
