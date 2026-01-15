@@ -1,0 +1,8 @@
+model brand {
+  id        String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  image_url String?
+
+  // Relations
+  products  product_brand[]
+}

@@ -1,0 +1,15 @@
+model user_notifications {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id      String?   @db.Uuid
+  type         String    @db.VarChar
+  title        String    @db.VarChar
+  message      String
+  related_id   String?   @db.Uuid
+  related_type String?   @db.VarChar
+  is_read      Boolean?  @default(false)
+  created_at   DateTime? @default(now()) @db.Timestamp
+  read_at      DateTime? @db.Timestamp
+
+  // Relations
+  user         users?    @relation(fields: [user_id], references: [id])
+}

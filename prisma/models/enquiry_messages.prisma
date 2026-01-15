@@ -1,0 +1,15 @@
+model enquiry_messages {
+  id              Int               @id @default(autoincrement())
+  enquiry_id      Int
+  sender_type     String            @db.VarChar
+  sender_id       String            @db.Uuid
+  sender_name     String?           @db.VarChar
+  message         String
+  is_read         Boolean?          @default(false)
+  created_at      DateTime?         @default(now()) @db.Timestamp
+  attachment_url  String?
+  attachment_type String?           @db.VarChar
+
+  // Relations
+  enquiry         product_enquiries @relation(fields: [enquiry_id], references: [id])
+}

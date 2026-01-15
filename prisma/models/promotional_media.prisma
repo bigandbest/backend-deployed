@@ -1,0 +1,17 @@
+model promotional_media {
+  id              Int       @id @default(autoincrement())
+  media_type      String    @db.VarChar // 'image' or 'video'
+  title           String?   @db.VarChar
+  description     String?
+  image_url       String?
+  video_url       String?
+  thumbnail_url   String?
+  link            String?
+  link_type       String?   @default("external") // 'external', 'category', 'product'
+  resource_id     String?
+  sub_resource_id String?
+  position        Int?      @default(0)
+  active          Boolean?  @default(true)
+  created_at      DateTime? @default(now()) @db.Timestamptz
+  updated_at      DateTime? @default(now()) @db.Timestamptz
+}

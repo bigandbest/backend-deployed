@@ -1,0 +1,12 @@
+model recommended_store {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String?
+  image_url   String?
+  description String?
+  is_active   Boolean? @default(false)
+  banner_id   String?  @db.Uuid
+
+  // Relations
+  banner      add_banner?                   @relation(fields: [banner_id], references: [id])
+  products    product_recommended_store[]
+}

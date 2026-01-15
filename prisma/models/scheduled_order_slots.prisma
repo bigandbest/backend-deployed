@@ -1,0 +1,13 @@
+model scheduled_order_slots {
+  id             Int                   @id @default(autoincrement())
+  warehouse_id   Int
+  slot_id        Int
+  scheduled_date DateTime              @db.Date
+  current_count  Int?                  @default(0)
+  created_at     DateTime?             @default(now()) @db.Timestamptz
+  updated_at     DateTime?             @default(now()) @db.Timestamptz
+
+  // Relations
+  warehouse      warehouses            @relation(fields: [warehouse_id], references: [id])
+  slot           scheduling_time_slots @relation(fields: [slot_id], references: [id])
+}

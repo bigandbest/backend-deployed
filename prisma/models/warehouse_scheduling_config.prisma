@@ -1,0 +1,15 @@
+model warehouse_scheduling_config {
+  id                      Int                   @id @default(autoincrement())
+  warehouse_id            Int
+  slot_id                 Int
+  max_capacity            Int                   @default(20)
+  scheduling_window_hours Int                   @default(24)
+  is_active               Boolean?              @default(true)
+  days_of_week            Json?                 @default("[\"monday\",\"tuesday\",\"wednesday\",\"thursday\",\"friday\",\"saturday\",\"sunday\"]")
+  created_at              DateTime?             @default(now()) @db.Timestamptz
+  updated_at              DateTime?             @default(now()) @db.Timestamptz
+
+  // Relations
+  warehouse               warehouses            @relation(fields: [warehouse_id], references: [id])
+  slot                    scheduling_time_slots @relation(fields: [slot_id], references: [id])
+}

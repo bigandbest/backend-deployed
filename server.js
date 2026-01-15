@@ -420,8 +420,7 @@ if (IS_CLUSTERED && cluster.isPrimary) {
 
   cluster.on("exit", (worker, code, signal) => {
     console.log(
-      `⚠️  Worker ${worker.process.pid} (ID: ${worker.id}) died (${
-        signal || code
+      `⚠️  Worker ${worker.process.pid} (ID: ${worker.id}) died (${signal || code
       })`
     );
 
@@ -478,8 +477,7 @@ if (IS_CLUSTERED && cluster.isPrimary) {
     console.log(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
     console.log(`🌐 CORS: Configured to allow all origins`);
     console.log(
-      `💳 Razorpay Mode: ${
-        process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
+      `💳 Razorpay Mode: ${process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
       }`
     );
     console.log(
