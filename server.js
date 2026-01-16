@@ -23,7 +23,6 @@ import { getProductsCartData } from "./controller/productController.js";
 import locationRoute from "./routes/locationRoutes.js";
 import cartRoutes from "./routes/cartRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
-import orderItemsRoutes from "./routes/orderItemsRoutes.js";
 import checkCartAvailabilityRoute from "./routes/checkCartAvailabilityRoute.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
@@ -35,14 +34,10 @@ import dailyDealsProductRoutes from "./routes/dailyDealsProductRoutes.js";
 import brandRoutes from "./routes/brandRoutes.js";
 import brandProductsRoutes from "./routes/brandProducts.js";
 import recommendedStoreRoutes from "./routes/recommendedStoreRoutes.js";
-
-import productRecommendedStoreRoutes from "./routes/productRecommendedStoreRoutes.js";
 import quickPickRoutes from "./routes/quickPickRoutes.js";
 import quickPickGroupRoutes from "./routes/quickPickGroupRoutes.js";
 import quickPickGroupProductRoutes from "./routes/quickPickGroupProductRoutes.js";
 import savingZoneRoutes from "./routes/savingZoneRoutes.js";
-import savingZoneGroupRoutes from "./routes/savingZoneGroupRoutes.js";
-import savingZoneGroupProductRoutes from "./routes/savingZoneGroupProductRoutes.js";
 import storeRoutes from "./routes/storeRoute.js";
 import subStoreRoutes from "./routes/subStoreRoute.js";
 import YouMayLikeProductRoutes from "./routes/youMayLikeRoutes.js";
@@ -50,7 +45,6 @@ import addBannerRoutes from "./routes/addBannerRoutes.js";
 import addBannerGroupRoutes from "./routes/addBannerGroupRoutes.js";
 import addBannerGroupProductRoutes from "./routes/addBannerGroupProductRoutes.js";
 import uniqueSectionRoutes from "./routes/uniqueSectionRoutes.js";
-import uniqueSectionProductRoutes from "./routes/uniqueSectionProductRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
 import returnOrderRoutes from "./routes/returnOrderRoutes.js";
 import refundRoutes from "./routes/refundRoutes.js";
@@ -69,7 +63,6 @@ import shopByStoreRoutes from "./routes/shopByStoreRoutes.js";
 import productSectionRoutes from "./routes/productSectionRoutes.js";
 import zoneRoutes from "./routes/zoneRoutes.js";
 import promoBannerRoutes from "./routes/promoBannerRoutes.js";
-import storeSectionMappingRoutes from "./routes/storeSectionMappingRoutes.js";
 import bulkWholesaleRoutes from "./routes/bulkWholesaleRoutes.js";
 import codOrderRoutes from "./routes/codOrderRoutes.js";
 import onlinePaymentOrderRoutes from "./routes/onlinePaymentOrderRoutes.js";
@@ -98,7 +91,6 @@ import contactRoutes from "./routes/contactRoutes.js";
 import teamMemberRoutes from "./routes/teamMemberRoutes.js";
 import deliveryChargeRoutes from "./routes/deliveryChargeRoutes.js";
 import chargeSettingsRoutes from "./routes/chargeSettingsRoutes.js";
-import scheduledOrderRoutes from "./routes/scheduledOrderRoutes.js";
 import couponRoutes from "./routes/couponRoutes.js";
 
 // Configuration
@@ -168,7 +160,7 @@ const createApp = () => {
   app.use("/api/locationsroute", locationRoute);
   app.use("/api/cart", cartRoutes);
   app.use("/api/order", orderRoutes);
-  app.use("/api/orderItems", orderItemsRoutes);
+  app.use("/api/orderItems", orderRoutes); // Now pointing to the same merged file
   app.use("/api/check", checkCartAvailabilityRoute);
   app.use("/api/payment", paymentRoutes);
   app.use("/api/notifications", notificationRoutes);
@@ -180,13 +172,13 @@ const createApp = () => {
   app.use("/api/brand", brandRoutes);
   app.use("/api/product-brand", brandProductsRoutes);
   app.use("/api/recommended-stores", recommendedStoreRoutes);
-  app.use("/api/product-recommended-stores", productRecommendedStoreRoutes);
+  app.use("/api/product-recommended-stores", recommendedStoreRoutes);
   app.use("/api/quick-pick", quickPickRoutes);
   app.use("/api/quick-pick-group", quickPickGroupRoutes);
   app.use("/api/quick-pick-group-product", quickPickGroupProductRoutes);
   app.use("/api/saving-zone", savingZoneRoutes);
-  app.use("/api/saving-zone-group", savingZoneGroupRoutes);
-  app.use("/api/saving-zone-group-product", savingZoneGroupProductRoutes);
+  app.use("/api/saving-zone-group", savingZoneRoutes);
+  app.use("/api/saving-zone-group-product", savingZoneRoutes);
   app.use("/api/stores", storeRoutes);
   app.use("/api/sub-stores", subStoreRoutes);
   app.use("/api/you-may-like-products", YouMayLikeProductRoutes);
@@ -194,7 +186,7 @@ const createApp = () => {
   app.use("/api/banner-groups", addBannerGroupRoutes);
   app.use("/api/banner-group-products", addBannerGroupProductRoutes);
   app.use("/api/unique-sections", uniqueSectionRoutes);
-  app.use("/api/unique-sections-products", uniqueSectionProductRoutes);
+  app.use("/api/unique-sections-products", uniqueSectionRoutes);
   app.use("/api/user", profileRoutes);
   app.use("/api/return-orders", returnOrderRoutes);
   app.use("/api/refund", refundRoutes);
@@ -212,7 +204,7 @@ const createApp = () => {
   app.use("/api/shop-by-stores", shopByStoreRoutes);
   app.use("/api/product-sections", productSectionRoutes);
   app.use("/api/promo-banner", promoBannerRoutes);
-  app.use("/api/store-section-mappings", storeSectionMappingRoutes);
+  app.use("/api/store-section-mappings", subStoreRoutes);
   app.use("/api/small-promo-cards", smallPromoCardRoutes);
   app.use("/api/bulk-wholesale", bulkWholesaleRoutes);
 
@@ -257,7 +249,7 @@ const createApp = () => {
   app.use("/api/team-members", teamMemberRoutes);
   app.use("/api/delivery-charges", deliveryChargeRoutes);
   app.use("/api/charge-settings", chargeSettingsRoutes);
-  app.use("/api/scheduled-orders", scheduledOrderRoutes);
+  app.use("/api/scheduled-orders", orderRoutes);
   app.use("/api/coupons", couponRoutes);
 
   // Enhanced health check with cluster and system info

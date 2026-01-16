@@ -11,7 +11,32 @@ import {
   cancelOrder,
   deleteOrderById,
   getOrderTracking,
+  getAllOrderItems,
+  getOrderItemsByOrderId,
+  getOrderItemsByProductId,
+  deleteOrderItemsByOrderId,
 } from "../controller/orderController.js";
+import {
+  createScheduledOrder,
+  getUserScheduledOrders,
+  getScheduledOrderById,
+  updateScheduledOrder,
+  cancelScheduledOrder,
+  getAllScheduledOrders,
+  manuallyExecuteOrder,
+  createTimeSlot,
+  updateTimeSlot,
+  deleteTimeSlot,
+  getAllTimeSlots,
+  assignSlotToWarehouse,
+  updateWarehouseSlotConfig,
+  removeSlotFromWarehouse,
+  getWarehouseSlots,
+  getAvailableSlotsForWarehouse,
+  getSlotAvailability
+} from "../controller/scheduledOrderController.js";
+
+import { authenticateToken, authenticateAdmin } from "../middleware/authenticate.js";
 import {
   validateDeliveryAvailability,
   enrichOrderWithDelivery,
@@ -92,5 +117,38 @@ router.delete("/delete/:id", deleteOrderById);
 
 // Tracking endpoint - returns simple timeline for an order
 router.get("/track/:orderId", getOrderTracking);
+
+// --- Order Items Routes (Merged from orderItemsRoutes.js) ---
+router.get("/items/all", getAllOrderItems);
+router.get("/items/order/:order_id", getOrderItemsByOrderId);
+router.get("/items/product/:product_id", getOrderItemsByProductId);
+router.delete("/items/order/:order_id", deleteOrderItemsByOrderId);
+
+// --- Scheduled Order Routes ---
+router.post("/scheduled/create", authenticateToken, createScheduledOrder);
+router.get("/scheduled/my-orders", authenticateToken, getUserScheduledOrders);
+router.get("/scheduled/details/:id", authenticateToken, getScheduledOrderById);
+router.put("/scheduled/update/:id", authenticateToken, updateScheduledOrder);
+router.delete("/scheduled/cancel/:id", authenticateToken, cancelScheduledOrder);
+
+// User routes for scheduling slots
+router.get("/scheduling/available-slots/:warehouseId", authenticateToken, getAvailableSlotsForWarehouse);
+router.get("/scheduling/slot-availability", authenticateToken, getSlotAvailability);
+
+// Admin routes for scheduled orders
+router.get("/scheduled/admin/all", authenticateAdmin, getAllScheduledOrders);
+router.post("/scheduled/admin/:id/execute", authenticateAdmin, manuallyExecuteOrder);
+
+// Admin routes for time slot management
+router.post("/scheduling/admin/slots", authenticateAdmin, createTimeSlot);
+router.put("/scheduling/admin/slots/:id", authenticateAdmin, updateTimeSlot);
+router.delete("/scheduling/admin/slots/:id", authenticateAdmin, deleteTimeSlot);
+router.get("/scheduling/admin/slots", authenticateAdmin, getAllTimeSlots);
+
+// Admin routes for warehouse slot configuration
+router.post("/scheduling/admin/warehouse-slots", authenticateAdmin, assignSlotToWarehouse);
+router.put("/scheduling/admin/warehouse-slots/:id", authenticateAdmin, updateWarehouseSlotConfig);
+router.delete("/scheduling/admin/warehouse-slots/:id", authenticateAdmin, removeSlotFromWarehouse);
+router.get("/scheduling/admin/warehouse/:warehouseId/slots", authenticateAdmin, getWarehouseSlots);
 
 export default router;

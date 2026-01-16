@@ -29,6 +29,12 @@ class AddBannerDAO {
     async delete(id) {
         return await prisma.add_banner.delete({ where: { id } });
     }
+
+    async getByType(bannerType) {
+        return await prisma.add_banner.findMany({
+            where: { banner_type: bannerType }
+        });
+    }
 }
 
 export default new AddBannerDAO();

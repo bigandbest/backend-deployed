@@ -1,21 +1,23 @@
 import { supabase } from "../config/supabaseClient.js";
+import AboutUsDAO from "../dao/about-us.dao.js";
+import TeamMemberDAO from "../dao/team-member.dao.js";
+import CertificationDAO from "../dao/certification.dao.js";
 
-// Get About Us content
+// Get consolidated About Section data
 export const getAboutContent = async (req, res) => {
     try {
-        // Fetch the most recently updated row
-        const { data, error } = await supabase
-            .from("about_us_content")
-            .select("*")
-            .order("updated_at", { ascending: false })
-            .limit(1)
-            .single();
+        const [aboutContent, teamMembers, certifications] = await Promise.all([
+            AboutUsDAO.getContent(),
+            TeamMemberDAO.list(),
+            CertificationDAO.list(true)
+        ]);
 
-        if (error && error.code !== 'PGRST116') { // PGRST116 is no rows returned, which is fine
-            throw error;
-        }
-
-        res.status(200).json({ success: true, content: data || {} });
+        res.status(200).json({
+            success: true,
+            content: aboutContent || {},
+            team: teamMembers || [],
+            certifications: certifications || []
+        });
     } catch (err) {
         console.error("Error fetching about content:", err);
         res.status(500).json({ success: false, error: err.message });
@@ -29,16 +31,12 @@ export const updateAboutContent = async (req, res) => {
         const imageFile = req.file;
 
         const updates = {
-            updated_at: new Date().toISOString(),
             title,
             subtitle,
             heading,
-            content
+            content,
+            updated_at: new Date()
         };
-
-        if (id) {
-            updates.id = id;
-        }
 
         if (imageFile) {
             const fileExt = imageFile.originalname.split(".").pop();
@@ -56,37 +54,7 @@ export const updateAboutContent = async (req, res) => {
             updates.banner_image_url = urlData.publicUrl;
         }
 
-        // If no ID is provided, insert a new row (or could logic to update existing single row)
-        // We will try to update if ID exists, otherwise insert
-        let data, error;
-
-        if (id) {
-            ({ data, error } = await supabase
-                .from("about_us_content")
-                .update(updates)
-                .eq("id", id)
-                .select()
-                .single());
-        } else {
-            // Check if any row exists to avoid duplicates if we want singleton behavior
-            const { data: existing } = await supabase.from("about_us_content").select("id").limit(1).single();
-            if (existing) {
-                ({ data, error } = await supabase
-                    .from("about_us_content")
-                    .update(updates)
-                    .eq("id", existing.id)
-                    .select()
-                    .single());
-            } else {
-                ({ data, error } = await supabase
-                    .from("about_us_content")
-                    .insert([updates])
-                    .select()
-                    .single());
-            }
-        }
-
-        if (error) throw error;
+        const data = await AboutUsDAO.updateContent(id, updates);
 
         res.status(200).json({ success: true, content: data });
     } catch (err) {
