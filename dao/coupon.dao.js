@@ -14,16 +14,32 @@ class CouponDAO {
 
     async getByCode(code) {
         return await prisma.coupons.findUnique({
-            where: { code }
+            where: { code: code.toUpperCase() }
         });
     }
 
-    async list(filters = {}) {
-        const { status = 'ACTIVE' } = filters;
-        return await prisma.coupons.findMany({
-            where: { status },
-            orderBy: { created_at: 'desc' }
-        });
+    async list(filters = {}, pagination = {}) {
+        const { status, page = 1, limit = 20 } = { ...filters, ...pagination };
+        const offset = (page - 1) * limit;
+        
+        const where = status ? { status } : {};
+        
+        const [items, total] = await Promise.all([
+            prisma.coupons.findMany({
+                where,
+                skip: offset,
+                take: limit,
+                orderBy: { created_at: 'desc' },
+                include: {
+                    _count: {
+                        select: { usages: true }
+                    }
+                }
+            }),
+            prisma.coupons.count({ where })
+        ]);
+        
+        return { items, total, page, limit };
     }
 
     async update(id, data) {
@@ -33,8 +49,37 @@ class CouponDAO {
         });
     }
 
+    async updateStatus(id, status) {
+        return await prisma.coupons.update({
+            where: { id },
+            data: { status }
+        });
+    }
+
     async delete(id) {
-        return await prisma.coupons.delete({ where: { id } });
+        return await prisma.coupons.update({
+            where: { id },
+            data: { status: 'DISABLED' }
+        });
+    }
+
+    async getUsageHistory(couponId, pagination = {}) {
+        const { page = 1, limit = 50 } = pagination;
+        const offset = (page - 1) * limit;
+        
+        const [usage, total] = await Promise.all([
+            prisma.coupon_usage.findMany({
+                where: { coupon_id: couponId },
+                skip: offset,
+                take: limit,
+                orderBy: { created_at: 'desc' }
+            }),
+            prisma.coupon_usage.count({
+                where: { coupon_id: couponId }
+            })
+        ]);
+        
+        return { usage, total, page, limit };
     }
 
     async validateCoupon(code, userId, orderValue) {

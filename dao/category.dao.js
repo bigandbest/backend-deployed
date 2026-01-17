@@ -72,6 +72,19 @@ class CategoryDAO {
         });
     }
 
+    async updateSubcategory(id, data) {
+        return await prisma.subcategories.update({
+            where: { id },
+            data
+        });
+    }
+
+    async deleteSubcategory(id) {
+        return await prisma.subcategories.delete({
+            where: { id }
+        });
+    }
+
     // --- Group Operations ---
     async createGroup(data) {
         return await prisma.groups.create({
@@ -83,6 +96,19 @@ class CategoryDAO {
         return await prisma.groups.findMany({
             where: { subcategory_id: subcategoryId },
             orderBy: { sort_order: 'asc' }
+        });
+    }
+
+    async updateGroup(id, data) {
+        return await prisma.groups.update({
+            where: { id },
+            data
+        });
+    }
+
+    async deleteGroup(id) {
+        return await prisma.groups.delete({
+            where: { id }
         });
     }
 

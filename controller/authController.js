@@ -2,6 +2,7 @@ import { supabase } from "../config/supabaseClient.js";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import { setSessionCookie, clearSessionCookie } from "../utils/cookieUtils.js";
+import UserDAO from "../dao/user.dao.js";
 import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -119,9 +120,8 @@ export const updateUserAvatar = async (req, res) => {
 
     const userId = req.user.id;
     const file = req.file;
-    const fileName = `avatar_${userId}_${Date.now()}.${
-      file.mimetype.split("/")[1]
-    }`;
+    const fileName = `avatar_${userId}_${Date.now()}.${file.mimetype.split("/")[1]
+      }`;
 
     // Upload to Supabase Storage
     const { data: uploadData, error: uploadError } = await supabase.storage
@@ -140,17 +140,10 @@ export const updateUserAvatar = async (req, res) => {
       data: { publicUrl },
     } = supabase.storage.from("avatars").getPublicUrl(fileName);
 
-    // Update user record
-    const { error: updateError } = await supabase
-      .from("users")
-      .update({ avatar: publicUrl })
-      .eq("id", userId);
+    // Update user record using DAO
+    const updatedUser = await UserDAO.updateUser(userId, { avatar: publicUrl });
 
-    if (updateError) {
-      return res.status(500).json({ error: "Failed to update user profile" });
-    }
-
-    res.json({ success: true, avatarUrl: publicUrl });
+    res.json({ success: true, avatarUrl: publicUrl, user: updatedUser });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -160,15 +153,16 @@ export const removeUserAvatar = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Update user record to remove avatar
-    const { error } = await supabase
-      .from("users")
-      .update({ avatar: null })
-      .eq("id", userId);
-
-    if (error) {
-      return res.status(500).json({ error: "Failed to remove avatar" });
+    // Get user to find avatar filename using DAO
+    const user = await UserDAO.getUserById(userId);
+    if (user && user.avatar) {
+      const fileName = user.avatar.split("/").pop();
+      // Remove from storage
+      await supabase.storage.from("avatars").remove([fileName]);
     }
+
+    // Update user record to remove avatar using DAO
+    await UserDAO.updateUser(userId, { avatar: null });
 
     res.json({ success: true });
   } catch (error) {

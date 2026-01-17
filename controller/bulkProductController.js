@@ -1,51 +1,32 @@
-import { supabase } from "../config/supabaseClient.js";
+import ProductDAO from "../dao/product.dao.js";
+import BulkProductSettingsDAO from "../dao/bulk-product-settings.dao.js";
 
 // Get single product with bulk settings (including variants)
 export const getProductBulkSettings = async (req, res) => {
   try {
     const { product_id } = req.params;
     const { variant_id } = req.query;
-    
+
     console.log('Getting bulk settings for product:', product_id, 'variant:', variant_id);
-    
-    // Get product data
-    const { data: product, error: productError } = await supabase
-      .from('products')
-      .select('id, name, price')
-      .eq('id', product_id)
-      .single();
 
-    if (productError) {
-      console.error('Product fetch error:', productError);
-      return res.status(500).json({ success: false, error: productError.message });
+    // Get product data using DAO
+    const product = await ProductDAO.getProductById(product_id);
+
+    if (!product) {
+      return res.status(404).json({ success: false, error: 'Product not found' });
     }
 
-    // Get bulk settings for product or variant
-    let bulkQuery = supabase
-      .from('bulk_product_settings')
-      .select('*')
-      .eq('product_id', product_id);
-
-    if (variant_id) {
-      bulkQuery = bulkQuery.eq('variant_id', variant_id);
-    } else {
-      bulkQuery = bulkQuery.is('variant_id', null);
-    }
-
-    const { data: bulkSettings, error: bulkError } = await bulkQuery;
-
-    // Don't fail if table structure is incomplete
-    if (bulkError && !bulkError.message.includes('does not exist')) {
-      console.error('Bulk settings fetch error:', bulkError);
-      return res.status(500).json({ success: false, error: bulkError.message });
-    }
+    // Get bulk settings for product or variant using DAO
+    const bulkSettings = await BulkProductSettingsDAO.getSettings(product_id, variant_id);
 
     console.log('Found bulk settings:', bulkSettings);
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       product: {
-        ...product,
+        id: product.id,
+        name: product.name,
+        price: product.price,
         bulk_product_settings: bulkSettings || []
       }
     });
@@ -58,37 +39,7 @@ export const getProductBulkSettings = async (req, res) => {
 // Get all products with bulk settings (including variants)
 export const getBulkProducts = async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('products')
-      .select(`
-        id,
-        name,
-        image,
-        price,
-        bulk_product_settings (
-          id,
-          variant_id,
-          min_quantity,
-          max_quantity,
-          bulk_price,
-          discount_percentage,
-          is_bulk_enabled,
-          is_variant_bulk,
-          tier_name
-        ),
-        product_variants (
-          id,
-          variant_name,
-          variant_price,
-          variant_weight,
-          variant_unit
-        )
-      `)
-      .order('name');
-
-    if (error) {
-      return res.status(500).json({ success: false, error: error.message });
-    }
+    const data = await BulkProductSettingsDAO.listAllWithProducts();
 
     return res.json({ success: true, products: data });
   } catch (error) {
@@ -100,29 +51,11 @@ export const getBulkProducts = async (req, res) => {
 export const getVariantBulkSettings = async (req, res) => {
   try {
     const { variant_id } = req.params;
-    
-    const { data, error } = await supabase
-      .from('bulk_product_settings')
-      .select(`
-        *,
-        product_variants (
-          id,
-          variant_name,
-          variant_price,
-          variant_weight,
-          variant_unit,
-          variant_stock
-        )
-      `)
-      .eq('variant_id', variant_id)
-      .single();
 
-    if (error && error.code !== 'PGRST116') {
-      return res.status(500).json({ success: false, error: error.message });
-    }
+    const data = await BulkProductSettingsDAO.getByVariantId(variant_id);
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       settings: data,
       hasBulkPricing: !!data && data.is_bulk_enabled
     });
@@ -137,19 +70,8 @@ export const updateBulkSettings = async (req, res) => {
     const { product_id } = req.params;
     const { variant_id, min_quantity, max_quantity, bulk_price, discount_percentage, is_bulk_enabled } = req.body;
 
-    // Check if bulk settings exist
-    let existingQuery = supabase
-      .from('bulk_product_settings')
-      .select('id')
-      .eq('product_id', product_id);
-
-    if (variant_id) {
-      existingQuery = existingQuery.eq('variant_id', variant_id);
-    } else {
-      existingQuery = existingQuery.is('variant_id', null);
-    }
-
-    const { data: existing } = await existingQuery.maybeSingle();
+    // Check if bulk settings exist using DAO
+    const existing = await BulkProductSettingsDAO.findExisting(product_id, variant_id);
 
     const settingsData = {
       min_quantity: parseInt(min_quantity),
@@ -161,37 +83,20 @@ export const updateBulkSettings = async (req, res) => {
       updated_at: new Date().toISOString()
     };
 
-    let result;
+    let data;
     if (existing) {
-      // Update existing
-      const { data, error } = await supabase
-        .from('bulk_product_settings')
-        .update(settingsData)
-        .eq('id', existing.id)
-        .select()
-        .single();
-      
-      result = { data, error };
+      // Update existing using DAO
+      data = await BulkProductSettingsDAO.update(existing.id, settingsData);
     } else {
-      // Create new
-      const { data, error } = await supabase
-        .from('bulk_product_settings')
-        .insert([{
-          product_id,
-          variant_id: variant_id || null,
-          ...settingsData
-        }])
-        .select()
-        .single();
-      
-      result = { data, error };
+      // Create new using DAO
+      data = await BulkProductSettingsDAO.create({
+        product_id,
+        variant_id: variant_id || null,
+        ...settingsData
+      });
     }
 
-    if (result.error) {
-      return res.status(500).json({ success: false, error: result.error.message });
-    }
-
-    return res.json({ success: true, settings: result.data });
+    return res.json({ success: true, settings: data });
   } catch (error) {
     return res.status(500).json({ success: false, error: error.message });
   }

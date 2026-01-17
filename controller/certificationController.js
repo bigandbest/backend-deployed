@@ -1,14 +1,9 @@
-import { supabase } from "../config/supabaseClient.js";
+import CertificationDAO from "../dao/certification.dao.js";
 
 // Get all certifications (for admin)
 export const getAllCertifications = async (req, res) => {
     try {
-        const { data, error } = await supabase
-            .from("certifications")
-            .select("*")
-            .order("sort_order", { ascending: true });
-
-        if (error) throw error;
+        const data = await CertificationDAO.listCertifications(false);
 
         res.status(200).json({ success: true, certifications: data });
     } catch (err) {
@@ -20,13 +15,7 @@ export const getAllCertifications = async (req, res) => {
 // Get active certifications (for frontend)
 export const getActiveCertifications = async (req, res) => {
     try {
-        const { data, error } = await supabase
-            .from("certifications")
-            .select("*")
-            .eq("active", true)
-            .order("sort_order", { ascending: true });
-
-        if (error) throw error;
+        const data = await CertificationDAO.listCertifications(true);
 
         res.status(200).json({ success: true, certifications: data });
     } catch (err) {
@@ -60,19 +49,15 @@ export const addCertification = async (req, res) => {
         const { data: urlData } = supabase.storage.from("addBanner").getPublicUrl(fileName);
         const image_url = urlData.publicUrl;
 
-        const { data, error } = await supabase
-            .from("certifications")
-            .insert([{
-                name,
-                image_url,
-                description,
-                active: active === 'true' || active === true,
-                sort_order: sort_order || 0
-            }])
-            .select()
-            .single();
+        const data = await CertificationDAO.createCertification({
+            name,
+            image_url,
+            description,
+            active: active === 'true' || active === true,
+            sort_order: parseInt(sort_order || 0)
+        });
 
-        if (error) throw error;
+
 
         res.status(201).json({ success: true, certification: data });
     } catch (err) {
@@ -110,14 +95,9 @@ export const updateCertification = async (req, res) => {
             updates.image_url = urlData.publicUrl;
         }
 
-        const { data, error } = await supabase
-            .from("certifications")
-            .update(updates)
-            .eq("id", id)
-            .select()
-            .single();
+        const data = await CertificationDAO.updateCertification(id, updates);
 
-        if (error) throw error;
+
 
         res.status(200).json({ success: true, certification: data });
     } catch (err) {
@@ -130,12 +110,7 @@ export const updateCertification = async (req, res) => {
 export const deleteCertification = async (req, res) => {
     try {
         const { id } = req.params;
-        const { error } = await supabase
-            .from("certifications")
-            .delete()
-            .eq("id", id);
-
-        if (error) throw error;
+        await CertificationDAO.deleteCertification(id);
 
         res.status(200).json({ success: true, message: "Certification deleted successfully" });
     } catch (err) {

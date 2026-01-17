@@ -1,4 +1,8 @@
 import { supabase } from "../config/supabaseClient.js";
+import ProductBrandDAO from "../dao/product-brand.dao.js";
+import BrandDAO from "../dao/brand.dao.js";
+import ProductDAO from "../dao/product.dao.js";
+import prisma from "../utils/prisma.js";
 
 // 1️⃣ Map a single product to a Brand using IDs
 export const mapProductToBrand = async (req, res) => {
@@ -9,20 +13,12 @@ export const mapProductToBrand = async (req, res) => {
       return res.status(400).json({ error: 'product_id and brand_id are required.' });
     }
 
-    // Insert mapping (ignore if duplicate)
-    const { error } = await supabase
-      .from('product_brand')
-      .insert([{ product_id, brand_id }]);
-
-    if (error) {
-      if (error.code === '23505') {
-        return res.status(409).json({ error: 'Mapping already exists.' });
-      }
-      return res.status(500).json({ error: error.message });
-    }
+    // Insert mapping using DAO
+    await ProductBrandDAO.link(product_id, brand_id);
 
     res.status(201).json({ message: 'Product mapped to Brand successfully.' });
   } catch (err) {
+    console.error('Map product to brand error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -32,16 +28,11 @@ export const removeProductFromBrand = async (req, res) => {
   try {
     const { product_id, brand_id } = req.body;
 
-    const { error } = await supabase
-      .from('product_brand')
-      .delete()
-      .eq('product_id', product_id)
-      .eq('brand_id', brand_id);
-
-    if (error) return res.status(500).json({ error: error.message });
+    await ProductBrandDAO.unlink(product_id, brand_id);
 
     res.status(200).json({ message: 'Mapping removed successfully.' });
   } catch (err) {
+    console.error('Remove product from brand error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -51,15 +42,17 @@ export const getBrandsForProduct = async (req, res) => {
   try {
     const { product_id } = req.params;
 
-    const { data, error } = await supabase
-      .from('product_brand')
-      .select('brand_id, brand (id, name, image_url)')
-      .eq('product_id', product_id);
+    const data = await ProductBrandDAO.listBrandsByProduct(product_id);
 
-    if (error) return res.status(500).json({ error: error.message });
+    // Transforming to match expected response format if needed
+    const formattedData = data.map(item => ({
+      brand_id: item.brand_id,
+      brand: item.brand
+    }));
 
-    res.status(200).json(data);
+    res.status(200).json(formattedData);
   } catch (err) {
+    console.error('Get brands for product error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -69,15 +62,17 @@ export const getProductsForBrand = async (req, res) => {
   try {
     const { brand_id } = req.params;
 
-    const { data, error } = await supabase
-      .from('product_brand')
-      .select('product_id, products (id, name, price, rating, image, category)')
-      .eq('brand_id', brand_id);
+    const data = await ProductBrandDAO.listProductsByBrand(brand_id);
 
-    if (error) return res.status(500).json({ error: error.message });
+    // Transforming to match expected response format
+    const formattedData = data.map(item => ({
+      product_id: item.product_id,
+      products: item.product
+    }));
 
-    res.status(200).json(data);
+    res.status(200).json(formattedData);
   } catch (err) {
+    console.error('Get products for brand error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -92,38 +87,28 @@ export const bulkMapByNames = async (req, res) => {
     }
 
     // 1. Get Brand ID from name
-    const { data: brandData, error: brandError } = await supabase
-      .from('brand')
-      .select('id')
-      .eq('name', brand_name)
-      .single();
+    const brand = await prisma.brand.findFirst({
+      where: { name: brand_name },
+      select: { id: true }
+    });
 
-    if (brandError || !brandData) {
+    if (!brand) {
       return res.status(404).json({ error: 'Brand not found.' });
     }
 
     // 2. Get product IDs from names
-    const { data: products, error: productError } = await supabase
-      .from('products')
-      .select('id, name')
-      .in('name', product_names);
+    const products = await prisma.products.findMany({
+      where: { name: { in: product_names } },
+      select: { id: true, name: true }
+    });
 
-    if (productError || !products.length) {
+    if (!products.length) {
       return res.status(404).json({ error: 'No matching products found.' });
     }
 
-    // 3. Map each product to Brand
-    const inserts = products.map(p => ({
-      product_id: p.id,
-      brand_id: brandData.id
-    }));
-
-    const { error: insertError } = await supabase
-      .from('product_brand')
-      .insert(inserts, { upsert: false });
-
-    if (insertError && insertError.code !== '23505') {
-      return res.status(500).json({ error: insertError.message });
+    // 3. Map each product to Brand using DAO
+    for (const p of products) {
+      await ProductBrandDAO.link(p.id, brand.id);
     }
 
     res.status(201).json({
