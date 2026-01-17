@@ -1,53 +1,18 @@
-import { supabase } from "../config/supabaseClient.js";
-
-// Variant join string - used consistently across all product queries
-const VARIANT_JOIN = `
-  product_variants!left(
-    id,
-    variant_name,
-    variant_price,
-    variant_old_price,
-    variant_discount,
-    variant_stock,
-    variant_weight,
-    variant_unit,
-    variant_image_url,
-    shipping_amount,
-    is_default,
-    active,
-    created_at
-  )
-`;
+import ProductDAO from "../dao/product.dao.js";
 
 // Get all products for admin with full details and joins
 export const getAllProductsForAdmin = async (req, res) => {
   try {
-    // Fetch with join to groups, subcategories, categories, and variants
-    const { data, error } = await supabase
-      .from("products")
-      .select(
-        `
-        *, 
-        category:categories(id, name),
-        groups(id, name, subcategories(id, name, categories(id, name))),
-        subcategories(id, name, categories(id, name)),
-        ${VARIANT_JOIN}
-      `
-      )
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    }
+    // Use Prisma through ProductDAO instead of Supabase
+    const products = await ProductDAO.listProducts(
+      {},
+      { limit: 1000, page: 1 },
+    );
 
     res.status(200).json({
       success: true,
-      products: data || [],
-      total: data?.length || 0,
+      products: products.items || [],
+      total: products.total || 0,
     });
   } catch (err) {
     console.error("Error fetching products:", err);
@@ -126,7 +91,6 @@ export const updateProductWarehouseMapping = async (req, res) => {
       enable_fallback: enable_fallback || false,
       warehouse_notes: warehouse_notes || null,
       assigned_warehouse_ids: assigned_warehouse_ids || [],
-      updated_at: new Date().toISOString(),
     };
 
     // Add stock-related fields if provided (only include fields that exist in database)
@@ -162,64 +126,23 @@ export const updateProductWarehouseMapping = async (req, res) => {
     if (images && Array.isArray(images)) {
       updateData.images = images;
     }
-    // Note: initial_stock, auto_distribute_to_zones, zone_distribution_quantity are explicitly excluded above
 
-    console.log("Update data being sent to Supabase:", updateData);
+    console.log("Update data being sent to Prisma:", updateData);
 
-    // First check if the product exists
-    const { data: existingProduct, error: checkError } = await supabase
-      .from("products")
-      .select("id")
-      .eq("id", productId)
-      .single();
+    // Update the product using Prisma
+    const product = await ProductDAO.updateProduct(productId, updateData);
 
-    if (checkError || !existingProduct) {
-      console.error("Product not found:", checkError);
-      return res.status(404).json({
-        success: false,
-        error: "Product not found",
-      });
-    }
-
-    // Update the product
-    const { data, error } = await supabase
-      .from("products")
-      .update(updateData)
-      .eq("id", productId)
-      .select()
-      .single();
-
-    if (error) {
-      console.error("Supabase error details:", error);
-      console.error("Error code:", error.code);
-      console.error("Error message:", error.message);
-      console.error("Error details:", error.details);
-      return res.status(500).json({
-        success: false,
-        error: error.message,
-        details: error.details || null,
-      });
-    }
-
-    if (!data) {
-      console.log("No data returned from Supabase update");
-      return res.status(404).json({
-        success: false,
-        error: "Product not found",
-      });
-    }
-
-    console.log("Product updated successfully:", data);
+    console.log("Product updated successfully:", product);
     res.status(200).json({
       success: true,
       message: "Warehouse mapping updated successfully",
-      product: data,
+      product,
     });
   } catch (err) {
     console.error("Error updating warehouse mapping:", err);
     res.status(500).json({
       success: false,
-      error: "An unexpected error occurred. Please try again.",
+      error: err.message || "An unexpected error occurred. Please try again.",
     });
   }
 };
@@ -236,29 +159,10 @@ export const getProductForAdmin = async (req, res) => {
       });
     }
 
-    // Fetch product with warehouse details and variants
-    const { data, error } = await supabase
-      .from("products")
-      .select(
-        `
-        *, 
-        groups(id, name, subcategories(id, name, categories(id, name))),
-        subcategories(id, name, categories(id, name)),
-        ${VARIANT_JOIN}
-      `
-      )
-      .eq("id", productId)
-      .single();
+    // Fetch product with details using Prisma
+    const product = await ProductDAO.getProductById(productId);
 
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    }
-
-    if (!data) {
+    if (!product) {
       return res.status(404).json({
         success: false,
         error: "Product not found",
@@ -267,7 +171,7 @@ export const getProductForAdmin = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      product: data,
+      product,
     });
   } catch (err) {
     console.error("Error fetching product:", err);
@@ -293,13 +197,9 @@ export const deleteProductForAdmin = async (req, res) => {
     console.log("Deleting product:", productId);
 
     // First check if product exists
-    const { data: existingProduct, error: fetchError } = await supabase
-      .from("products")
-      .select("id, name")
-      .eq("id", productId)
-      .single();
+    const existingProduct = await ProductDAO.getProductById(productId);
 
-    if (fetchError || !existingProduct) {
+    if (!existingProduct) {
       return res.status(404).json({
         success: false,
         error: "Product not found",
@@ -307,18 +207,7 @@ export const deleteProductForAdmin = async (req, res) => {
     }
 
     // Delete the product
-    const { error } = await supabase
-      .from("products")
-      .delete()
-      .eq("id", productId);
-
-    if (error) {
-      console.error("Supabase delete error:", error);
-      return res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    }
+    await ProductDAO.deleteProduct(productId);
 
     res.status(200).json({
       success: true,
@@ -356,6 +245,12 @@ export const updateProduct = async (req, res) => {
       product_variants,
       groups,
       subcategories,
+      variants,
+      category,
+      subcategory,
+      group,
+      brands,
+      reviews,
       // Fields that don't exist in products table schema
       auto_distribute_to_zones,
       initial_stock,
@@ -365,24 +260,18 @@ export const updateProduct = async (req, res) => {
 
     // Convert empty strings to null for UUID fields
     if (fieldsToUpdate.category_id === "") fieldsToUpdate.category_id = null;
-    if (fieldsToUpdate.subcategory_id === "") fieldsToUpdate.subcategory_id = null;
+    if (fieldsToUpdate.subcategory_id === "")
+      fieldsToUpdate.subcategory_id = null;
     if (fieldsToUpdate.group_id === "") fieldsToUpdate.group_id = null;
     if (fieldsToUpdate.store_id === "") fieldsToUpdate.store_id = null;
-
-    // Add updated timestamp
-    fieldsToUpdate.updated_at = new Date().toISOString();
 
     console.log("Fields to update:", fieldsToUpdate);
 
     // Check if product exists
-    const { data: existingProduct, error: checkError } = await supabase
-      .from("products")
-      .select("id")
-      .eq("id", productId)
-      .single();
+    const existingProduct = await ProductDAO.getProductById(productId);
 
-    if (checkError || !existingProduct) {
-      console.error("Product not found:", checkError);
+    if (!existingProduct) {
+      console.error("Product not found");
       return res.status(404).json({
         success: false,
         error: "Product not found",
@@ -390,41 +279,26 @@ export const updateProduct = async (req, res) => {
     }
 
     // Update the product
-    const { data, error } = await supabase
-      .from("products")
-      .update(fieldsToUpdate)
-      .eq("id", productId)
-      .select()
-      .single();
+    const product = await ProductDAO.updateProduct(productId, fieldsToUpdate);
 
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({
-        success: false,
-        error: error.message,
-        details: error.details || null,
-      });
-    }
-
-    if (!data) {
+    if (!product) {
       return res.status(404).json({
         success: false,
         error: "Product not found after update",
       });
     }
 
-    console.log("Product updated successfully:", data);
+    console.log("Product updated successfully:", product);
     res.status(200).json({
       success: true,
       message: "Product updated successfully",
-      product: data,
+      product,
     });
   } catch (err) {
     console.error("Error updating product:", err);
     res.status(500).json({
       success: false,
-      error: "An unexpected error occurred. Please try again.",
+      error: err.message || "An unexpected error occurred. Please try again.",
     });
   }
 };
-

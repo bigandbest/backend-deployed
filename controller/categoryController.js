@@ -36,8 +36,6 @@ export const addCategory = async (req, res) => {
       imageUrl = urlData.publicUrl;
     }
 
-
-
     const data = await CategoryDAO.createCategory({
       ...categoryData,
       image_url: imageUrl,
@@ -93,12 +91,10 @@ export const updateCategory = async (req, res) => {
       imageUrl = urlData.publicUrl;
     }
 
-
-
     const data = await CategoryDAO.updateCategory(id, {
       ...updates,
       image_url: imageUrl,
-      updated_at: new Date()
+      updated_at: new Date(),
     });
 
     res.status(200).json({
@@ -120,11 +116,11 @@ export const updateCategory = async (req, res) => {
 // We'll use supabase for this check for now or import ProductDAO?
 // Let's import ProductDAO? No, circular dependency potential if not careful? No.
 // Actually, let's use supabase for the product check as it's a specific logic.
-// Or just use CategoryDAO.deleteCategory and handle FK error? 
-// Prisma throws P2003 on FK constraint. 
+// Or just use CategoryDAO.deleteCategory and handle FK error?
+// Prisma throws P2003 on FK constraint.
 // But we need to handle "reassign" logic.
 
-// I will try to use Supabase for the check to minimize risk of changing logic flow too much 
+// I will try to use Supabase for the check to minimize risk of changing logic flow too much
 // until we have `ProductDAO.countByCategoryId`.
 
 // Actually, I can use `CategoryDAO` to delete subcategories and groups as requested in controller.
@@ -157,7 +153,9 @@ export const deleteCategory = async (req, res) => {
 
     if (productsError) {
       console.error("Error checking products:", productsError);
-      return res.status(500).json({ success: false, error: productsError.message });
+      return res
+        .status(500)
+        .json({ success: false, error: productsError.message });
     }
 
     if (products && products.length > 0) {
@@ -169,9 +167,13 @@ export const deleteCategory = async (req, res) => {
           .eq("category_id", id);
 
         if (deleteProductsError) {
-          return res.status(500).json({ success: false, error: "Failed to delete related products" });
+          return res
+            .status(500)
+            .json({
+              success: false,
+              error: "Failed to delete related products",
+            });
         }
-
       } else if (options.reassignProductsTo) {
         // Reassign products to another category
         const { error: reassignError } = await supabase
@@ -180,7 +182,9 @@ export const deleteCategory = async (req, res) => {
           .eq("category_id", id);
 
         if (reassignError) {
-          return res.status(500).json({ success: false, error: "Failed to reassign products" });
+          return res
+            .status(500)
+            .json({ success: false, error: "Failed to reassign products" });
         }
       } else {
         // Return error indicating category has products
@@ -198,15 +202,15 @@ export const deleteCategory = async (req, res) => {
     const subcategories = await CategoryDAO.getSubcategoriesByCategoryId(id);
 
     if (subcategories && subcategories.length > 0) {
-      const subcategoryIds = subcategories.map(sub => sub.id);
+      const subcategoryIds = subcategories.map((sub) => sub.id);
 
       // Prisma doesn't support "delete in array" easily via DAO single method?
-      // `deleteGroup` takes ID. 
+      // `deleteGroup` takes ID.
       // We can iterate or use `prisma.groups.deleteMany` if we had it.
       // Since I don't want to expose prisma directly if possible, but existing code used `in`.
-      // I will use `supabase` for bulk delete of groups/subcategories for efficiency 
+      // I will use `supabase` for bulk delete of groups/subcategories for efficiency
       // OR iterate DAO. Iterating is slow.
-      // I'll use `supabase` for bulk delete here to maintain performance parity 
+      // I'll use `supabase` for bulk delete here to maintain performance parity
       // UNTIL `CategoryDAO` supports `deleteGroupsBySubCategoryIds`.
       // But I am supposed to use DAO.
       // I'll stick to Supabase for the bulk deletes here to avoid "N+1" delete calls which is bad.
@@ -216,10 +220,7 @@ export const deleteCategory = async (req, res) => {
         .delete()
         .in("subcategory_id", subcategoryIds);
 
-      await supabase
-        .from("subcategories")
-        .delete()
-        .eq("category_id", id);
+      await supabase.from("subcategories").delete().eq("category_id", id);
     }
 
     // Delete the category using DAO
@@ -238,49 +239,13 @@ export const deleteCategory = async (req, res) => {
 // Get all subcategories with their category info
 export const getAllSubcategories = async (req, res) => {
   try {
-    // Fetches subcategories with category relation
-    // CategoryDAO does not have a method `getAllSubcategories` with join.
-    // `listCategories` returns categories.
-    // `getSubcategoriesByCategoryId` filters by ID.
-    // `getFullHierarchy` returns everything.
-    // I might need to add `listSubcategories` to `CategoryDAO` or use raw prisma?
-    // Let's rely on `supabase` fallback for "listing all subcategories" if DAO is missing it 
-    // OR update DAO.
-    // I should update DAO. But to save time I will use Supabase for this specific list query 
-    // IF I hadn't promised to refactor.
-    // I will use `CategoryDAO.getFullHierarchy` structure if possible? No.
-    // I'll keep the Supabase call for `getAllSubcategories` for now as `CategoryDAO` lacks `findAllSubcategories`.
-    // Wait, I should add it.
-    // But I will skip to save steps if acceptable.
-    // For now, I will modify `addSubcategory` and `updateSubcategory` which is critical logic.
-
-    /* Skipping replacement of getAllSubcategories (lines 225-257) */
-
-    // Actually, I can use `CategoryDAO` if I add `listSubcategories`.
-    // I'll skip replacing `getAllSubcategories` for this turn.
-
-    const { data, error } = await supabase
-      .from("subcategories")
-      .select(
-        `
-        *,
-        categories (
-          id,
-          name,
-          image_url,
-          icon
-        )
-      `
-      )
-      .eq("active", true)
-      .order("sort_order", { ascending: true });
-
-    if (error) throw error;
+    // Use Prisma through CategoryDAO
+    const subcategories = await CategoryDAO.listSubcategories(true);
 
     res.status(200).json({
       success: true,
-      subcategories: data,
-      total: data.length,
+      subcategories,
+      total: subcategories.length,
     });
   } catch (error) {
     console.error("Server error in getAllSubcategories:", error);
@@ -293,22 +258,14 @@ export const getSubcategoriesByCategory = async (req, res) => {
   try {
     const { categoryId } = req.params;
 
-    const { data, error } = await supabase
-      .from("subcategories")
-      .select("*")
-      .eq("category_id", categoryId)
-      .eq("active", true)
-      .order("sort_order", { ascending: true });
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
+    // Use Prisma through CategoryDAO
+    const subcategories =
+      await CategoryDAO.getSubcategoriesByCategoryId(categoryId);
 
     res.status(200).json({
       success: true,
-      subcategories: data,
-      total: data.length,
+      subcategories: subcategories.filter((s) => s.active !== false),
+      total: subcategories.filter((s) => s.active !== false).length,
     });
   } catch (error) {
     console.error("Server error in getSubcategoriesByCategory:", error);
@@ -350,8 +307,6 @@ export const addSubcategory = async (req, res) => {
 
       imageUrl = urlData.publicUrl;
     }
-
-
 
     const data = await CategoryDAO.createSubcategory({
       ...subcategoryData,
@@ -405,12 +360,10 @@ export const updateSubcategory = async (req, res) => {
       imageUrl = urlData.publicUrl;
     }
 
-
-
     const data = await CategoryDAO.updateSubcategory(id, {
       ...updates,
       image_url: imageUrl,
-      updated_at: new Date()
+      updated_at: new Date(),
     });
 
     res.status(200).json({
@@ -431,13 +384,10 @@ export const deleteSubcategory = async (req, res) => {
 
     // Delete related groups first
     // Delete related groups first
-    // Note: Using Supabase for bulk delete of groups to be efficient/safe 
+    // Note: Using Supabase for bulk delete of groups to be efficient/safe
     // unless CategoryDAO has deleteGroupsBySubcategoryId. It currently doesn't.
     // I'll stick to Supabase for the bulk delete part.
-    await supabase
-      .from("groups")
-      .delete()
-      .eq("subcategory_id", id);
+    await supabase.from("groups").delete().eq("subcategory_id", id);
 
     // Delete the subcategory
     await CategoryDAO.deleteSubcategory(id);
@@ -455,37 +405,13 @@ export const deleteSubcategory = async (req, res) => {
 // Get all groups with their subcategory and category info
 export const getAllGroups = async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from("groups")
-      .select(
-        `
-        *,
-        subcategories (
-          id,
-          name,
-          image_url,
-          icon,
-          categories (
-            id,
-            name,
-            image_url,
-            icon
-          )
-        )
-      `
-      )
-      .eq("active", true)
-      .order("sort_order", { ascending: true });
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
+    // Use Prisma through CategoryDAO
+    const groups = await CategoryDAO.listGroups(true);
 
     res.status(200).json({
       success: true,
-      groups: data,
-      total: data.length,
+      groups,
+      total: groups.length,
     });
   } catch (error) {
     console.error("Server error in getAllGroups:", error);
@@ -498,22 +424,13 @@ export const getGroupsBySubcategory = async (req, res) => {
   try {
     const { subcategoryId } = req.params;
 
-    const { data, error } = await supabase
-      .from("groups")
-      .select("*")
-      .eq("subcategory_id", subcategoryId)
-      .eq("active", true)
-      .order("sort_order", { ascending: true });
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
+    // Use Prisma through CategoryDAO
+    const groups = await CategoryDAO.getGroupsBySubcategoryId(subcategoryId);
 
     res.status(200).json({
       success: true,
-      groups: data,
-      total: data.length,
+      groups: groups.filter((g) => g.active !== false),
+      total: groups.filter((g) => g.active !== false).length,
     });
   } catch (error) {
     console.error("Server error in getGroupsBySubcategory:", error);
@@ -555,8 +472,6 @@ export const addGroup = async (req, res) => {
 
       imageUrl = urlData.publicUrl;
     }
-
-
 
     const data = await CategoryDAO.createGroup({
       ...groupData,
@@ -610,12 +525,10 @@ export const updateGroup = async (req, res) => {
       imageUrl = urlData.publicUrl;
     }
 
-
-
     const data = await CategoryDAO.updateGroup(id, {
       ...updates,
       image_url: imageUrl,
-      updated_at: new Date()
+      updated_at: new Date(),
     });
 
     res.status(200).json({
@@ -682,7 +595,6 @@ export const getCategoriesHierarchy = async (req, res) => {
   }
 };
 
-
 // Get subcategory details with category info
 export const getSubcategoryDetails = async (req, res) => {
   try {
@@ -699,7 +611,7 @@ export const getSubcategoryDetails = async (req, res) => {
           image_url,
           icon
         )
-      `
+      `,
       )
       .eq("id", subcategoryId)
       .eq("active", true)
@@ -758,12 +670,13 @@ export const getSubcategoriesForSection = async (req, res) => {
     }
 
     // Get subcategory IDs from mappings
-    const subcategoryIds = mappings.map(m => m.subcategory_id);
+    const subcategoryIds = mappings.map((m) => m.subcategory_id);
 
     // Fetch subcategory details with their category info
     const { data: subcategories, error: subError } = await supabase
       .from("subcategories")
-      .select(`
+      .select(
+        `
         *,
         categories (
           id,
@@ -771,7 +684,8 @@ export const getSubcategoriesForSection = async (req, res) => {
           image_url,
           icon
         )
-      `)
+      `,
+      )
       .in("id", subcategoryIds)
       .eq("active", true);
 
@@ -782,8 +696,10 @@ export const getSubcategoriesForSection = async (req, res) => {
 
     // Merge subcategory data with display_order from mappings
     const orderedSubcategories = mappings
-      .map(mapping => {
-        const subcategory = subcategories.find(s => s.id === mapping.subcategory_id);
+      .map((mapping) => {
+        const subcategory = subcategories.find(
+          (s) => s.id === mapping.subcategory_id,
+        );
         if (subcategory) {
           return {
             ...subcategory,
@@ -792,7 +708,7 @@ export const getSubcategoriesForSection = async (req, res) => {
         }
         return null;
       })
-      .filter(s => s !== null);
+      .filter((s) => s !== null);
 
     res.status(200).json({
       success: true,
@@ -822,10 +738,11 @@ export const getCategoriesForSection = async (req, res) => {
     }
 
     // Get category mappings for this section
-    const { data: categoryMappings, error: categoryMappingsError } = await supabase
-      .from("product_section_categories")
-      .select("category_id")
-      .eq("section_id", section.id);
+    const { data: categoryMappings, error: categoryMappingsError } =
+      await supabase
+        .from("product_section_categories")
+        .select("category_id")
+        .eq("section_id", section.id);
 
     if (categoryMappingsError) {
       console.error("Category mappings error:", categoryMappingsError);
@@ -833,12 +750,13 @@ export const getCategoriesForSection = async (req, res) => {
     }
 
     // Get subcategory mappings for this section
-    const { data: subcategoryMappings, error: subcategoryMappingsError } = await supabase
-      .from("section_subcategory_mappings")
-      .select("subcategory_id, display_order, is_active")
-      .eq("section_id", section.id)
-      .eq("is_active", true)
-      .order("display_order", { ascending: true });
+    const { data: subcategoryMappings, error: subcategoryMappingsError } =
+      await supabase
+        .from("section_subcategory_mappings")
+        .select("subcategory_id, display_order, is_active")
+        .eq("section_id", section.id)
+        .eq("is_active", true)
+        .order("display_order", { ascending: true });
 
     if (subcategoryMappingsError) {
       console.error("Subcategory mappings error:", subcategoryMappingsError);
@@ -846,8 +764,10 @@ export const getCategoriesForSection = async (req, res) => {
     }
 
     // If no mappings exist, return empty result
-    if ((!categoryMappings || categoryMappings.length === 0) &&
-      (!subcategoryMappings || subcategoryMappings.length === 0)) {
+    if (
+      (!categoryMappings || categoryMappings.length === 0) &&
+      (!subcategoryMappings || subcategoryMappings.length === 0)
+    ) {
       return res.status(200).json({
         success: true,
         categories: [],
@@ -884,32 +804,40 @@ export const getCategoriesForSection = async (req, res) => {
 
     // Add directly mapped categories
     if (categoryMappings && categoryMappings.length > 0) {
-      categoryMappings.forEach(m => categoryIdsSet.add(m.category_id));
+      categoryMappings.forEach((m) => categoryIdsSet.add(m.category_id));
     }
 
     // Add categories from mapped subcategories
     if (subcategoryMappings && subcategoryMappings.length > 0) {
-      const mappedSubcategoryIds = subcategoryMappings.map(m => m.subcategory_id);
+      const mappedSubcategoryIds = subcategoryMappings.map(
+        (m) => m.subcategory_id,
+      );
       allSubcategories
-        .filter(sub => mappedSubcategoryIds.includes(sub.id))
-        .forEach(sub => categoryIdsSet.add(sub.category_id));
+        .filter((sub) => mappedSubcategoryIds.includes(sub.id))
+        .forEach((sub) => categoryIdsSet.add(sub.category_id));
     }
 
     // Filter categories and build hierarchy
     const filteredCategories = allCategories
-      .filter(cat => categoryIdsSet.has(cat.id))
-      .map(category => {
+      .filter((cat) => categoryIdsSet.has(cat.id))
+      .map((category) => {
         // Get subcategories for this category
-        let subcategories = allSubcategories.filter(sub => sub.category_id === category.id);
+        let subcategories = allSubcategories.filter(
+          (sub) => sub.category_id === category.id,
+        );
 
         // If we have subcategory mappings, filter and order them
         if (subcategoryMappings && subcategoryMappings.length > 0) {
-          const mappedSubIds = subcategoryMappings.map(m => m.subcategory_id);
-          subcategories = subcategories.filter(sub => mappedSubIds.includes(sub.id));
+          const mappedSubIds = subcategoryMappings.map((m) => m.subcategory_id);
+          subcategories = subcategories.filter((sub) =>
+            mappedSubIds.includes(sub.id),
+          );
 
           // Add display_order from mappings
-          subcategories = subcategories.map(sub => {
-            const mapping = subcategoryMappings.find(m => m.subcategory_id === sub.id);
+          subcategories = subcategories.map((sub) => {
+            const mapping = subcategoryMappings.find(
+              (m) => m.subcategory_id === sub.id,
+            );
             return {
               ...sub,
               display_order: mapping ? mapping.display_order : 999,

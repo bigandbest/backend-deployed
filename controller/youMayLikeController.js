@@ -1,4 +1,10 @@
-import { supabase } from "../config/supabaseClient.js";
+import YouMayLikeDAO from "../dao/you-may-like.dao.js";
+import ProductDAO from "../dao/product.dao.js";
+
+/**
+ * You May Like Controller - Routes for "You May Like" product recommendations
+ * Updated to use you-may-like.dao.js
+ */
 
 // 1️⃣ Map a single product to the 'you_may_like' table
 export const mapProductToYouMayLike = async (req, res) => {
@@ -6,24 +12,25 @@ export const mapProductToYouMayLike = async (req, res) => {
     const { product_id } = req.body;
 
     if (!product_id) {
-      return res.status(400).json({ error: 'product_id is required.' });
+      return res.status(400).json({ error: "product_id is required." });
     }
 
-    // Insert mapping (ignore if duplicate)
-    const { error } = await supabase
-      .from('you_may_like')
-      .insert([{ product_id }]);
-
-    if (error) {
-      if (error.code === '23505') {
-        return res.status(409).json({ error: 'Product is already in "You May Like".' });
-      }
-      return res.status(500).json({ error: error.message });
+    // Check if already mapped
+    const exists = await YouMayLikeDAO.check(product_id);
+    if (exists) {
+      return res
+        .status(409)
+        .json({ error: 'Product is already in "You May Like".' });
     }
 
-    res.status(201).json({ message: 'Product added to "You May Like" successfully.' });
+    await YouMayLikeDAO.add(product_id);
+
+    res
+      .status(201)
+      .json({ message: 'Product added to "You May Like" successfully.' });
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    console.error("Error in mapProductToYouMayLike:", err);
+    res.status(500).json({ error: "Server error" });
   }
 };
 
@@ -32,31 +39,30 @@ export const removeProductFromYouMayLike = async (req, res) => {
   try {
     const { product_id } = req.body;
 
-    const { error } = await supabase
-      .from('you_may_like')
-      .delete()
-      .eq('product_id', product_id);
+    if (!product_id) {
+      return res.status(400).json({ error: "product_id is required." });
+    }
 
-    if (error) return res.status(500).json({ error: error.message });
+    await YouMayLikeDAO.remove(product_id);
 
-    res.status(200).json({ message: 'Product removed from "You May Like" successfully.' });
+    res
+      .status(200)
+      .json({ message: 'Product removed from "You May Like" successfully.' });
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    console.error("Error in removeProductFromYouMayLike:", err);
+    res.status(500).json({ error: "Server error" });
   }
 };
 
 // 3️⃣ Get all products from the 'you_may_like' table
 export const getYouMayLikeProducts = async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('you_may_like')
-      .select('product_id, products (id, name, price, rating, image, category)');
+    const products = await YouMayLikeDAO.getAll();
 
-    if (error) return res.status(500).json({ error: error.message });
-
-    res.status(200).json(data);
+    res.status(200).json(products);
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    console.error("Error in getYouMayLikeProducts:", err);
+    res.status(500).json({ error: "Server error" });
   }
 };
 
@@ -65,17 +71,18 @@ export const getYouMayLikeProductById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const { data, error } = await supabase
-      .from('you_may_like')
-      .select('product_id, products (id, name, price, rating, image, category)')
-      .eq('product_id', id)
-      .single();
+    const product = await YouMayLikeDAO.getById(id);
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (!product) {
+      return res
+        .status(404)
+        .json({ error: 'Product not found in "You May Like"' });
+    }
 
-    res.status(200).json(data);
+    res.status(200).json(product);
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    console.error("Error in getYouMayLikeProductById:", err);
+    res.status(500).json({ error: "Server error" });
   }
 };
 
@@ -85,39 +92,27 @@ export const bulkAddByNames = async (req, res) => {
     const { product_names } = req.body;
 
     if (!product_names || !Array.isArray(product_names)) {
-      return res.status(400).json({ error: 'product_names[] are required.' });
+      return res.status(400).json({ error: "product_names[] are required." });
     }
 
-    // 1. Get product IDs from names
-    const { data: products, error: productError } = await supabase
-      .from('products')
-      .select('id, name')
-      .in('name', product_names);
+    // Get product IDs from names using ProductDAO
+    const products = await ProductDAO.findByNames(product_names);
 
-    if (productError || !products.length) {
-      return res.status(404).json({ error: 'No matching products found.' });
+    if (!products || products.length === 0) {
+      return res.status(404).json({ error: "No matching products found." });
     }
 
-    // 2. Map each product to 'you_may_like'
-    const inserts = products.map(p => ({
-      product_id: p.id
-    }));
-
-    const { error: insertError } = await supabase
-      .from('you_may_like')
-      .insert(inserts, { upsert: false });
-
-    if (insertError && insertError.code !== '23505') {
-      return res.status(500).json({ error: insertError.message });
-    }
+    // Map each product to 'you_may_like'
+    const productIds = products.map((p) => p.id);
+    const result = await YouMayLikeDAO.bulkAdd(productIds);
 
     res.status(201).json({
       message: `Mapped ${products.length} products to "You May Like".`,
-      mapped_products: products.map(p => p.name)
+      mapped_products: products.map((p) => p.name),
+      count: result.count,
     });
-
   } catch (err) {
-    console.error('Bulk map error:', err.message);
-    res.status(500).json({ error: 'Server error' });
+    console.error("Bulk map error:", err.message);
+    res.status(500).json({ error: "Server error" });
   }
 };

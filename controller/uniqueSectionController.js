@@ -1,167 +1,155 @@
-import { supabase } from "../config/supabaseClient.js";
+import UniqueSectionDAO from "../dao/unique-section.dao.js";
+
+/**
+ * Unique Section Controller - Routes for unique sections and product mappings
+ * Updated to use unique-section.dao.js
+ */
 
 // Add Unique Section
-export async function addUniqueSection(req, res) {
+export const addUniqueSection = async (req, res) => {
   try {
-    const { name, section_type } = req.body; // Changed to section_type
-    const imageFile = req.file;
-    let imageUrl = null;
+    const { name, type, description } = req.body;
 
-    // Upload image to Supabase Storage if a file is provided
-    if (imageFile) {
-      const fileExt = imageFile.originalname.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from("uniqueSection").upload(fileName, imageFile.buffer, { contentType: imageFile.mimetype, upsert: true });
-
-      if (uploadError) return res.status(400).json({ success: false, error: uploadError.message });
-      const { data: urlData } = supabase.storage.from("uniqueSection").getPublicUrl(fileName);
-      imageUrl = urlData.publicUrl;
+    if (!name || !type) {
+      return res.status(400).json({ error: "Name and type are required" });
     }
 
-    // Insert new Unique Section into the 'unique_section' table
-    // Changed field to section_type
-    const { data, error } = await supabase.from("unique_section").insert([{ name, image_url: imageUrl, section_type }]).select().single();
-    if (error) { console.error(error); return res.status(400).json({ success: false, error: error.message }); }
-    res.status(201).json({ success: true, uniqueSection: data });
-  } catch (err) {
-    console.error("Add Unique Section Error:", err);
-    res.status(500).json({ success: false, error: err.message });
+    const section = await UniqueSectionDAO.create({ name, type, description });
+
+    res.status(201).json(section);
+  } catch (error) {
+    console.error("Error adding unique section:", error);
+    res.status(500).json({ error: error.message });
   }
-}
+};
 
 // Edit Unique Section
-export async function editUniqueSection(req, res) {
+export const editUniqueSection = async (req, res) => {
   try {
     const { id } = req.params;
-    // Changed to section_type
-    const { name, section_type } = req.body;
-    const imageFile = req.file;
-    // Changed to section_type
-    let updateData = { name, section_type };
+    const { name, type, description } = req.body;
 
-    // Update image if a new one is provided
-    if (imageFile) {
-      const fileExt = imageFile.originalname.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from("uniqueSection").upload(fileName, imageFile.buffer, { contentType: imageFile.mimetype, upsert: true });
-      if (uploadError) return res.status(400).json({ success: false, error: uploadError.message });
-      const { data: urlData } = supabase.storage.from("uniqueSection").getPublicUrl(fileName);
-      updateData.image_url = urlData.publicUrl;
+    if (!name || !type) {
+      return res.status(400).json({ error: "Name and type are required" });
     }
 
-    // Update the record in the 'unique_section' table
-    const { data, error } = await supabase.from("unique_section").update(updateData).eq("id", id).select().single();
-    if (error) return res.status(400).json({ success: false, error: error.message });
-    res.json({ success: true, uniqueSection: data });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const section = await UniqueSectionDAO.update(id, {
+      name,
+      type,
+      description,
+    });
+
+    if (!section) {
+      return res.status(404).json({ error: "Section not found" });
+    }
+
+    res.json(section);
+  } catch (error) {
+    console.error("Error editing unique section:", error);
+    res.status(500).json({ error: error.message });
   }
-}
+};
 
 // Delete Unique Section
-export async function deleteUniqueSection(req, res) {
+export const deleteUniqueSection = async (req, res) => {
   try {
     const { id } = req.params;
-    const { error } = await supabase.from("unique_section").delete().eq("id", id);
-    if (error) return res.status(400).json({ success: false, error: error.message });
-    res.json({ success: true, message: "Unique Section deleted successfully" });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    await UniqueSectionDAO.delete(id);
+    res.status(204).send();
+  } catch (error) {
+    console.error("Error deleting unique section:", error);
+    res.status(500).json({ error: error.message });
   }
-}
+};
 
 // View All Unique Sections
-export async function getAllUniqueSections(req, res) {
+export const getAllUniqueSections = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("unique_section").select("*");
-    if (error) return res.status(400).json({ success: false, error: error.message });
-    res.json({ success: true, uniqueSections: data });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const sections = await UniqueSectionDAO.getAll();
+    res.json(sections);
+  } catch (error) {
+    console.error("Error fetching unique sections:", error);
+    res.status(500).json({ error: error.message });
   }
-}
+};
 
 // View a Single Unique Section
-export async function getSingleUniqueSection(req, res) {
+export const getSingleUniqueSection = async (req, res) => {
   try {
     const { id } = req.params;
-    const { data, error } = await supabase
-      .from("unique_section")
-      .select("*")
-      .eq("id", id)
-      .single();
+    const section = await UniqueSectionDAO.getById(id);
 
-    if (error) return res.status(400).json({ success: false, error: error.message });
-    if (!data) return res.status(404).json({ success: false, error: "Unique Section not found" });
+    if (!section) {
+      return res.status(404).json({ error: "Section not found" });
+    }
 
-    res.json({ success: true, uniqueSection: data });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.json(section);
+  } catch (error) {
+    console.error("Error fetching unique section:", error);
+    res.status(500).json({ error: error.message });
   }
-}
+};
 
-// In uniqueSectionController.js
-export async function getUniqueSectionsByType(req, res) {
+// Get Unique Sections by Type
+export const getUniqueSectionsByType = async (req, res) => {
   try {
-    const { section_type } = req.params;
-
-    const { data, error } = await supabase
-      .from("unique_section")
-      .select("*")
-      .eq("section_type", section_type);
-
-    if (error) return res.status(400).json({ success: false, error: error.message });
-
-    res.json({ success: true, uniqueSections: data });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const { type } = req.params;
+    const sections = await UniqueSectionDAO.getByType(type);
+    res.json(sections);
+  } catch (error) {
+    console.error("Error fetching sections by type:", error);
+    res.status(500).json({ error: error.message });
   }
-}
+};
 
-// --- Unique Section Product Mapping Logic (Merged) ---
+// --- Unique Section Product Mapping Logic ---
 
 // Map a single product to a Unique Section using IDs
 export const mapProductToUniqueSection = async (req, res) => {
   try {
-    const { product_id, unique_section_id } = req.body;
+    const { section_id, product_id } = req.body;
 
-    if (!product_id || !unique_section_id) {
-      return res.status(400).json({ error: 'product_id and unique_section_id are required.' });
+    if (!section_id || !product_id) {
+      return res
+        .status(400)
+        .json({ error: "section_id and product_id are required" });
     }
 
-    const { error } = await supabase
-      .from('unique_section_product')
-      .insert([{ product_id, unique_section_id }]);
-
-    if (error) {
-      if (error.code === '23505') {
-        return res.status(409).json({ error: 'Mapping already exists.' });
-      }
-      return res.status(500).json({ error: error.message });
+    // Check if mapping already exists
+    const exists = await UniqueSectionDAO.checkProductInSection(
+      section_id,
+      product_id,
+    );
+    if (exists) {
+      return res
+        .status(409)
+        .json({ error: "Product is already mapped to this section" });
     }
 
-    res.status(201).json({ message: 'Product mapped to Unique Section successfully.' });
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    const mapping = await UniqueSectionDAO.mapProduct(section_id, product_id);
+    res.status(201).json({ message: "Product mapped successfully", mapping });
+  } catch (error) {
+    console.error("Error mapping product:", error);
+    res.status(500).json({ error: error.message });
   }
 };
 
 // Remove a product from a Unique Section
 export const removeProductFromUniqueSection = async (req, res) => {
   try {
-    const { product_id, unique_section_id } = req.body;
+    const { section_id, product_id } = req.body;
 
-    const { error } = await supabase
-      .from('unique_section_product')
-      .delete()
-      .eq('product_id', product_id)
-      .eq('unique_section_id', unique_section_id);
+    if (!section_id || !product_id) {
+      return res
+        .status(400)
+        .json({ error: "section_id and product_id are required" });
+    }
 
-    if (error) return res.status(500).json({ error: error.message });
-
-    res.status(200).json({ message: 'Mapping removed successfully.' });
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    await UniqueSectionDAO.removeProduct(section_id, product_id);
+    res.status(200).json({ message: "Product removed from section" });
+  } catch (error) {
+    console.error("Error removing product:", error);
+    res.status(500).json({ error: error.message });
   }
 };
 
@@ -169,35 +157,23 @@ export const removeProductFromUniqueSection = async (req, res) => {
 export const getUniqueSectionsForProduct = async (req, res) => {
   try {
     const { product_id } = req.params;
-
-    const { data, error } = await supabase
-      .from('unique_section_product')
-      .select('unique_section_id, unique_section (id, name, image_url, section_type)')
-      .eq('product_id', product_id);
-
-    if (error) return res.status(500).json({ error: error.message });
-
-    res.status(200).json(data);
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    const sections = await UniqueSectionDAO.getSectionsByProduct(product_id);
+    res.json(sections);
+  } catch (error) {
+    console.error("Error fetching sections for product:", error);
+    res.status(500).json({ error: error.message });
   }
 };
 
 // Get all products from a Unique Section
 export const getProductsForUniqueSection = async (req, res) => {
   try {
-    const { unique_section_id } = req.params;
-
-    const { data, error } = await supabase
-      .from('unique_section_product')
-      .select('product_id, products (id, name, price, rating, image, category)')
-      .eq('unique_section_id', unique_section_id);
-
-    if (error) return res.status(500).json({ error: error.message });
-
-    res.status(200).json(data);
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    const { section_id } = req.params;
+    const products = await UniqueSectionDAO.getProductsBySection(section_id);
+    res.json(products);
+  } catch (error) {
+    console.error("Error fetching products for section:", error);
+    res.status(500).json({ error: error.message });
   }
 };
 
@@ -207,48 +183,40 @@ export const bulkMapUniqueSectionByNames = async (req, res) => {
     const { section_name, product_names } = req.body;
 
     if (!section_name || !product_names || !Array.isArray(product_names)) {
-      return res.status(400).json({ error: 'section_name and product_names[] are required.' });
+      return res
+        .status(400)
+        .json({ error: "section_name and product_names[] are required" });
     }
 
-    const { data: sectionData, error: sectionError } = await supabase
-      .from('unique_section')
-      .select('id')
-      .eq('name', section_name)
-      .single();
-
-    if (sectionError || !sectionData) {
-      return res.status(404).json({ error: 'Unique Section not found.' });
+    // Find section
+    const section = await UniqueSectionDAO.findByName(section_name);
+    if (!section) {
+      return res
+        .status(404)
+        .json({ error: `Section "${section_name}" not found` });
     }
 
-    const { data: products, error: productError } = await supabase
-      .from('products')
-      .select('id, name')
-      .in('name', product_names);
-
-    if (productError || !products.length) {
-      return res.status(404).json({ error: 'No matching products found.' });
+    // Find products
+    const products = await UniqueSectionDAO.findProductsByNames(product_names);
+    if (!products || products.length === 0) {
+      return res.status(404).json({ error: "No matching products found" });
     }
 
-    const inserts = products.map(p => ({
-      product_id: p.id,
-      unique_section_id: sectionData.id
-    }));
-
-    const { error: insertError } = await supabase
-      .from('unique_section_product')
-      .insert(inserts, { upsert: false });
-
-    if (insertError && insertError.code !== '23505') {
-      return res.status(500).json({ error: insertError.message });
-    }
+    // Bulk map products
+    const productIds = products.map((p) => p.id);
+    const result = await UniqueSectionDAO.bulkMapProducts(
+      section.id,
+      productIds,
+    );
 
     res.status(201).json({
-      message: `Mapped ${products.length} products to Unique Section "${section_name}".`,
-      mapped_products: products.map(p => p.name)
+      message: `Mapped ${products.length} products to "${section_name}"`,
+      section_id: section.id,
+      mapped_products: products.map((p) => p.name),
+      count: result.count,
     });
-
-  } catch (err) {
-    console.error('Bulk map error:', err.message);
-    res.status(500).json({ error: 'Server error' });
+  } catch (error) {
+    console.error("Bulk map error:", error);
+    res.status(500).json({ error: error.message });
   }
 };

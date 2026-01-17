@@ -385,6 +385,7 @@ const gracefulShutdown = async (server, signal) => {
   }, 10000); // 10 second timeout
 };
 
+/*
 // Master process - manages worker processes
 if (IS_CLUSTERED && cluster.isPrimary) {
   console.log("╔════════════════════════════════════════════════════════════╗");
@@ -518,6 +519,73 @@ if (IS_CLUSTERED && cluster.isPrimary) {
       process.exit(1);
     });
 }
+*/
+
+// Worker process - runs the actual server
+const app = createApp();
+
+// Initialize Prisma connection before starting server (skip if SKIP_DB is set)
+const startServer = async () => {
+  if (process.env.SKIP_DB !== 'true') {
+    await connectPrisma();
+  } else {
+    console.log('⚠️ Skipping database connection (SKIP_DB=true)');
+  }
+
+  const server = app.listen(PORT, () => {
+    const workerId = "standalone";
+    const pid = process.pid;
+
+    console.log(
+      "\n╔════════════════════════════════════════════════════════════╗"
+    );
+    console.log(
+      `║  🚀 Worker ${workerId} (PID: ${pid}) - Server Started on Port ${PORT}  ║`
+    );
+    console.log(
+      "╚════════════════════════════════════════════════════════════╝"
+    );
+    console.log(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
+    console.log(`🌐 CORS: Configured to allow all origins`);
+    console.log(
+      `💳 Razorpay Mode: ${process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
+      }`
+    );
+    console.log(
+      `🔗 Supabase: Storage & Auth only`
+    );
+    console.log(`🔧 Cluster Mode: DISABLED`);
+    console.log(`🗄️ Database: ${process.env.SKIP_DB === 'true' ? 'SKIPPED' : 'CONNECTED'}`);
+    console.log(
+      "════════════════════════════════════════════════════════════\n"
+    );
+
+    // Start scheduled jobs (only in first worker or standalone mode)
+    // if (!IS_CLUSTERED || workerId === 1) {
+    //   startScheduledJobs();
+    // }
+  });
+
+  // Graceful shutdown for workers
+  process.on("SIGTERM", () => gracefulShutdown(server, "SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown(server, "SIGINT"));
+
+  // Handle uncaught exceptions
+  process.on("uncaughtException", (error) => {
+    console.error("❌ Uncaught Exception:", error);
+    gracefulShutdown(server, "UNCAUGHT_EXCEPTION");
+  });
+
+  // Handle unhandled promise rejections
+  process.on("unhandledRejection", (reason, promise) => {
+    console.error("❌ Unhandled Rejection at:", promise, "reason:", reason);
+  });
+};
+
+startServer().catch((error) => {
+  console.error("❌ Failed to start server:", error.message);
+  process.exit(1);
+});
 
 // Export the app for testing or other purposes
 export default createApp();
