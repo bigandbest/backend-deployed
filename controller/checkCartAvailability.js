@@ -1,5 +1,5 @@
 // controllers/checkCartAvailability.js
-import { supabase } from "../config/supabaseClient.js";
+import cartAvailabilityDAO from "../dao/cart-availability.dao.js";
 
 export const checkCartAvailability = async (req, res) => {
   try {
@@ -9,7 +9,6 @@ export const checkCartAvailability = async (req, res) => {
       return res.status(400).json({ success: false, error: "Items, latitude, and longitude are required." });
     }
     
-    // If the cart is empty, there's nothing to check.
     if (items.length === 0) {
         return res.status(200).json({
             success: true,
@@ -18,15 +17,11 @@ export const checkCartAvailability = async (req, res) => {
         });
     }
 
-    // Temporarily allow all items to be deliverable (bypass location check)
-    const deliverableProductIds = items.map((item) => item.product_id);
-    const undeliverableProductIds = [];
+    const result = await cartAvailabilityDAO.checkDeliveryAvailability(items, latitude, longitude);
 
-    // ✅ CHANGED: Update the response to send back the two distinct lists
     return res.status(200).json({
       success: true,
-      deliverableProductIds,   // List of items that CAN be delivered
-      undeliverableProductIds, // List of items that CANNOT be delivered
+      ...result
     });
 
   } catch (err) {

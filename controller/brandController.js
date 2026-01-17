@@ -1,13 +1,5 @@
-import { createClient } from "@supabase/supabase-js";
-import dotenv from "dotenv";
-
-dotenv.config();
-
-// Create Supabase client with service role key for admin operations
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+import { supabase } from "../config/supabaseClient.js";
+import BrandDAO from "../dao/brand.dao.js";
 
 // Add Brand
 export async function addBrand(req, res) {
@@ -53,20 +45,11 @@ export async function addBrand(req, res) {
       imageUrl = urlData.publicUrl;
     }
 
-    // Insert new Brand into the 'brand' table
-    const { data, error } = await supabase
-      .from("brand")
-      .insert([{ name: name.trim(), image_url: imageUrl }])
-      .select()
-      .single();
-
-    if (error) {
-      console.error("Database insert error:", error);
-      return res.status(400).json({
-        success: false,
-        error: `Failed to create brand: ${error.message}`,
-      });
-    }
+    // Insert new Brand using DAO
+    const data = await BrandDAO.createBrand({
+      name: name.trim(),
+      image_url: imageUrl
+    });
 
     res.status(201).json({
       success: true,
@@ -135,21 +118,8 @@ export async function editBrand(req, res) {
       updateData.image_url = urlData.publicUrl;
     }
 
-    // Update the record in the 'brand' table
-    const { data, error } = await supabase
-      .from("brand")
-      .update(updateData)
-      .eq("id", id)
-      .select()
-      .single();
-
-    if (error) {
-      console.error("Database update error:", error);
-      return res.status(400).json({
-        success: false,
-        error: `Failed to update brand: ${error.message}`,
-      });
-    }
+    // Update the record using DAO
+    const data = await BrandDAO.updateBrand(id, updateData);
 
     if (!data) {
       return res.status(404).json({
@@ -184,30 +154,18 @@ export async function deleteBrand(req, res) {
       });
     }
 
-    // Check if brand exists first
-    const { data: existingBrand, error: fetchError } = await supabase
-      .from("brand")
-      .select("id, name")
-      .eq("id", id)
-      .single();
+    // Check if brand exists first using DAO
+    const existingBrand = await BrandDAO.getBrandById(id);
 
-    if (fetchError || !existingBrand) {
+    if (!existingBrand) {
       return res.status(404).json({
         success: false,
         error: "Brand not found",
       });
     }
 
-    // Delete the brand
-    const { error } = await supabase.from("brand").delete().eq("id", id);
-
-    if (error) {
-      console.error("Database delete error:", error);
-      return res.status(400).json({
-        success: false,
-        error: `Failed to delete brand: ${error.message}`,
-      });
-    }
+    // Delete the brand using DAO
+    await BrandDAO.deleteBrand(id);
 
     res.json({
       success: true,
@@ -225,23 +183,13 @@ export async function deleteBrand(req, res) {
 // View All Brands
 export async function getAllBrands(req, res) {
   try {
-    const { data, error } = await supabase
-      .from("brand")
-      .select("*")
-      .order("name", { ascending: true });
-
-    if (error) {
-      console.error("Database fetch error:", error);
-      return res.status(400).json({
-        success: false,
-        error: `Failed to fetch brands: ${error.message}`,
-      });
-    }
+    // Using DAO to fetch brands with default pagination
+    const { items, total } = await BrandDAO.listBrands({ limit: 1000 });
 
     res.json({
       success: true,
-      count: data.length,
-      brands: data,
+      count: total,
+      brands: items,
     });
   } catch (err) {
     console.error("Unexpected error in getAllBrands:", err);
@@ -264,23 +212,12 @@ export async function getSingleBrand(req, res) {
       });
     }
 
-    const { data, error } = await supabase
-      .from("brand")
-      .select("*")
-      .eq("id", id)
-      .single();
+    const data = await BrandDAO.getBrandById(id);
 
-    if (error) {
-      console.error("Database fetch error:", error);
-      if (error.code === "PGRST116") {
-        return res.status(404).json({
-          success: false,
-          error: "Brand not found",
-        });
-      }
-      return res.status(400).json({
+    if (!data) {
+      return res.status(404).json({
         success: false,
-        error: `Failed to fetch brand: ${error.message}`,
+        error: "Brand not found",
       });
     }
 
