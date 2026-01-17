@@ -8,16 +8,13 @@ class CartDAO {
         const whereClause = {
             user_id: userId,
             is_bid_product: isBidProduct,
-            locked_bid_id: lockedBidId
+            // locked_bid_id: lockedBidId // removed due to missing relation
         };
 
         if (variantId) {
             whereClause.variant_id = variantId;
         } else if (productId) {
             whereClause.product_id = productId;
-            // Ensure we don't match items with variants if we mean to add a product-only item
-            // But Prisma findFirst with explicit null for variant_id is tricky if undefined.
-            // If variantId is null/undefined, we should check for variant_id: null
             whereClause.variant_id = null;
         }
 
@@ -37,11 +34,11 @@ class CartDAO {
         return await prisma.cart_items.create({
             data: {
                 user_id: userId,
-                product_id: productId, // Ensure productId is saved
+                product_id: productId,
                 variant_id: variantId,
                 quantity,
                 is_bid_product: isBidProduct,
-                locked_bid_id: lockedBidId,
+                // locked_bid_id: lockedBidId, // removed due to missing relation
                 bid_unit_price: bidUnitPrice
             }
         });

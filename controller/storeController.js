@@ -1,4 +1,5 @@
-import { supabase } from "../config/supabaseClient.js";
+import { supabase } from "../config/supabaseClient.js"; // Keep for storage
+import StoreDAO from "../dao/store.dao.js";
 
 // Add Store
 export async function addStore(req, res) {
@@ -28,13 +29,8 @@ export async function addStore(req, res) {
       imageUrl = urlData.publicUrl;
     }
 
-    const { data, error } = await supabase
-      .from("Store") // table name
-      .insert([{ name, link, image: imageUrl }]) // using "image" column consistently
-      .select()
-      .single();
+    const data = await StoreDAO.create({ name, link, image: imageUrl });
 
-    if (error) return res.status(400).json({ success: false, error: error.message });
     res.status(201).json({ success: true, store: data });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -70,14 +66,8 @@ export async function updateStore(req, res) {
       updateData.image = urlData.publicUrl; // consistent column name
     }
 
-    const { data, error } = await supabase
-      .from("Store")
-      .update(updateData)
-      .eq("id", id)
-      .select()
-      .single();
+    const data = await StoreDAO.update(id, updateData);
 
-    if (error) return res.status(400).json({ success: false, error: error.message });
     res.json({ success: true, store: data });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -89,9 +79,8 @@ export async function deleteStore(req, res) {
   try {
     const { id } = req.params;
 
-    const { error } = await supabase.from("Store").delete().eq("id", id);
+    await StoreDAO.delete(id);
 
-    if (error) return res.status(400).json({ success: false, error: error.message });
     res.json({ success: true, message: "Store deleted successfully" });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -101,9 +90,8 @@ export async function deleteStore(req, res) {
 // View All Stores
 export async function getAllStores(req, res) {
   try {
-    const { data, error } = await supabase.from("Store").select("*");
+    const data = await StoreDAO.listAll();
 
-    if (error) return res.status(400).json({ success: false, error: error.message });
     res.json({ success: true, stores: data });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

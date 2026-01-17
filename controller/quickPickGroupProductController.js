@@ -1,4 +1,4 @@
-import { supabase } from "../config/supabaseClient.js";
+
 import quickPickGroupProductDao from "../dao/quickpick-group-product.dao.js";
 import quickPickGroupDao from "../dao/quick-pick-group.dao.js";
 import productDao from "../dao/product.dao.js";

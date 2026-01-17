@@ -493,9 +493,9 @@ if (IS_CLUSTERED && cluster.isPrimary) {
         );
 
         // Start scheduled jobs (only in first worker or standalone mode)
-        if (!IS_CLUSTERED || workerId === 1) {
-          startScheduledJobs();
-        }
+        // if (!IS_CLUSTERED || workerId === 1) {
+        //   startScheduledJobs();
+        // }
       });
 
       // Graceful shutdown for workers

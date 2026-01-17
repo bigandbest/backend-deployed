@@ -31,8 +31,22 @@ class WishlistDAO {
     async listByUser(userId) {
         return await prisma.wishlist_items.findMany({
             where: { user_id: userId },
-            include: { product: true },
+            include: {
+                product: {
+                    include: {
+                        product_variants: {
+                            where: { active: true }
+                        }
+                    }
+                }
+            },
             orderBy: { added_at: 'desc' }
+        });
+    }
+
+    async clear(userId) {
+        return await prisma.wishlist_items.deleteMany({
+            where: { user_id: userId }
         });
     }
 

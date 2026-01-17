@@ -1211,4 +1211,22 @@ model zone_pincodes {
   zone          delivery_zones  @relation(fields: [zone_id], references: [id])
 }
 
+// --- Model: Store.prisma ---
+model Store {
+  id    String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name  String?
+  link  String?
+  image String?
+  created_at DateTime? @default(now()) @db.Timestamptz
+}
+
+// --- Model: SubStore.prisma ---
+model SubStore {
+  id    String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name  String?
+  link  String?
+  image String?
+  created_at DateTime? @default(now()) @db.Timestamptz
+}
+
 

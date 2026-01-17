@@ -50,6 +50,11 @@ class WalletDAO {
                         reference_id: referenceId,
                         description: description,
                         metadata: metadata,
+                        // Expanded fields
+                        razorpay_order_id: metadata?.razorpay_order_id || null,
+                        razorpay_payment_id: metadata?.razorpay_payment_id || null,
+                        created_by: metadata?.created_by || null,
+                        idempotency_key: metadata?.idempotency_key || null,
                         status: 'COMPLETED'
                     }
                 })

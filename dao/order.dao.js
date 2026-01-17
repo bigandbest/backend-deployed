@@ -96,16 +96,21 @@ class OrderDAO {
     }
 
     async listAll(filters = {}, pagination = {}) {
-        const { status, isDeleted = false } = filters;
+        const { status, isDeleted = false, paymentMethod, userId } = filters;
         const { page = 1, limit = 10 } = pagination;
         const skip = (page - 1) * limit;
 
+        const whereClause = {
+            is_deleted: isDeleted
+        };
+
+        if (status) whereClause.status = status;
+        if (paymentMethod) whereClause.payment_method = paymentMethod;
+        if (userId) whereClause.user_id = userId;
+
         const [items, total] = await Promise.all([
             prisma.orders.findMany({
-                where: {
-                    ...(status && { status }),
-                    is_deleted: isDeleted
-                },
+                where: whereClause,
                 skip,
                 take: limit,
                 orderBy: {
@@ -118,10 +123,7 @@ class OrderDAO {
                 }
             }),
             prisma.orders.count({
-                where: {
-                    ...(status && { status }),
-                    is_deleted: isDeleted
-                }
+                where: whereClause
             })
         ]);
 

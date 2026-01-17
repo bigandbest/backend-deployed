@@ -1,4 +1,5 @@
 import { supabase } from "../config/supabaseClient.js";
+import SubStoreDAO from "../dao/sub-store.dao.js";
 
 // Add SubStore
 export async function addSubStore(req, res) {
@@ -28,13 +29,8 @@ export async function addSubStore(req, res) {
             imageUrl = urlData.publicUrl;
         }
 
-        const { data, error } = await supabase
-            .from("SubStore") // 🎯 table name
-            .insert([{ name, link, image: imageUrl }])
-            .select()
-            .single();
+        const data = await SubStoreDAO.create({ name, link, image: imageUrl });
 
-        if (error) return res.status(400).json({ success: false, error: error.message });
         res.status(201).json({ success: true, store: data });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
@@ -70,14 +66,8 @@ export async function updateSubStore(req, res) {
             updateData.image = urlData.publicUrl;
         }
 
-        const { data, error } = await supabase
-            .from("SubStore") // 🎯 table name
-            .update(updateData)
-            .eq("id", id)
-            .select()
-            .single();
+        const data = await SubStoreDAO.update(id, updateData);
 
-        if (error) return res.status(400).json({ success: false, error: error.message });
         res.json({ success: true, store: data });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
@@ -89,9 +79,8 @@ export async function deleteSubStore(req, res) {
     try {
         const { id } = req.params;
 
-        const { error } = await supabase.from("SubStore").delete().eq("id", id); // 🎯 table name
+        await SubStoreDAO.delete(id);
 
-        if (error) return res.status(400).json({ success: false, error: error.message });
         res.json({ success: true, message: "Store deleted successfully" });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
@@ -101,9 +90,8 @@ export async function deleteSubStore(req, res) {
 // View All SubStores
 export async function getAllSubStores(req, res) {
     try {
-        const { data, error } = await supabase.from("SubStore").select("*"); // 🎯 table name
+        const data = await SubStoreDAO.listAll();
 
-        if (error) return res.status(400).json({ success: false, error: error.message });
         res.json({ success: true, stores: data });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
