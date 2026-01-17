@@ -1,4 +1,6 @@
-import { supabase } from "../config/supabaseClient.js";
+import productDao from "../dao/product.dao.js";
+import zonePincodeDao from "../dao/zone-pincode.dao.js";
+import productWarehouseStockDao from "../dao/product-warehouse-stock.dao.js";
 
 /**
  * Delivery Validation Service
@@ -7,33 +9,14 @@ import { supabase } from "../config/supabaseClient.js";
 
 /**
  * Check if a product is deliverable to a specific pincode
- * Implements warehouse fallback logic:
- * - Nationwide products: Check zonal warehouse first, then fallback to central
- * - Zonal products: Check only zonal warehouses
  */
 const checkProductDelivery = async (productId, pincode, quantity = 1) => {
   try {
     // Step 1: Get product delivery type and zone for pincode
-    const productQuery = supabase
-      .from("products")
-      .select("id, name, delivery_type, allowed_zone_ids")
-      .eq("id", productId)
-      .single();
+    const product = await productDao.getProductById(productId);
+    const zonePincodes = await zonePincodeDao.getByPincode(pincode);
 
-    const pincodeQuery = supabase
-      .from("zone_pincodes")
-      .select("zone_id, delivery_zones!inner(id, name, is_active)")
-      .eq("pincode", pincode)
-      .eq("is_active", true)
-      .eq("delivery_zones.is_active", true)
-      .single();
-
-    const [productResult, pincodeResult] = await Promise.all([
-      productQuery,
-      pincodeQuery,
-    ]);
-
-    if (productResult.error) {
+    if (!product) {
       return {
         success: false,
         deliverable: false,
@@ -41,7 +24,7 @@ const checkProductDelivery = async (productId, pincode, quantity = 1) => {
       };
     }
 
-    if (pincodeResult.error) {
+    if (!zonePincodes || zonePincodes.length === 0) {
       return {
         success: false,
         deliverable: false,
@@ -50,8 +33,8 @@ const checkProductDelivery = async (productId, pincode, quantity = 1) => {
       };
     }
 
-    const product = productResult.data;
-    const userZone = pincodeResult.data;
+    const userZoneMapping = zonePincodes[0];
+    const userZoneId = userZoneMapping.zone_id;
 
     // Step 2: Check delivery eligibility based on product type
     let isEligibleByZone = false;
@@ -59,10 +42,7 @@ const checkProductDelivery = async (productId, pincode, quantity = 1) => {
     if (product.delivery_type === "nationwide") {
       isEligibleByZone = true;
     } else if (product.delivery_type === "zonal") {
-      // Check if product is allowed in this zone
-      isEligibleByZone =
-        product.allowed_zone_ids &&
-        product.allowed_zone_ids.includes(userZone.zone_id);
+      isEligibleByZone = product.allowed_zone_ids && product.allowed_zone_ids.includes(userZoneId);
     }
 
     if (!isEligibleByZone) {
@@ -77,7 +57,7 @@ const checkProductDelivery = async (productId, pincode, quantity = 1) => {
     // Step 3: Check stock availability with warehouse fallback logic
     const stockResult = await checkWarehouseStock(
       product,
-      userZone.zone_id,
+      userZoneId,
       quantity
     );
 
@@ -91,8 +71,8 @@ const checkProductDelivery = async (productId, pincode, quantity = 1) => {
         delivery_type: product.delivery_type,
       },
       delivery_info: {
-        zone_id: userZone.zone_id,
-        zone_name: userZone.delivery_zones.name,
+        zone_id: userZoneId,
+        zone_name: userZoneMapping.zone.name,
         pincode,
       },
     };
@@ -133,81 +113,40 @@ const checkWarehouseStock = async (product, zoneId, quantity) => {
 const checkNationwideProductStock = async (productId, zoneId, quantity) => {
   try {
     // First, check zonal warehouse for this zone
-    const { data: zonalStock } = await supabase
-      .from("product_warehouse_stock")
-      .select(
-        `
-        *,
-        warehouses!inner(id, name, type),
-        warehouse_zones!inner(zone_id)
-      `
-      )
-      .eq("product_id", productId)
-      .eq("warehouse_zones.zone_id", zoneId)
-      .eq("warehouses.type", "zonal")
-      .eq("warehouses.is_active", true)
-      .eq("is_active", true)
-      .gte("stock_quantity", quantity)
-      .gt("stock_quantity", "reserved_quantity")
-      .order("stock_quantity", { ascending: false })
-      .limit(1);
+    const zonalStock = await productWarehouseStockDao.getZonalStock(productId, zoneId, quantity);
 
-    // Check if zonal stock is available
-    if (zonalStock && zonalStock.length > 0) {
-      const stock = zonalStock[0];
-      const availableQuantity = stock.stock_quantity - stock.reserved_quantity;
-
-      if (availableQuantity >= quantity) {
-        return {
-          available: true,
-          source_warehouse: {
-            id: stock.warehouse_id,
-            name: stock.warehouses.name,
-            type: "zonal",
-          },
-          available_quantity: availableQuantity,
-          message: "Available from local warehouse",
-          fallback_used: false,
-        };
-      }
+    if (zonalStock) {
+      const availableQuantity = zonalStock.stock_quantity - zonalStock.reserved_quantity;
+      return {
+        available: true,
+        source_warehouse: {
+          id: zonalStock.warehouse_id,
+          name: zonalStock.warehouses.name,
+          type: "zonal",
+        },
+        available_quantity: availableQuantity,
+        message: "Available from local warehouse",
+        fallback_used: false,
+      };
     }
 
     // Fallback to central warehouse
-    const { data: centralStock } = await supabase
-      .from("product_warehouse_stock")
-      .select(
-        `
-        *,
-        warehouses!inner(id, name, type)
-      `
-      )
-      .eq("product_id", productId)
-      .eq("warehouses.type", "central")
-      .eq("warehouses.is_active", true)
-      .eq("is_active", true)
-      .gte("stock_quantity", quantity)
-      .gt("stock_quantity", "reserved_quantity")
-      .order("stock_quantity", { ascending: false })
-      .limit(1);
+    const centralStock = await productWarehouseStockDao.getCentralStock(productId, quantity);
 
-    if (centralStock && centralStock.length > 0) {
-      const stock = centralStock[0];
-      const availableQuantity = stock.stock_quantity - stock.reserved_quantity;
-
-      if (availableQuantity >= quantity) {
-        return {
-          available: true,
-          source_warehouse: {
-            id: stock.warehouse_id,
-            name: stock.warehouses.name,
-            type: "central",
-          },
-          available_quantity: availableQuantity,
-          message: "Available from central warehouse",
-          fallback_used: true,
-          fallback_reason: "local_warehouse_out_of_stock",
-        };
-      }
+    if (centralStock) {
+      const availableQuantity = centralStock.stock_quantity - centralStock.reserved_quantity;
+      return {
+        available: true,
+        source_warehouse: {
+          id: centralStock.warehouse_id,
+          name: centralStock.warehouses.name,
+          type: "central",
+        },
+        available_quantity: availableQuantity,
+        message: "Available from central warehouse",
+        fallback_used: true,
+        fallback_reason: "local_warehouse_out_of_stock",
+      };
     }
 
     return {
@@ -229,42 +168,21 @@ const checkNationwideProductStock = async (productId, zoneId, quantity) => {
  */
 const checkZonalProductStock = async (productId, zoneId, quantity) => {
   try {
-    const { data: zonalStock } = await supabase
-      .from("product_warehouse_stock")
-      .select(
-        `
-        *,
-        warehouses!inner(id, name, type),
-        warehouse_zones!inner(zone_id)
-      `
-      )
-      .eq("product_id", productId)
-      .eq("warehouse_zones.zone_id", zoneId)
-      .eq("warehouses.type", "zonal")
-      .eq("warehouses.is_active", true)
-      .eq("is_active", true)
-      .gte("stock_quantity", quantity)
-      .gt("stock_quantity", "reserved_quantity")
-      .order("stock_quantity", { ascending: false })
-      .limit(1);
+    const zonalStock = await productWarehouseStockDao.getZonalStock(productId, zoneId, quantity);
 
-    if (zonalStock && zonalStock.length > 0) {
-      const stock = zonalStock[0];
-      const availableQuantity = stock.stock_quantity - stock.reserved_quantity;
-
-      if (availableQuantity >= quantity) {
-        return {
-          available: true,
-          source_warehouse: {
-            id: stock.warehouse_id,
-            name: stock.warehouses.name,
-            type: "zonal",
-          },
-          available_quantity: availableQuantity,
-          message: "Available from zonal warehouse",
-          fallback_used: false,
-        };
-      }
+    if (zonalStock) {
+      const availableQuantity = zonalStock.stock_quantity - zonalStock.reserved_quantity;
+      return {
+        available: true,
+        source_warehouse: {
+          id: zonalStock.warehouse_id,
+          name: zonalStock.warehouses.name,
+          type: "zonal",
+        },
+        available_quantity: availableQuantity,
+        message: "Available from zonal warehouse",
+        fallback_used: false,
+      };
     }
 
     return {
@@ -291,33 +209,16 @@ const reserveProductStock = async (
   orderId
 ) => {
   try {
-    const { data, error } = await supabase.rpc("update_stock_with_movement", {
-      p_product_id: productId,
-      p_warehouse_id: warehouseId,
-      p_movement_type: "reservation",
-      p_quantity: quantity,
-      p_reference_type: "order",
-      p_reference_id: orderId,
-      p_reason: `Stock reserved for order ${orderId}`,
-    });
-
-    if (error) {
-      console.error("Error reserving stock:", error);
-      return {
-        success: false,
-        error: error.message,
-      };
-    }
-
+    await productWarehouseStockDao.reserveStock(productId, warehouseId, quantity, orderId);
     return {
       success: true,
       message: "Stock reserved successfully",
     };
   } catch (error) {
-    console.error("Error in reserveProductStock:", error);
+    console.error("Error reserving stock:", error);
     return {
       success: false,
-      error: "Failed to reserve stock",
+      error: error.message || "Failed to reserve stock",
     };
   }
 };
@@ -332,45 +233,16 @@ const confirmStockDeduction = async (
   orderId
 ) => {
   try {
-    // First release the reservation
-    await supabase.rpc("update_stock_with_movement", {
-      p_product_id: productId,
-      p_warehouse_id: warehouseId,
-      p_movement_type: "release",
-      p_quantity: quantity,
-      p_reference_type: "order",
-      p_reference_id: orderId,
-      p_reason: `Release reservation for order ${orderId}`,
-    });
-
-    // Then deduct actual stock
-    const { data, error } = await supabase.rpc("update_stock_with_movement", {
-      p_product_id: productId,
-      p_warehouse_id: warehouseId,
-      p_movement_type: "outbound",
-      p_quantity: quantity,
-      p_reference_type: "order",
-      p_reference_id: orderId,
-      p_reason: `Order fulfillment for order ${orderId}`,
-    });
-
-    if (error) {
-      console.error("Error confirming stock deduction:", error);
-      return {
-        success: false,
-        error: error.message,
-      };
-    }
-
+    await productWarehouseStockDao.confirmStockDeduction(productId, warehouseId, quantity, orderId);
     return {
       success: true,
       message: "Stock deducted successfully",
     };
   } catch (error) {
-    console.error("Error in confirmStockDeduction:", error);
+    console.error("Error confirming stock deduction:", error);
     return {
       success: false,
-      error: "Failed to deduct stock",
+      error: error.message || "Failed to deduct stock",
     };
   }
 };
@@ -407,8 +279,7 @@ const checkMultipleProductsDelivery = async (products, pincode) => {
       unavailable_products: unavailableProducts,
       summary: {
         total_products: products.length,
-        deliverable_products: deliveryChecks.filter((c) => c.deliverable)
-          .length,
+        deliverable_products: deliveryChecks.filter((c) => c.deliverable).length,
         unavailable_products: unavailableProducts.length,
       },
     };

@@ -1,4 +1,7 @@
-import { supabase } from "../config/supabaseClient.js";
+import axios from 'axios';
+import zonePincodeDao from "../dao/zone-pincode.dao.js";
+import shippingRateDao from "../dao/shipping-rate.dao.js";
+import taxRateDao from "../dao/tax-rate.dao.js";
 
 // Get pincode details and delivery availability
 const getPincodeDetails = async (req, res) => {
@@ -6,43 +9,14 @@ const getPincodeDetails = async (req, res) => {
     const { pincode } = req.params;
 
     // Check if pincode exists in any active delivery zone
-    const { data, error } = await supabase
-      .from("zone_pincodes")
-      .select(
-        `
-        pincode,
-        city,
-        state,
-        is_active,
-        delivery_zones!inner(
-          name,
-          is_active,
-          is_nationwide
-        )
-      `
-      )
-      .eq("pincode", pincode)
-      .eq("is_active", true)
-      .eq("delivery_zones.is_active", true);
+    const pincodeData = await zonePincodeDao.getByPincode(pincode);
 
-    if (error) {
-      console.error("Database error:", error);
-      return res.status(500).json({
-        success: false,
-        message: "Server error",
-        error: error.message,
-      });
-    }
-
-    if (!data || data.length === 0) {
+    if (!pincodeData) {
       return res.status(404).json({
         success: false,
         message: "Delivery not available in this area",
       });
     }
-
-    // Use the first matching zone (in case pincode is in multiple zones)
-    const pincodeData = data[0];
 
     res.json({
       success: true,
@@ -70,15 +44,9 @@ const calculateShipping = async (req, res) => {
   try {
     const { pincode, weight = 1, orderValue = 0 } = req.body;
 
-    const { data: shippingData, error } = await supabase
-      .from("shipping_rates")
-      .select("*")
-      .eq("pincode", pincode)
-      .gte("weight_to", weight)
-      .lte("weight_from", weight)
-      .single();
+    const shippingData = await shippingRateDao.getByPincodeAndWeight(pincode, weight);
 
-    if (error || !shippingData) {
+    if (!shippingData) {
       return res.status(404).json({
         success: false,
         message: "Shipping not available for this pincode",
@@ -101,6 +69,7 @@ const calculateShipping = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error("Calculate shipping error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -114,13 +83,9 @@ const calculateTax = async (req, res) => {
   try {
     const { state, amount } = req.body;
 
-    const { data: taxData, error } = await supabase
-      .from("tax_rates")
-      .select("*")
-      .eq("state", state)
-      .single();
+    const taxData = await taxRateDao.getByState(state);
 
-    if (error || !taxData) {
+    if (!taxData) {
       return res.status(404).json({
         success: false,
         message: "Tax rate not found for this state",
@@ -140,6 +105,7 @@ const calculateTax = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error("Calculate tax error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -148,4 +114,29 @@ const calculateTax = async (req, res) => {
   }
 };
 
-export { getPincodeDetails, calculateShipping, calculateTax };
+// Proxy search request to OpenStreetMap
+const searchLocation = async (req, res) => {
+  const { q } = req.query;
+
+  if (!q) {
+    return res.status(400).json({ error: 'Search query is required' });
+  }
+
+  try {
+    const response = await axios.get('https://nominatim.openstreetmap.org/search', {
+      params: {
+        q,
+        format: 'json',
+      },
+      headers: {
+        'User-Agent': 'BigAndBestMart/1.0 (contact@bigandbestmart.com)',
+      },
+    });
+    res.json(response.data);
+  } catch (error) {
+    console.error('Nominatim API error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch from OpenStreetMap' });
+  }
+};
+
+export { getPincodeDetails, calculateShipping, calculateTax, searchLocation };

@@ -1,6 +1,6 @@
 import express from "express";
 import { supabase } from "../config/supabaseClient.js";
-import { createNotificationHelper } from "../controller/NotificationHelpers.js";
+// import { createNotificationHelper } from "../controller/NotificationHelpers.js";
 
 const router = express.Router();
 
@@ -24,6 +24,7 @@ router.post("/test-notification", async (req, res) => {
     }
 
     // Create test notification
+    /*
     const notification = await createNotificationHelper(
       user_id,
       "Test Return Notification",
@@ -31,6 +32,7 @@ router.post("/test-notification", async (req, res) => {
       "return",
       "test-order-id"
     );
+    */
 
     if (notification) {
       res.json({
@@ -141,6 +143,7 @@ router.post("/test-return-notification", async (req, res) => {
     }
 
     // Simulate return order status update notification
+    /*
     const notification = await createNotificationHelper(
       user_id,
       `Return Request ${status.charAt(0).toUpperCase() + status.slice(1)}`,
@@ -152,6 +155,7 @@ router.post("/test-return-notification", async (req, res) => {
       "return",
       order_id
     );
+    */
 
     if (notification) {
       res.json({

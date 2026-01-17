@@ -1,4 +1,4 @@
-import prisma from '../utils/prisma.js';
+import prisma from '../config/prisma.js';
 
 class ProductDAO {
     // --- Product Operations ---
@@ -115,31 +115,33 @@ class ProductDAO {
         return { items, total, page, limit };
     }
 
-    async getRelatedProducts(productId, limit = 4) {
-        const product = await prisma.products.findUnique({
-            where: { id: productId },
+    async getRelatedProducts(productIds, limit = 10) {
+        if (!Array.isArray(productIds)) productIds = [productIds];
+
+        const products = await prisma.products.findMany({
+            where: { id: { in: productIds } },
             select: { category_id: true, subcategory_id: true }
         });
 
-        if (!product) return [];
+        if (products.length === 0) return [];
+
+        const categoryIds = [...new Set(products.map(p => p.category_id).filter(Boolean))];
+        const subcategoryIds = [...new Set(products.map(p => p.subcategory_id).filter(Boolean))];
 
         return await prisma.products.findMany({
             where: {
-                id: { not: productId },
+                id: { notIn: productIds },
                 active: true,
                 OR: [
-                    { subcategory_id: product.subcategory_id },
-                    { category_id: product.category_id }
+                    { category_id: { in: categoryIds } },
+                    { subcategory_id: { in: subcategoryIds } }
                 ]
             },
             take: limit,
             include: {
-                variants: { where: { is_default: true }, take: 1 }
+                variants: { where: { active: true, is_default: true }, take: 1 }
             },
-            orderBy: [
-                { rating: 'desc' },
-                { created_at: 'desc' }
-            ]
+            orderBy: { rating: 'desc' }
         });
     }
 
@@ -185,6 +187,88 @@ class ProductDAO {
             }
 
             return updatedProduct;
+        });
+    }
+
+    async getFeaturedProducts(limit = 20) {
+        return await prisma.products.findMany({
+            where: {
+                active: true,
+                featured: true
+            },
+            take: limit,
+            include: {
+                category: true,
+                variants: { where: { active: true } }
+            },
+            orderBy: { created_at: 'desc' }
+        });
+    }
+
+    async getEverydayEssentials(limit = 20) {
+        // Placeholder filter, assuming everyday_essential flag or similar
+        // For now using a general active filter as in the original controller
+        return await prisma.products.findMany({
+            where: {
+                active: true
+            },
+            take: limit,
+            include: {
+                category: true,
+                variants: { where: { active: true } }
+            },
+            orderBy: { created_at: 'desc' }
+        });
+    }
+
+    async getTopProducts(limit = 20) {
+        return await prisma.products.findMany({
+            where: {
+                active: true,
+                top_sale: true
+            },
+            take: limit,
+            include: {
+                category: true,
+                variants: { where: { active: true } }
+            },
+            orderBy: { created_at: 'desc' }
+        });
+    }
+
+    async getProductsByCategoryName(categoryName) {
+        return await prisma.products.findMany({
+            where: {
+                active: true,
+                OR: [
+                    { category: { name: categoryName } },
+                    { category_name: categoryName } // fallback for some schemas
+                ]
+            },
+            include: {
+                variants: { where: { active: true } }
+            }
+        });
+    }
+
+    async getProductsByIds(ids) {
+        return await prisma.products.findMany({
+            where: {
+                id: { in: ids },
+                active: true
+            },
+            include: {
+                variants: { where: { active: true } }
+            }
+        });
+    }
+
+    async getProductsByNames(names) {
+        return await prisma.products.findMany({
+            where: {
+                name: { in: names }
+            },
+            select: { id: true, name: true }
         });
     }
 

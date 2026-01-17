@@ -1,4 +1,4 @@
-import prisma from '../utils/prisma.js';
+import prisma from '../config/prisma.js';
 
 class PromotionalMediaDAO {
     async create(data) {

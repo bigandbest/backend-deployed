@@ -2,7 +2,7 @@
 import { supabase } from "../config/supabaseClient.js";
 import crypto from "crypto";
 import Razorpay from "razorpay";
-import { createNotificationHelper } from "./NotificationHelpers.js";
+// import { createNotificationHelper } from "./NotificationHelpers.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -148,7 +148,7 @@ export const getUserWallet = async (req, res) => {
     if (walletError && walletError.code === "PGRST116") {
       // Wallet doesn't exist, create one
       console.log(`Creating wallet for user: ${user.id}`);
-      
+
       // First, ensure the user exists in the users table
       // This is required because wallets has a foreign key to users table
       try {
@@ -162,15 +162,15 @@ export const getUserWallet = async (req, res) => {
         if (userCheckError && userCheckError.code === "PGRST116") {
           // User doesn't exist in users table, create it
           console.log(`Creating user record in users table for: ${user.id}`);
-          
+
           // Get user details from Supabase Auth
           const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(user.id);
-          
+
           if (authError || !authUser) {
             console.error("User not found in auth.users:", user.id, authError);
-            return res.status(400).json({ 
-              success: false, 
-              error: "User account not found. Please ensure you are properly authenticated." 
+            return res.status(400).json({
+              success: false,
+              error: "User account not found. Please ensure you are properly authenticated."
             });
           }
 
@@ -194,10 +194,10 @@ export const getUserWallet = async (req, res) => {
 
           if (createUserError) {
             console.error("Error creating user record:", createUserError);
-            return res.status(500).json({ 
-              success: false, 
+            return res.status(500).json({
+              success: false,
               error: "Failed to create user record",
-              details: createUserError.message 
+              details: createUserError.message
             });
           }
 
@@ -208,13 +208,13 @@ export const getUserWallet = async (req, res) => {
         }
       } catch (userSyncError) {
         console.error("Error syncing user to users table:", userSyncError);
-        return res.status(500).json({ 
-          success: false, 
+        return res.status(500).json({
+          success: false,
           error: "Failed to sync user data",
-          details: userSyncError.message 
+          details: userSyncError.message
         });
       }
-      
+
       // Now create the wallet
       const { data: newWallet, error: createError } = await supabase
         .from("wallets")
@@ -224,22 +224,22 @@ export const getUserWallet = async (req, res) => {
 
       if (createError) {
         console.error("Error creating wallet:", createError);
-        
+
         // Provide more specific error messages based on error code
         if (createError.code === '23503') {
-          return res.status(400).json({ 
-            success: false, 
+          return res.status(400).json({
+            success: false,
             error: "Cannot create wallet: User account not found in database",
             details: "Foreign key constraint violation - this should not happen after user sync"
           });
         } else if (createError.code === '42501') {
-          return res.status(500).json({ 
-            success: false, 
+          return res.status(500).json({
+            success: false,
             error: "Database permission error. Please contact support.",
             details: "Row-level security policy violation. The service role should bypass RLS - check Supabase RLS policies."
           });
         }
-        
+
         return res
           .status(500)
           .json({ success: false, error: "Failed to create wallet", details: createError.message });
@@ -444,7 +444,7 @@ export const createWalletTopupOrder = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in createWalletTopupOrder:", error);
-    
+
     // Log detailed Razorpay error information
     if (error.statusCode) {
       console.error("Razorpay API Error Details:", {
@@ -457,7 +457,7 @@ export const createWalletTopupOrder = async (req, res) => {
         step: error.error?.step,
         reason: error.error?.reason,
       });
-      
+
       // Provide user-friendly error messages
       if (error.statusCode === 401) {
         return res.status(500).json({
@@ -466,7 +466,7 @@ export const createWalletTopupOrder = async (req, res) => {
           details: "Invalid Razorpay credentials configured on the server.",
         });
       }
-      
+
       if (error.statusCode === 400) {
         return res.status(400).json({
           success: false,
@@ -474,7 +474,7 @@ export const createWalletTopupOrder = async (req, res) => {
         });
       }
     }
-    
+
     res
       .status(500)
       .json({ success: false, error: "Failed to create topup order" });
@@ -584,6 +584,7 @@ export const verifyWalletTopup = async (req, res) => {
         .eq("id", pendingTopup.id);
 
       // Create notification
+      /*
       await createNotificationHelper(
         pendingTopup.user_id,
         "Wallet Recharged Successfully",
@@ -592,6 +593,7 @@ export const verifyWalletTopup = async (req, res) => {
         transaction.id,
         "user"
       );
+      */
 
       console.log(
         `Wallet topup verified and completed: User ${pendingTopup.user_id}, Amount: ${pendingTopup.amount}`
@@ -711,6 +713,7 @@ export const walletTopupWebhook = async (req, res) => {
         .eq("id", pendingTopup.id);
 
       // Create notification
+      /*
       await createNotificationHelper(
         pendingTopup.user_id,
         "Wallet Recharged Successfully",
@@ -719,6 +722,7 @@ export const walletTopupWebhook = async (req, res) => {
         transaction.id,
         "user"
       );
+      */
 
       console.log(
         `Wallet topup completed: User ${pendingTopup.user_id}, Amount: ${pendingTopup.amount}`

@@ -1,9 +1,11 @@
 // controllers/adminWalletController.js
 import { supabase } from "../config/supabaseClient.js";
+/*
 import {
   createNotificationHelper,
   createAdminNotification,
 } from "./NotificationHelpers.js";
+*/
 
 // Helper function to log admin actions
 const logAdminAction = async (
@@ -282,6 +284,7 @@ export const manualCreditWallet = async (req, res) => {
       );
 
       // Send notification to user
+      /*
       if (notify_user) {
         await createNotificationHelper(
           userId,
@@ -292,8 +295,10 @@ export const manualCreditWallet = async (req, res) => {
           "user"
         );
       }
+      */
 
       // Create admin notification
+      /*
       await createAdminNotification(
         `Manual Wallet Credit`,
         `Admin ${
@@ -302,6 +307,7 @@ export const manualCreditWallet = async (req, res) => {
         "wallet_credit",
         transaction.id
       );
+      */
 
       res.json({
         success: true,
@@ -391,6 +397,7 @@ export const manualDebitWallet = async (req, res) => {
       );
 
       // Send notification to user
+      /*
       if (notify_user) {
         await createNotificationHelper(
           userId,
@@ -401,8 +408,10 @@ export const manualDebitWallet = async (req, res) => {
           "user"
         );
       }
+      */
 
       // Create admin notification
+      /*
       await createAdminNotification(
         `Manual Wallet Debit`,
         `Admin ${
@@ -411,6 +420,7 @@ export const manualDebitWallet = async (req, res) => {
         "wallet_debit",
         transaction.id
       );
+      */
 
       res.json({
         success: true,
@@ -500,6 +510,7 @@ export const freezeWallet = async (req, res) => {
     );
 
     // Send notification to user
+    /*
     if (notify_user) {
       await createNotificationHelper(
         userId,
@@ -510,8 +521,10 @@ export const freezeWallet = async (req, res) => {
         "user"
       );
     }
+    */
 
     // Create admin notification
+    /*
     await createAdminNotification(
       `Wallet Frozen`,
       `Admin ${
@@ -520,6 +533,7 @@ export const freezeWallet = async (req, res) => {
       "wallet_freeze",
       wallet.id
     );
+    */
 
     res.json({
       success: true,
@@ -605,6 +619,7 @@ export const unfreezeWallet = async (req, res) => {
     );
 
     // Send notification to user
+    /*
     if (notify_user) {
       await createNotificationHelper(
         userId,
@@ -615,8 +630,10 @@ export const unfreezeWallet = async (req, res) => {
         "user"
       );
     }
+    */
 
     // Create admin notification
+    /*
     await createAdminNotification(
       `Wallet Unfrozen`,
       `Admin ${
@@ -625,6 +642,7 @@ export const unfreezeWallet = async (req, res) => {
       "wallet_unfreeze",
       wallet.id
     );
+    */
 
     res.json({
       success: true,

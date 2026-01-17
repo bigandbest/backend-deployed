@@ -1,5 +1,13 @@
 // controllers/enquiryController.js
-import { supabase } from "../config/supabaseClient.js";
+import enquiryDao from "../dao/enquiry.dao.js";
+import productDao from "../dao/product.dao.js";
+import userNotificationDao from "../dao/user-notification.dao.js";
+import enquiryMessageDao from "../dao/enquiry-message.dao.js";
+import generalEnquiryDao from "../dao/general-enquiry.dao.js";
+// import notificationDao from "../dao/notification.dao.js";
+import userDAO from "../dao/user.dao.js";
+
+// --- Product Enquiry Controllers ---
 
 /**
  * Create a new product enquiry
@@ -18,13 +26,9 @@ export const createEnquiry = async (req, res) => {
     }
 
     // Verify product exists
-    const { data: product, error: productError } = await supabase
-      .from("products")
-      .select("id, name, stock_quantity")
-      .eq("id", product_id)
-      .single();
+    const product = await productDao.getProductById(product_id);
 
-    if (productError || !product) {
+    if (!product) {
       return res.status(404).json({
         success: false,
         error: "Product not found",
@@ -32,42 +36,28 @@ export const createEnquiry = async (req, res) => {
     }
 
     // Create enquiry
-    const { data: enquiry, error: enquiryError } = await supabase
-      .from("product_enquiries")
-      .insert([
-        {
-          user_id,
-          product_id,
-          variant_id: variant_id || null,
-          quantity,
-          message: message || null,
-          expected_price: expected_price || null,
-          status: "OPEN",
-        },
-      ])
-      .select()
-      .single();
-
-    if (enquiryError) {
-      console.error("Error creating enquiry:", enquiryError);
-      return res.status(500).json({
-        success: false,
-        error: enquiryError.message,
-      });
-    }
+    const enquiry = await enquiryDao.createEnquiry({
+      user_id,
+      product_id,
+      variant_id: variant_id || null,
+      quantity: parseInt(quantity),
+      message: message || null,
+      expected_price: expected_price ? parseFloat(expected_price) : null,
+      status: "OPEN",
+    });
 
     // Create admin notification
-    await supabase.from("notifications").insert({
+    await userNotificationDao.create({
       type: "admin",
       title: "New Product Enquiry",
       message: `New enquiry for ${product.name} - Quantity: ${quantity}`,
       related_type: "enquiry",
-      related_id: enquiry.id,
-      read: false,
+      related_id: enquiry.id.toString(),
+      is_read: false,
     });
 
     // Send initial auto-message to user
-    await supabase.from("enquiry_messages").insert({
+    await enquiryMessageDao.create({
       enquiry_id: enquiry.id,
       sender_type: "ADMIN",
       sender_id: user_id, // System message
@@ -94,8 +84,7 @@ export const createEnquiry = async (req, res) => {
  */
 export const getUserEnquiries = async (req, res) => {
   try {
-    const { user_id } = req.query;
-    const { status, page = 1, limit = 10 } = req.query;
+    const { user_id, status, page = 1, limit = 10 } = req.query;
 
     if (!user_id) {
       return res.status(400).json({
@@ -104,33 +93,10 @@ export const getUserEnquiries = async (req, res) => {
       });
     }
 
-    const offset = (page - 1) * limit;
-
-    let query = supabase
-      .from("product_enquiries")
-      .select(
-        `
-        *,
-        products:product_id (id, name, image, price)
-      `,
-        { count: "exact" }
-      )
-      .eq("user_id", user_id)
-      .order("created_at", { ascending: false });
-
-    if (status) {
-      query = query.eq("status", status);
-    }
-
-    const { data, error, count } = await query.range(offset, offset + limit - 1);
-
-    if (error) {
-      console.error("Error fetching user enquiries:", error);
-      return res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    }
+    const { data, count } = await enquiryDao.listEnquiries(
+      { user_id, status },
+      { page: parseInt(page), limit: parseInt(limit) }
+    );
 
     return res.json({
       success: true,
@@ -160,30 +126,14 @@ export const getEnquiryDetails = async (req, res) => {
     const { id } = req.params;
     const { user_id } = req.query;
 
-    console.log(`[Enquiry Details] Fetching enquiry ID: ${id} for user: ${user_id}`);
+    const enquiry = await enquiryDao.getEnquiryById(parseInt(id));
 
-    // Get enquiry
-    const { data: enquiry, error: enquiryError } = await supabase
-      .from("product_enquiries")
-      .select(
-        `
-        *,
-        products:product_id (id, name, image, price)
-      `
-      )
-      .eq("id", id)
-      .single();
-
-    if (enquiryError || !enquiry) {
-      console.log(`[Enquiry Details] Enquiry not found. ID: ${id}`);
-      console.log(`[Enquiry Details] Supabase error:`, JSON.stringify(enquiryError, null, 2));
+    if (!enquiry) {
       return res.status(404).json({
         success: false,
         error: "Enquiry not found",
       });
     }
-
-    console.log(`[Enquiry Details] Found enquiry ID: ${id}, User ID: ${enquiry.user_id}`);
 
     // Verify user owns this enquiry (unless admin)
     if (user_id && enquiry.user_id !== user_id) {
@@ -193,38 +143,11 @@ export const getEnquiryDetails = async (req, res) => {
       });
     }
 
-    // Get messages
-    const { data: messages, error: messagesError } = await supabase
-      .from("enquiry_messages")
-      .select("*")
-      .eq("enquiry_id", id)
-      .order("created_at", { ascending: true });
-
-    if (messagesError) {
-      console.error("Error fetching messages:", messagesError);
-    }
-
-    // Get bids
-    const { data: bids, error: bidsError } = await supabase
-      .from("enquiry_bids")
-      .select(
-        `
-        *,
-        bid_products (*)
-      `
-      )
-      .eq("enquiry_id", id)
-      .order("created_at", { ascending: false });
-
-    if (bidsError) {
-      console.error("Error fetching bids:", bidsError);
-    }
-
     return res.json({
       success: true,
       enquiry,
-      messages: messages || [],
-      bids: bids || [],
+      messages: enquiry.messages || [],
+      bids: enquiry.bids || [],
     });
   } catch (error) {
     console.error("Unexpected error in getEnquiryDetails:", error);
@@ -251,30 +174,18 @@ export const acceptBid = async (req, res) => {
       });
     }
 
-    // Verify enquiry belongs to user
-    const { data: enquiry, error: enquiryError } = await supabase
-      .from("product_enquiries")
-      .select("*")
-      .eq("id", id)
-      .eq("user_id", user_id)
-      .single();
+    const enquiry = await enquiryDao.getEnquiryById(parseInt(id));
 
-    if (enquiryError || !enquiry) {
+    if (!enquiry || enquiry.user_id !== user_id) {
       return res.status(404).json({
         success: false,
         error: "Enquiry not found or unauthorized",
       });
     }
 
-    // Verify bid exists and is active
-    const { data: bid, error: bidError } = await supabase
-      .from("enquiry_bids")
-      .select("*")
-      .eq("id", bid_id)
-      .eq("enquiry_id", id)
-      .single();
+    const bid = enquiry.bids.find(b => b.id === parseInt(bid_id));
 
-    if (bidError || !bid) {
+    if (!bid) {
       return res.status(404).json({
         success: false,
         error: "Bid not found",
@@ -288,60 +199,31 @@ export const acceptBid = async (req, res) => {
       });
     }
 
-    // Check if bid has expired
     if (new Date(bid.expires_at) < new Date()) {
-      await supabase
-        .from("enquiry_bids")
-        .update({ status: "EXPIRED" })
-        .eq("id", bid_id);
-
       return res.status(400).json({
         success: false,
         error: "Bid has expired",
       });
     }
 
-    // Update bid status to ACCEPTED
-    const { error: updateBidError } = await supabase
-      .from("enquiry_bids")
-      .update({ status: "ACCEPTED" })
-      .eq("id", bid_id);
+    // Update bid and enquiry status (Should ideally be a transaction in DAO)
+    await enquiryDao.updateEnquiry(parseInt(id), { status: "NEGOTIATING" });
 
-    if (updateBidError) {
-      console.error("Error updating bid:", updateBidError);
-      return res.status(500).json({
-        success: false,
-        error: updateBidError.message,
-      });
-    }
-
-    // Update enquiry status to NEGOTIATING
-    const { error: updateEnquiryError } = await supabase
-      .from("product_enquiries")
-      .update({ status: "NEGOTIATING" })
-      .eq("id", id);
-
-    if (updateEnquiryError) {
-      console.error("Error updating enquiry:", updateEnquiryError);
-    }
-
-    // Create notification message
-    await supabase.from("enquiry_messages").insert({
-      enquiry_id: id,
+    await enquiryMessageDao.create({
+      enquiry_id: parseInt(id),
       sender_type: "USER",
       sender_id: user_id,
       sender_name: "User",
       message: "I accept this bid offer.",
     });
 
-    // Create admin notification
-    await supabase.from("notifications").insert({
+    await userNotificationDao.create({
       type: "admin",
       title: "Bid Accepted",
       message: `User accepted bid for enquiry #${id}`,
       related_type: "bid",
-      related_id: bid_id,
-      read: false,
+      related_id: bid_id.toString(),
+      is_read: false,
     });
 
     return res.json({
@@ -364,69 +246,21 @@ export const acceptBid = async (req, res) => {
 export const getAllEnquiries = async (req, res) => {
   try {
     const { status, page = 1, limit = 20, search } = req.query;
-    const offset = (page - 1) * limit;
 
-    let query = supabase
-      .from("product_enquiries")
-      .select("*", { count: "exact" })
-      .order("created_at", { ascending: false });
+    const { data, count } = await enquiryDao.listAll(
+      { status, search },
+      { page: parseInt(page), limit: parseInt(limit) }
+    );
 
-    if (status) {
-      query = query.eq("status", status);
-    }
-
-    if (search) {
-      query = query.or(
-        `message.ilike.%${search}%,admin_notes.ilike.%${search}%`
-      );
-    }
-
-    const { data, error, count } = await query.range(offset, offset + limit - 1);
-
-    if (error) {
-      console.error("Error fetching all enquiries:", error);
-      return res.status(500).json({
-        success: false,
-        error: error.message,
+    const userIds = [...new Set(data.map(e => e.user_id).filter(Boolean))];
+    if (userIds.length > 0) {
+      const users = await userDAO.getUsersByIds(userIds);
+      const userMap = {};
+      users.forEach(u => { userMap[u.id] = u; });
+      data.forEach(enquiry => {
+        enquiry.users = userMap[enquiry.user_id] || null;
+        enquiry.products = enquiry.product;
       });
-    }
-
-    // Fetch related products and users separately
-    if (data && data.length > 0) {
-      const productIds = [...new Set(data.map(e => e.product_id).filter(Boolean))];
-      const userIds = [...new Set(data.map(e => e.user_id).filter(Boolean))];
-
-      // Fetch products
-      if (productIds.length > 0) {
-        const { data: products } = await supabase
-          .from("products")
-          .select("id, name, image, price")
-          .in("id", productIds);
-
-        if (products) {
-          const productMap = {};
-          products.forEach(p => { productMap[p.id] = p; });
-          data.forEach(enquiry => {
-            enquiry.products = productMap[enquiry.product_id] || null;
-          });
-        }
-      }
-
-      // Fetch users
-      if (userIds.length > 0) {
-        const { data: users } = await supabase
-          .from("users")
-          .select("id, name, email, phone")
-          .in("id", userIds);
-
-        if (users) {
-          const userMap = {};
-          users.forEach(u => { userMap[u.id] = u; });
-          data.forEach(enquiry => {
-            enquiry.users = userMap[enquiry.user_id] || null;
-          });
-        }
-      }
     }
 
     return res.json({
@@ -465,23 +299,10 @@ export const updateEnquiryStatus = async (req, res) => {
       });
     }
 
-    const updateData = { status };
-    if (admin_notes) {
-      updateData.admin_notes = admin_notes;
-    }
-
-    const { error } = await supabase
-      .from("product_enquiries")
-      .update(updateData)
-      .eq("id", id);
-
-    if (error) {
-      console.error("Error updating enquiry status:", error);
-      return res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    }
+    await enquiryDao.updateEnquiry(parseInt(id), {
+      status,
+      ...(admin_notes && { admin_notes })
+    });
 
     return res.json({
       success: true,
@@ -505,22 +326,11 @@ export const closeEnquiry = async (req, res) => {
     const { id } = req.params;
     const { reason } = req.body;
 
-    const { error } = await supabase
-      .from("product_enquiries")
-      .update({
-        status: "CLOSED",
-        closed_reason: reason || "Closed by admin",
-        closed_by: "ADMIN",
-      })
-      .eq("id", id);
-
-    if (error) {
-      console.error("Error closing enquiry:", error);
-      return res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    }
+    await enquiryDao.updateEnquiry(parseInt(id), {
+      status: "CLOSED",
+      closed_reason: reason || "Closed by admin",
+      closed_by: "ADMIN",
+    });
 
     return res.json({
       success: true,
@@ -532,5 +342,221 @@ export const closeEnquiry = async (req, res) => {
       success: false,
       error: "Internal server error",
     });
+  }
+};
+
+/**
+ * Get enquiries count (Legacy)
+ */
+export const getEnquiriesCount = async (req, res) => {
+  try {
+    const { status } = req.query;
+    const filters = {
+      ...(status && { status }),
+      OR: [
+        { type: null },
+        { type: { not: "custom_printing" } }
+      ]
+    };
+    const count = await generalEnquiryDao.count(filters);
+    res.status(200).json({
+      success: true,
+      count: count || 0,
+    });
+  } catch (err) {
+    console.error("Unexpected error in getEnquiriesCount:", err);
+    res.status(500).json({
+      success: false,
+      error: "An unexpected error occurred",
+    });
+  }
+};
+
+// --- Enquiry Message Controllers ---
+
+/**
+ * Send a message in an enquiry chat
+ * POST /api/enquiries/messages
+ */
+export const sendMessage = async (req, res) => {
+  try {
+    const {
+      enquiry_id,
+      sender_type, // 'USER' or 'ADMIN'
+      sender_id,
+      sender_name,
+      message,
+      attachment_url,
+      attachment_type,
+    } = req.body;
+
+    if (!enquiry_id || !sender_type || !sender_id || !message) {
+      return res.status(400).json({
+        success: false,
+        error: "enquiry_id, sender_type, sender_id, and message are required",
+      });
+    }
+
+    const enquiry = await enquiryDao.getEnquiryById(parseInt(enquiry_id));
+    if (!enquiry) {
+      return res.status(404).json({
+        success: false,
+        error: "Enquiry not found",
+      });
+    }
+
+    if (["CLOSED", "EXPIRED", "COMPLETED"].includes(enquiry.status)) {
+      return res.status(400).json({
+        success: false,
+        error: "Cannot send messages to closed, expired, or completed enquiries",
+      });
+    }
+
+    const newMessage = await enquiryMessageDao.create({
+      enquiry_id: parseInt(enquiry_id),
+      sender_type,
+      sender_id,
+      sender_name: sender_name || (sender_type === "ADMIN" ? "Admin" : "User"),
+      message,
+      attachment_url: attachment_url || null,
+      attachment_type: attachment_type || null,
+      is_read: false,
+    });
+
+    if (enquiry.status === "OPEN") {
+      await enquiryDao.updateEnquiry(parseInt(enquiry_id), { status: "NEGOTIATING" });
+    }
+
+    if (sender_type === "ADMIN") {
+      // Notify user
+      await userNotificationDao.create({
+        user_id: enquiry.user_id,
+        type: "enquiry_update",
+        title: "New Message on Enquiry",
+        message: `You have a new message regarding your enquiry for ${enquiry.product.name}`,
+        related_type: "enquiry",
+        related_id: enquiry_id.toString(),
+        is_read: false,
+      });
+    } else {
+      // Notify admin
+      await userNotificationDao.create({
+        type: "admin",
+        title: "New Message from User",
+        message: `User sent a message in enquiry #${enquiry_id}`,
+        related_type: "enquiry",
+        related_id: enquiry_id.toString(),
+        is_read: false,
+      });
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: newMessage,
+    });
+  } catch (error) {
+    console.error("Unexpected error in sendMessage:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};
+
+/**
+ * Get all messages for an enquiry
+ * GET /api/enquiries/:enquiry_id/messages
+ */
+export const getMessages = async (req, res) => {
+  try {
+    const { enquiry_id } = req.params;
+    const { user_id } = req.query;
+
+    const enquiry = await enquiryDao.getEnquiryById(parseInt(enquiry_id));
+    if (!enquiry) {
+      return res.status(404).json({
+        success: false,
+        error: "Enquiry not found",
+      });
+    }
+
+    if (user_id && enquiry.user_id !== user_id) {
+      return res.status(403).json({
+        success: false,
+        error: "Unauthorized access to this enquiry",
+      });
+    }
+
+    const messages = await enquiryMessageDao.listByEnquiry(parseInt(enquiry_id));
+    return res.json({
+      success: true,
+      messages: messages || [],
+    });
+  } catch (error) {
+    console.error("Unexpected error in getMessages:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};
+
+/**
+ * Mark messages as read
+ * PUT /api/enquiries/:enquiry_id/messages/read
+ */
+export const markAsRead = async (req, res) => {
+  try {
+    const { enquiry_id } = req.params;
+    const { sender_type, user_id } = req.body;
+
+    if (!sender_type) {
+      return res.status(400).json({ success: false, error: "sender_type is required" });
+    }
+
+    const enquiry = await enquiryDao.getEnquiryById(parseInt(enquiry_id));
+    if (!enquiry) {
+      return res.status(404).json({ success: false, error: "Enquiry not found" });
+    }
+
+    if (sender_type === "USER" && user_id && enquiry.user_id !== user_id) {
+      return res.status(403).json({ success: false, error: "Unauthorized" });
+    }
+
+    await enquiryMessageDao.markAllAsRead(parseInt(enquiry_id));
+    return res.json({
+      success: true,
+      message: "Messages marked as read",
+    });
+  } catch (error) {
+    console.error("Unexpected error in markAsRead:", error);
+    return res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+/**
+ * Get unread message count for an enquiry
+ * GET /api/enquiries/:enquiry_id/messages/unread-count
+ */
+export const getUnreadCount = async (req, res) => {
+  try {
+    const { enquiry_id } = req.params;
+    const { sender_type } = req.query;
+
+    if (!sender_type) {
+      return res.status(400).json({ success: false, error: "sender_type query parameter is required" });
+    }
+
+    const messages = await enquiryMessageDao.listByEnquiry(parseInt(enquiry_id));
+    const countSenderType = sender_type === "USER" ? "ADMIN" : "USER";
+    const unreadCount = messages.filter(m => m.sender_type === countSenderType && !m.is_read).length;
+
+    return res.json({
+      success: true,
+      unread_count: unreadCount || 0,
+    });
+  } catch (error) {
+    console.error("Unexpected error in getUnreadCount:", error);
+    return res.status(500).json({ success: false, error: "Internal server error" });
   }
 };

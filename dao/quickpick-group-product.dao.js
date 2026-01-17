@@ -1,4 +1,4 @@
-import prisma from '../utils/prisma.js';
+import prisma from '../config/prisma.js';
 
 class QuickPickGroupProductDAO {
     async link(groupId, productId) {
@@ -13,6 +13,28 @@ class QuickPickGroupProductDAO {
     async unlink(id) {
         return await prisma.quickpick_group_product.delete({
             where: { id }
+        });
+    }
+
+    async deleteByMapping(productId, groupId) {
+        return await prisma.quickpick_group_product.deleteMany({
+            where: {
+                product_id: productId,
+                quick_pick_group_id: groupId
+            }
+        });
+    }
+
+    async listGroupsByProduct(productId) {
+        return await prisma.quickpick_group_product.findMany({
+            where: { product_id: productId },
+            include: { quick_pick_group: true }
+        });
+    }
+
+    async createMany(records) {
+        return await prisma.quickpick_group_product.createMany({
+            data: records
         });
     }
 

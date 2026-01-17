@@ -1,4 +1,4 @@
-import prisma from '../utils/prisma.js';
+import prisma from '../config/prisma.js';
 
 class ReviewDAO {
     async createReview(data) {
@@ -8,34 +8,57 @@ class ReviewDAO {
             });
 
             // Update product rating and review count
-            const stats = await tx.product_reviews.aggregate({
-                where: { product_id: data.product_id },
-                _avg: { rating: true },
-                _count: { id: true }
+            await this._updateProductStats(tx, data.product_id);
+
+            return review;
+        });
+    }
+
+    async checkExistingReview(productId, userId) {
+        return await prisma.product_reviews.findFirst({
+            where: {
+                product_id: productId,
+                user_id: userId
+            }
+        });
+    }
+
+    async getReviewById(id) {
+        return await prisma.product_reviews.findUnique({
+            where: { id }
+        });
+    }
+
+    async updateReview(id, data) {
+        return await prisma.$transaction(async (tx) => {
+            const review = await tx.product_reviews.update({
+                where: { id },
+                data
             });
 
-            await tx.products.update({
-                where: { id: data.product_id },
-                data: {
-                    rating: stats._avg.rating || 0,
-                    review_count: stats._count.id || 0
-                }
-            });
+            // Update product stats
+            await this._updateProductStats(tx, review.product_id);
 
             return review;
         });
     }
 
     async getReviewsByProductId(productId, pagination = {}) {
-        const { page = 1, limit = 10 } = pagination;
+        const { page = 1, limit = 10, sortBy = 'created_at', order = 'desc' } = pagination;
         const skip = (page - 1) * limit;
 
-        return await prisma.product_reviews.findMany({
+        const reviews = await prisma.product_reviews.findMany({
             where: { product_id: productId },
             skip,
             take: limit,
-            orderBy: { created_at: 'desc' }
+            orderBy: { [sortBy]: order }
         });
+
+        const total = await prisma.product_reviews.count({
+            where: { product_id: productId }
+        });
+
+        return { reviews, total };
     }
 
     async deleteReview(id) {
@@ -45,21 +68,18 @@ class ReviewDAO {
             });
 
             // Update product stats
-            const stats = await tx.product_reviews.aggregate({
-                where: { product_id: review.product_id },
-                _avg: { rating: true },
-                _count: { id: true }
-            });
-
-            await tx.products.update({
-                where: { id: review.product_id },
-                data: {
-                    rating: stats._avg.rating || 0,
-                    review_count: stats._count.id || 0
-                }
-            });
+            await this._updateProductStats(tx, review.product_id);
 
             return review;
+        });
+    }
+
+    async markHelpful(id) {
+        return await prisma.product_reviews.update({
+            where: { id },
+            data: {
+                helpful_count: { increment: 1 }
+            }
         });
     }
 
@@ -88,6 +108,23 @@ class ReviewDAO {
         }
 
         return stats;
+    }
+
+    // Helper to update product stats within a transaction
+    async _updateProductStats(tx, productId) {
+        const stats = await tx.product_reviews.aggregate({
+            where: { product_id: productId },
+            _avg: { rating: true },
+            _count: { id: true }
+        });
+
+        await tx.products.update({
+            where: { id: productId },
+            data: {
+                rating: stats._avg.rating || 0,
+                review_count: stats._count.id || 0
+            }
+        });
     }
 }
 

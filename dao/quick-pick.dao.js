@@ -1,4 +1,4 @@
-import prisma from '../utils/prisma.js';
+import prisma from '../config/prisma.js';
 
 class QuickPickDAO {
     async create(data) {
@@ -17,6 +17,12 @@ class QuickPickDAO {
                     }
                 }
             }
+        });
+    }
+
+    async getByName(name) {
+        return await prisma.quick_pick.findFirst({
+            where: { name }
         });
     }
 

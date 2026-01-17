@@ -1,16 +1,11 @@
-import { supabase } from "../config/supabaseClient.js";
+import deliveryChargeMilestoneDao from "../dao/delivery-charge-milestone.dao.js";
 
 /**
  * Get all delivery charge milestones
  */
 export const getAllMilestones = async (req, res) => {
     try {
-        const { data, error } = await supabase
-            .from("delivery_charge_milestones")
-            .select("*")
-            .order("min_order_value", { ascending: true });
-
-        if (error) throw error;
+        const data = await deliveryChargeMilestoneDao.list();
 
         res.status(200).json({
             success: true,
@@ -34,13 +29,7 @@ export const getMilestoneById = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const { data, error } = await supabase
-            .from("delivery_charge_milestones")
-            .select("*")
-            .eq("id", id)
-            .single();
-
-        if (error) throw error;
+        const data = await deliveryChargeMilestoneDao.getById(parseInt(id));
 
         if (!data) {
             return res.status(404).json({
@@ -99,29 +88,12 @@ export const createMilestone = async (req, res) => {
             });
         }
 
-        const { data, error } = await supabase
-            .from("delivery_charge_milestones")
-            .insert([
-                {
-                    min_order_value,
-                    delivery_charge,
-                    description: description || null,
-                    is_active: is_active !== undefined ? is_active : true,
-                },
-            ])
-            .select()
-            .single();
-
-        if (error) {
-            // Check for unique constraint violation
-            if (error.code === "23505") {
-                return res.status(400).json({
-                    success: false,
-                    error: "A milestone with this order value already exists",
-                });
-            }
-            throw error;
-        }
+        const data = await deliveryChargeMilestoneDao.create({
+            min_order_value,
+            delivery_charge,
+            description: description || null,
+            is_active: is_active !== undefined ? is_active : true,
+        });
 
         res.status(201).json({
             success: true,
@@ -130,6 +102,12 @@ export const createMilestone = async (req, res) => {
         });
     } catch (error) {
         console.error("Error creating milestone:", error);
+        if (error.code === "P2002") {
+            return res.status(400).json({
+                success: false,
+                error: "A milestone with this order value already exists",
+            });
+        }
         res.status(500).json({
             success: false,
             error: "Failed to create milestone",
@@ -167,30 +145,7 @@ export const updateMilestone = async (req, res) => {
         if (description !== undefined) updateData.description = description;
         if (is_active !== undefined) updateData.is_active = is_active;
 
-        const { data, error } = await supabase
-            .from("delivery_charge_milestones")
-            .update(updateData)
-            .eq("id", id)
-            .select()
-            .single();
-
-        if (error) {
-            // Check for unique constraint violation
-            if (error.code === "23505") {
-                return res.status(400).json({
-                    success: false,
-                    error: "A milestone with this order value already exists",
-                });
-            }
-            throw error;
-        }
-
-        if (!data) {
-            return res.status(404).json({
-                success: false,
-                error: "Milestone not found",
-            });
-        }
+        const data = await deliveryChargeMilestoneDao.update(parseInt(id), updateData);
 
         res.status(200).json({
             success: true,
@@ -199,6 +154,18 @@ export const updateMilestone = async (req, res) => {
         });
     } catch (error) {
         console.error("Error updating milestone:", error);
+        if (error.code === "P2002") {
+            return res.status(400).json({
+                success: false,
+                error: "A milestone with this order value already exists",
+            });
+        }
+        if (error.code === "P2025") {
+            return res.status(404).json({
+                success: false,
+                error: "Milestone not found",
+            });
+        }
         res.status(500).json({
             success: false,
             error: "Failed to update milestone",
@@ -214,21 +181,7 @@ export const deleteMilestone = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const { data, error } = await supabase
-            .from("delivery_charge_milestones")
-            .delete()
-            .eq("id", id)
-            .select()
-            .single();
-
-        if (error) throw error;
-
-        if (!data) {
-            return res.status(404).json({
-                success: false,
-                error: "Milestone not found",
-            });
-        }
+        await deliveryChargeMilestoneDao.delete(parseInt(id));
 
         res.status(200).json({
             success: true,
@@ -236,6 +189,12 @@ export const deleteMilestone = async (req, res) => {
         });
     } catch (error) {
         console.error("Error deleting milestone:", error);
+        if (error.code === "P2025") {
+            return res.status(404).json({
+                success: false,
+                error: "Milestone not found",
+            });
+        }
         res.status(500).json({
             success: false,
             error: "Failed to delete milestone",
@@ -250,15 +209,10 @@ export const deleteMilestone = async (req, res) => {
 export const toggleMilestoneActive = async (req, res) => {
     try {
         const { id } = req.params;
+        const milestoneId = parseInt(id);
 
         // First get current status
-        const { data: currentData, error: fetchError } = await supabase
-            .from("delivery_charge_milestones")
-            .select("is_active")
-            .eq("id", id)
-            .single();
-
-        if (fetchError) throw fetchError;
+        const currentData = await deliveryChargeMilestoneDao.getById(milestoneId);
 
         if (!currentData) {
             return res.status(404).json({
@@ -268,14 +222,9 @@ export const toggleMilestoneActive = async (req, res) => {
         }
 
         // Toggle the status
-        const { data, error } = await supabase
-            .from("delivery_charge_milestones")
-            .update({ is_active: !currentData.is_active })
-            .eq("id", id)
-            .select()
-            .single();
-
-        if (error) throw error;
+        const data = await deliveryChargeMilestoneDao.update(milestoneId, {
+            is_active: !currentData.is_active
+        });
 
         res.status(200).json({
             success: true,
@@ -313,19 +262,10 @@ export const getApplicableCharge = async (req, res) => {
             });
         }
 
-        // Get all active milestones ordered by min_order_value descending
-        const { data, error } = await supabase
-            .from("delivery_charge_milestones")
-            .select("*")
-            .eq("is_active", true)
-            .lte("min_order_value", orderValue)
-            .order("min_order_value", { ascending: false })
-            .limit(1);
-
-        if (error) throw error;
+        const applicableMilestone = await deliveryChargeMilestoneDao.getApplicableCharge(orderValue);
 
         // If no milestone found, return a default charge or error
-        if (!data || data.length === 0) {
+        if (!applicableMilestone) {
             return res.status(200).json({
                 success: true,
                 data: {
@@ -336,8 +276,6 @@ export const getApplicableCharge = async (req, res) => {
                 },
             });
         }
-
-        const applicableMilestone = data[0];
 
         res.status(200).json({
             success: true,

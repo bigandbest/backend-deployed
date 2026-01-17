@@ -2,7 +2,7 @@ import { supabase } from "../config/supabaseClient.js";
 import ProductBrandDAO from "../dao/product-brand.dao.js";
 import BrandDAO from "../dao/brand.dao.js";
 import ProductDAO from "../dao/product.dao.js";
-import prisma from "../utils/prisma.js";
+import prisma from "../config/prisma.js";
 
 // 1️⃣ Map a single product to a Brand using IDs
 export const mapProductToBrand = async (req, res) => {
