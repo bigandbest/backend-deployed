@@ -7,6 +7,8 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+import prisma, { connectPrisma, disconnectPrisma } from "./config/prisma.js";
+
 import {
   startScheduledJobs,
   stopScheduledJobs,
@@ -24,11 +26,11 @@ import locationRoute from "./routes/locationRoutes.js";
 import cartRoutes from "./routes/cartRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
 import checkCartAvailabilityRoute from "./routes/checkCartAvailabilityRoute.js";
-import paymentRoutes from "./routes/paymentRoutes.js";
+// import paymentRoutes from "./routes/paymentRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
-import bnbRoutes from "./routes/b&bRoutes.js";
-import bnbGroupRoutes from "./routes/b&bGroupRoutes.js";
-import bnbGroupProductRoutes from "./routes/b&bGroupProductRoutes.js";
+// import bnbRoutes from "./routes/b&bRoutes.js";
+// import bnbGroupRoutes from "./routes/b&bGroupRoutes.js";
+// import bnbGroupProductRoutes from "./routes/b&bGroupProductRoutes.js";
 import dailyDealsRoutes from "./routes/dailyDealsRoutes.js";
 import dailyDealsProductRoutes from "./routes/dailyDealsProductRoutes.js";
 import brandRoutes from "./routes/brandRoutes.js";
@@ -42,8 +44,8 @@ import storeRoutes from "./routes/storeRoute.js";
 import subStoreRoutes from "./routes/subStoreRoute.js";
 import YouMayLikeProductRoutes from "./routes/youMayLikeRoutes.js";
 import addBannerRoutes from "./routes/addBannerRoutes.js";
-import addBannerGroupRoutes from "./routes/addBannerGroupRoutes.js";
-import addBannerGroupProductRoutes from "./routes/addBannerGroupProductRoutes.js";
+// import addBannerGroupRoutes from "./routes/addBannerGroupRoutes.js";
+// import addBannerGroupProductRoutes from "./routes/addBannerGroupProductRoutes.js";
 import uniqueSectionRoutes from "./routes/uniqueSectionRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
 import returnOrderRoutes from "./routes/returnOrderRoutes.js";
@@ -54,7 +56,6 @@ import trackingRoutes from "./routes/trackingRoutes.js";
 import categoryRoutes from "./routes/categoryRoutes.js";
 import bulkOrderRoutes from "./routes/bulkOrderRoutes.js";
 import bulkProductRoutes from "./routes/bulkProductRoutes.js";
-import productVariantsRoutes from "./routes/productVariantsRoutes.js";
 import locationRoutes from "./routes/locationRoutes.js";
 import variantRoutes from "./routes/variantRoutes.js";
 import inventoryRoutes from "./routes/inventoryRoutes.js";
@@ -64,17 +65,15 @@ import productSectionRoutes from "./routes/productSectionRoutes.js";
 import zoneRoutes from "./routes/zoneRoutes.js";
 import promoBannerRoutes from "./routes/promoBannerRoutes.js";
 import bulkWholesaleRoutes from "./routes/bulkWholesaleRoutes.js";
-import codOrderRoutes from "./routes/codOrderRoutes.js";
-import onlinePaymentOrderRoutes from "./routes/onlinePaymentOrderRoutes.js";
+// import codOrderRoutes from "./routes/codOrderRoutes.js";
+// import onlinePaymentOrderRoutes from "./routes/onlinePaymentOrderRoutes.js";
 import walletOrderRoutes from "./routes/walletOrderRoutes.js";
 import stockRoutes from "./routes/stockRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
-import productGridSettingsRoutes from "./routes/productGridSettingsRoutes.js";
 import adminProductRoutes from "./routes/adminProductRoutes.js";
 import enquiriesRoutes from "./routes/enquiriesRoutes.js";
 import walletRoutes from "./routes/walletRoutes.js";
 import adminWalletRoutes from "./routes/adminWalletRoutes.js";
-import productAvailabilityRoutes from "./routes/productAvailabilityRoutes.js";
 import userAddressRoutes from "./routes/userAddressRoutes.js";
 import reviewRoutes from "./routes/reviewRoutes.js";
 import customerTestimonialRoutes from "./routes/customerTestimonialRoutes.js";
@@ -162,11 +161,11 @@ const createApp = () => {
   app.use("/api/order", orderRoutes);
   app.use("/api/orderItems", orderRoutes); // Now pointing to the same merged file
   app.use("/api/check", checkCartAvailabilityRoute);
-  app.use("/api/payment", paymentRoutes);
+  // app.use("/api/payment", paymentRoutes);
   app.use("/api/notifications", notificationRoutes);
-  app.use("/api/bnb", bnbRoutes);
-  app.use("/api/b&b-group", bnbGroupRoutes);
-  app.use("/api/b&b-group-product", bnbGroupProductRoutes);
+  // app.use("/api/bnb", bnbRoutes);
+  // app.use("/api/b&b-group", bnbGroupRoutes);
+  // app.use("/api/b&b-group-product", bnbGroupProductRoutes);
   app.use("/api/daily-deals", dailyDealsRoutes);
   app.use("/api/daily-deals-product", dailyDealsProductRoutes);
   app.use("/api/brand", brandRoutes);
@@ -183,8 +182,8 @@ const createApp = () => {
   app.use("/api/sub-stores", subStoreRoutes);
   app.use("/api/you-may-like-products", YouMayLikeProductRoutes);
   app.use("/api/banner", addBannerRoutes);
-  app.use("/api/banner-groups", addBannerGroupRoutes);
-  app.use("/api/banner-group-products", addBannerGroupProductRoutes);
+  // app.use("/api/banner-groups", addBannerGroupRoutes);
+  // app.use("/api/banner-group-products", addBannerGroupProductRoutes);
   app.use("/api/unique-sections", uniqueSectionRoutes);
   app.use("/api/unique-sections-products", uniqueSectionRoutes);
   app.use("/api/user", profileRoutes);
@@ -196,7 +195,6 @@ const createApp = () => {
   app.use("/api/categories", categoryRoutes);
   app.use("/api/bulk-orders", bulkOrderRoutes);
   app.use("/api/bulk-products", bulkProductRoutes);
-  app.use("/api/product-variants", productVariantsRoutes);
   app.use("/api/location", locationRoutes);
   app.use("/api/variants", variantRoutes);
   app.use("/api/inventory", inventoryRoutes);
@@ -208,6 +206,7 @@ const createApp = () => {
   app.use("/api/small-promo-cards", smallPromoCardRoutes);
   app.use("/api/bulk-wholesale", bulkWholesaleRoutes);
 
+  /*
   // COD Orders routes with logging middleware
   app.use(
     "/api/cod-orders",
@@ -218,9 +217,10 @@ const createApp = () => {
     },
     codOrderRoutes
   );
+  */
 
   // Online Payment Orders (Razorpay, etc.) - No amount limit
-  app.use("/api/online-payment-orders", onlinePaymentOrderRoutes);
+  // app.use("/api/online-payment-orders", onlinePaymentOrderRoutes);
 
   // Wallet Orders (Prepaid via wallet balance)
   app.use("/api/wallet-orders", walletOrderRoutes);
@@ -228,12 +228,10 @@ const createApp = () => {
   app.use("/api/zones", zoneRoutes);
   app.use("/api/stock", stockRoutes);
   app.use("/api/upload", uploadRoutes);
-  app.use("/api/product-grid-settings", productGridSettingsRoutes);
   app.use("/api/admin", adminProductRoutes);
   app.use("/api/enquiries", enquiriesRoutes);
   app.use("/api/wallet", walletRoutes);
   app.use("/api/admin/wallets", adminWalletRoutes);
-  app.use("/api/product-availability", productAvailabilityRoutes);
   app.use("/api/user/addresses", userAddressRoutes);
   app.use("/api/reviews", reviewRoutes);
   app.use("/api/customer-testimonials", customerTestimonialRoutes);
@@ -357,23 +355,34 @@ const validateEnv = () => {
 };
 
 // Graceful shutdown handler
-const gracefulShutdown = (server, signal) => {
-  console.log(`\n${signal} received. Starting graceful shutdown...`);
+const gracefulShutdown = async (server, signal) => {
+  console.log(`\n🛑 ${signal} received. Starting graceful shutdown...`);
 
-  // Stop scheduled jobs
-  stopScheduledJobs();
-
+  // Stop accepting new requests
   server.close(() => {
     console.log("✅ HTTP server closed");
-    console.log("👋 Process terminated gracefully");
-    process.exit(0);
   });
 
-  // Force shutdown after 30 seconds
+  // Stop scheduled jobs
+  try {
+    stopScheduledJobs();
+    console.log("✅ Scheduled jobs stopped");
+  } catch (error) {
+    console.error("⚠️  Error stopping scheduled jobs:", error);
+  }
+
+  // Disconnect Prisma
+  try {
+    await disconnectPrisma();
+  } catch (error) {
+    console.error("⚠️  Error disconnecting Prisma:", error);
+  }
+
+  // Give ongoing requests time to complete
   setTimeout(() => {
-    console.error("⚠️  Forced shutdown after timeout");
-    process.exit(1);
-  }, 30000);
+    console.log("⏱️  Forcing shutdown after timeout");
+    process.exit(0);
+  }, 10000); // 10 second timeout
 };
 
 // Master process - manages worker processes
@@ -453,53 +462,61 @@ if (IS_CLUSTERED && cluster.isPrimary) {
   // Worker process - runs the actual server
   const app = createApp();
 
-  const server = app.listen(PORT, () => {
-    const workerId = cluster.worker?.id || "standalone";
-    const pid = process.pid;
+  // Initialize Prisma connection before starting server
+  connectPrisma()
+    .then(() => {
+      const server = app.listen(PORT, () => {
+        const workerId = cluster.worker?.id || "standalone";
+        const pid = process.pid;
 
-    console.log(
-      "\n╔════════════════════════════════════════════════════════════╗"
-    );
-    console.log(
-      `║  🚀 Worker ${workerId} (PID: ${pid}) - Server Started on Port ${PORT}  ║`
-    );
-    console.log(
-      "╚════════════════════════════════════════════════════════════╝"
-    );
-    console.log(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
-    console.log(`🌐 CORS: Configured to allow all origins`);
-    console.log(
-      `💳 Razorpay Mode: ${process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
-      }`
-    );
-    console.log(
-      `🔗 Supabase URL: ${process.env.SUPABASE_URL || "Not configured"}`
-    );
-    console.log(`🔧 Cluster Mode: ${IS_CLUSTERED ? "ENABLED" : "DISABLED"}`);
-    console.log(
-      "════════════════════════════════════════════════════════════\n"
-    );
+        console.log(
+          "\n╔════════════════════════════════════════════════════════════╗"
+        );
+        console.log(
+          `║  🚀 Worker ${workerId} (PID: ${pid}) - Server Started on Port ${PORT}  ║`
+        );
+        console.log(
+          "╚════════════════════════════════════════════════════════════╝"
+        );
+        console.log(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
+        console.log(`🌐 CORS: Configured to allow all origins`);
+        console.log(
+          `💳 Razorpay Mode: ${process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
+          }`
+        );
+        console.log(
+          `🔗 Supabase: Storage & Auth only`
+        );
+        console.log(`🔧 Cluster Mode: ${IS_CLUSTERED ? "ENABLED" : "DISABLED"}`);
+        console.log(
+          "════════════════════════════════════════════════════════════\n"
+        );
 
-    // Start scheduled jobs (only in first worker or standalone mode)
-    if (!IS_CLUSTERED || workerId === 1) {
-      startScheduledJobs();
-    }
-  });
+        // Start scheduled jobs (only in first worker or standalone mode)
+        if (!IS_CLUSTERED || workerId === 1) {
+          startScheduledJobs();
+        }
+      });
 
-  // Graceful shutdown for workers
-  process.on("SIGTERM", () => gracefulShutdown(server, "SIGTERM"));
-  process.on("SIGINT", () => gracefulShutdown(server, "SIGINT"));
+      // Graceful shutdown for workers
+      process.on("SIGTERM", () => gracefulShutdown(server, "SIGTERM"));
+      process.on("SIGINT", () => gracefulShutdown(server, "SIGINT"));
 
-  // Handle uncaught exceptions
-  process.on("uncaughtException", (error) => {
-    console.error("❌ Uncaught Exception:", error);
-    gracefulShutdown(server, "UNCAUGHT_EXCEPTION");
-  });
+      // Handle uncaught exceptions
+      process.on("uncaughtException", (error) => {
+        console.error("❌ Uncaught Exception:", error);
+        gracefulShutdown(server, "UNCAUGHT_EXCEPTION");
+      });
 
-  // Handle unhandled promise rejections
-  process.on("unhandledRejection", (reason, promise) => {
-    console.error("❌ Unhandled Rejection at:", promise, "reason:", reason);
-  });
+      // Handle unhandled promise rejections
+      process.on("unhandledRejection", (reason, promise) => {
+        console.error("❌ Unhandled Rejection at:", promise, "reason:", reason);
+      });
+    })
+    .catch((error) => {
+      console.error("❌ Failed to start server due to Prisma connection error");
+      process.exit(1);
+    });
 }
 
 // Export the app for testing or other purposes

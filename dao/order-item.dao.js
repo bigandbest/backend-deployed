@@ -1,4 +1,4 @@
-import prisma from '../utils/prisma.js';
+import prisma from '../config/prisma.js';
 
 class OrderItemDAO {
     async create(data) {
@@ -33,6 +33,18 @@ class OrderItemDAO {
     async delete(id) {
         return await prisma.order_items.delete({
             where: { id }
+        });
+    }
+
+    async createMany(items) {
+        return await prisma.order_items.createMany({
+            data: items
+        });
+    }
+
+    async deleteByOrder(orderId) {
+        return await prisma.order_items.deleteMany({
+            where: { order_id: orderId }
         });
     }
 }

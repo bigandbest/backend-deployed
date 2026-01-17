@@ -1,4 +1,6 @@
-import { supabase } from "../config/supabaseClient.js";
+import dailyDealsProductDao from "../dao/daily-deals-product.dao.js";
+import dailyDealsDao from "../dao/daily-deals.dao.js";
+import productDao from "../dao/product.dao.js";
 
 // Map a single product to a Daily Deal
 export const mapProductToDailyDeal = async (req, res) => {
@@ -11,23 +13,14 @@ export const mapProductToDailyDeal = async (req, res) => {
         .json({ error: "product_id and daily_deal_id are required." });
     }
 
-    // Insert mapping (ignore if duplicate)
-    const { error } = await supabase
-      .from("daily_deals_product")
-      .insert([{ product_id, daily_deal_id }]);
-
-    if (error) {
-      if (error.code === "23505") {
-        return res.status(409).json({ error: "Mapping already exists." });
-      }
-      return res.status(500).json({ error: error.message });
-    }
+    await dailyDealsProductDao.mapProduct(daily_deal_id, product_id);
 
     res
       .status(201)
       .json({ message: "Product mapped to Daily Deal successfully." });
   } catch (err) {
-    res.status(500).json({ error: "Server error" });
+    console.error("Map product error:", err);
+    res.status(500).json({ error: err.message || "Server error" });
   }
 };
 
@@ -36,17 +29,12 @@ export const removeProductFromDailyDeal = async (req, res) => {
   try {
     const { product_id, daily_deal_id } = req.body;
 
-    const { error } = await supabase
-      .from("daily_deals_product")
-      .delete()
-      .eq("product_id", product_id)
-      .eq("daily_deal_id", daily_deal_id);
-
-    if (error) return res.status(500).json({ error: error.message });
+    await dailyDealsProductDao.removeProduct(daily_deal_id, product_id);
 
     res.status(200).json({ message: "Mapping removed successfully." });
   } catch (err) {
-    res.status(500).json({ error: "Server error" });
+    console.error("Remove mapping error:", err);
+    res.status(500).json({ error: err.message || "Server error" });
   }
 };
 
@@ -55,16 +43,12 @@ export const getDailyDealsForProduct = async (req, res) => {
   try {
     const { product_id } = req.params;
 
-    const { data, error } = await supabase
-      .from("daily_deals_product")
-      .select("daily_deal_id, daily_deals (id, title, discount, badge, active)")
-      .eq("product_id", product_id);
-
-    if (error) return res.status(500).json({ error: error.message });
+    const data = await dailyDealsProductDao.getDealsByProductId(product_id);
 
     res.status(200).json(data);
   } catch (err) {
-    res.status(500).json({ error: "Server error" });
+    console.error("Get deals for product error:", err);
+    res.status(500).json({ error: err.message || "Server error" });
   }
 };
 
@@ -74,13 +58,9 @@ export const getProductsForDailyDeal = async (req, res) => {
     const { daily_deal_id } = req.params;
 
     // Fetch the daily deal info
-    const { data: dealData, error: dealError } = await supabase
-      .from("daily_deals")
-      .select("id, title, discount, image_url")
-      .eq("id", daily_deal_id)
-      .single();
+    const dealData = await dailyDealsDao.getById(daily_deal_id);
 
-    if (dealError) {
+    if (!dealData) {
       return res.status(404).json({
         success: false,
         error: "Daily deal not found"
@@ -88,34 +68,29 @@ export const getProductsForDailyDeal = async (req, res) => {
     }
 
     // Fetch products for this deal
-    const { data, error } = await supabase
-      .from("daily_deals_product")
-      .select(
-        "product_id, products (id, name, price, rating, image, category, uom, discount, old_price, stock, brand_name, description)"
-      )
-      .eq("daily_deal_id", daily_deal_id);
-
-    if (error) return res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    const data = await dailyDealsProductDao.getProductsByDealId(daily_deal_id);
 
     // Transform the data to match expected format
-    const products = data.map(item => ({
-      id: item.products.id,
-      name: item.products.name,
-      price: item.products.price,
-      oldPrice: item.products.old_price,
-      rating: item.products.rating || 4.0,
-      discount: item.products.discount || 0,
-      image: item.products.image,
-      category: item.products.category,
-      uom: item.products.uom,
-      stock: item.products.stock || 0,
-      inStock: (item.products.stock || 0) > 0,
-      brand: item.products.brand_name || "BigandBest",
-      description: item.products.description,
-    }));
+    const products = data.map(item => {
+      const p = item.product;
+      const defaultVariant = p.variants?.find(v => v.is_default) || p.variants?.[0] || {};
+
+      return {
+        id: p.id,
+        name: p.name,
+        price: defaultVariant.price || 0,
+        oldPrice: defaultVariant.old_price || 0,
+        rating: p.rating ? parseFloat(p.rating) : 4.0,
+        discount: defaultVariant.discount_percentage || 0,
+        image: p.image,
+        category: p.category_id,
+        uom: p.uom, // Ensure UOM is available or handled
+        stock: defaultVariant.inventory?.stock_qty || 0,
+        inStock: (defaultVariant.inventory?.stock_qty || 0) > 0,
+        brand: "BigandBest", // Fallback as brand relation might be complex
+        description: p.description,
+      };
+    });
 
     res.status(200).json({
       success: true,
@@ -129,9 +104,10 @@ export const getProductsForDailyDeal = async (req, res) => {
       total: products.length,
     });
   } catch (err) {
+    console.error("Get products for deal error:", err);
     res.status(500).json({
       success: false,
-      error: "Server error"
+      error: err.message || "Server error"
     });
   }
 };
@@ -148,39 +124,27 @@ export const bulkMapProductsToDailyDeal = async (req, res) => {
     }
 
     // 1. Get Daily Deal ID from title
-    const { data: dailyDealData, error: dailyDealError } = await supabase
-      .from("daily_deals")
-      .select("id")
-      .eq("title", daily_deal_title)
-      .single();
+    // Since DailyDealsDAO doesn't have getByTitle, we list and filter or use direct prisma for now
+    // Better to use list with filters if supported, or direct prisma
+    const deals = await dailyDealsDao.list();
+    const dailyDealData = deals.find(d => d.title === daily_deal_title);
 
-    if (dailyDealError || !dailyDealData) {
+    if (!dailyDealData) {
       return res.status(404).json({ error: "Daily Deal not found." });
     }
 
     // 2. Get product IDs from names
-    const { data: products, error: productError } = await supabase
-      .from("products")
-      .select("id, name")
-      .in("name", product_names);
+    // We can use a search or list method from ProductDAO
+    const { items: products } = await productDao.listProducts({
+      name: { in: product_names }
+    }, { limit: 1000 });
 
-    if (productError || !products.length) {
+    if (!products || !products.length) {
       return res.status(404).json({ error: "No matching products found." });
     }
 
     // 3. Map each product to Daily Deal
-    const inserts = products.map((p) => ({
-      product_id: p.id,
-      daily_deal_id: dailyDealData.id,
-    }));
-
-    const { error: insertError } = await supabase
-      .from("daily_deals_product")
-      .insert(inserts, { upsert: false });
-
-    if (insertError && insertError.code !== "23505") {
-      return res.status(500).json({ error: insertError.message });
-    }
+    await dailyDealsProductDao.bulkMap(dailyDealData.id, products.map(p => p.id));
 
     res.status(201).json({
       message: `Mapped ${products.length} products to Daily Deal "${daily_deal_title}".`,
@@ -188,6 +152,6 @@ export const bulkMapProductsToDailyDeal = async (req, res) => {
     });
   } catch (err) {
     console.error("Bulk map error:", err.message);
-    res.status(500).json({ success: false, error: "Server error" });
+    res.status(500).json({ success: false, error: err.message || "Server error" });
   }
 };

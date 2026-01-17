@@ -1,17 +1,11 @@
 import { supabase } from "../config/supabaseClient.js";
+import partnerDao from "../dao/partner.dao.js";
 
 // Get all partners (for admin)
 export const getAllPartners = async (req, res) => {
     try {
-        const { data, error } = await supabase
-            .from("partners")
-            .select("*")
-            .order("sort_order", { ascending: true })
-            .order("created_at", { ascending: false });
-
-        if (error) throw error;
-
-        res.status(200).json({ success: true, partners: data });
+        const partners = await partnerDao.list({ active: undefined });
+        res.status(200).json({ success: true, partners });
     } catch (err) {
         console.error("Error fetching partners:", err);
         res.status(500).json({ success: false, error: err.message });
@@ -21,15 +15,8 @@ export const getAllPartners = async (req, res) => {
 // Get active partners (for frontend)
 export const getActivePartners = async (req, res) => {
     try {
-        const { data, error } = await supabase
-            .from("partners")
-            .select("*")
-            .eq("active", true)
-            .order("sort_order", { ascending: true });
-
-        if (error) throw error;
-
-        res.status(200).json({ success: true, partners: data });
+        const partners = await partnerDao.list({ active: true });
+        res.status(200).json({ success: true, partners });
     } catch (err) {
         console.error("Error fetching active partners:", err);
         res.status(500).json({ success: false, error: err.message });
@@ -61,20 +48,14 @@ export const addPartner = async (req, res) => {
         const { data: urlData } = supabase.storage.from("addBanner").getPublicUrl(fileName);
         const image_url = urlData.publicUrl;
 
-        const { data, error } = await supabase
-            .from("partners")
-            .insert([{
-                name,
-                image_url,
-                active: active === 'true' || active === true,
-                sort_order: sort_order || 0
-            }])
-            .select()
-            .single();
+        const partner = await partnerDao.create({
+            name,
+            image_url,
+            active: active === 'true' || active === true,
+            sort_order: parseInt(sort_order) || 0
+        });
 
-        if (error) throw error;
-
-        res.status(201).json({ success: true, partner: data });
+        res.status(201).json({ success: true, partner });
     } catch (err) {
         console.error("Error adding partner:", err);
         res.status(500).json({ success: false, error: err.message });
@@ -88,10 +69,10 @@ export const updatePartner = async (req, res) => {
         const { name, active, sort_order } = req.body;
         const imageFile = req.file;
 
-        const updates = { updated_at: new Date().toISOString() };
+        const updates = {};
         if (name !== undefined) updates.name = name;
         if (active !== undefined) updates.active = active === 'true' || active === true;
-        if (sort_order !== undefined) updates.sort_order = sort_order;
+        if (sort_order !== undefined) updates.sort_order = parseInt(sort_order);
 
         if (imageFile) {
             const fileExt = imageFile.originalname.split(".").pop();
@@ -109,16 +90,8 @@ export const updatePartner = async (req, res) => {
             updates.image_url = urlData.publicUrl;
         }
 
-        const { data, error } = await supabase
-            .from("partners")
-            .update(updates)
-            .eq("id", id)
-            .select()
-            .single();
-
-        if (error) throw error;
-
-        res.status(200).json({ success: true, partner: data });
+        const partner = await partnerDao.update(id, updates);
+        res.status(200).json({ success: true, partner });
     } catch (err) {
         console.error("Error updating partner:", err);
         res.status(500).json({ success: false, error: err.message });
@@ -129,13 +102,7 @@ export const updatePartner = async (req, res) => {
 export const deletePartner = async (req, res) => {
     try {
         const { id } = req.params;
-        const { error } = await supabase
-            .from("partners")
-            .delete()
-            .eq("id", id);
-
-        if (error) throw error;
-
+        await partnerDao.delete(id);
         res.status(200).json({ success: true, message: "Partner deleted successfully" });
     } catch (err) {
         console.error("Error deleting partner:", err);

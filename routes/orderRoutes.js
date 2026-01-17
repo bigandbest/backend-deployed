@@ -15,6 +15,9 @@ import {
   getOrderItemsByOrderId,
   getOrderItemsByProductId,
   deleteOrderItemsByOrderId,
+  createRazorpayOrder,
+  verifyRazorpayPayment,
+  verifyRazorpaySignature,
 } from "../controller/orderController.js";
 import {
   createScheduledOrder,
@@ -92,14 +95,15 @@ router.post(
   placeOrderWithDetailedAddress
 );
 router.get("/status/:id", async (req, res) => {
-  const { data, error } = await supabase
-    .from("orders")
-    .select("status")
-    .eq("id", req.params.id)
-    .single();
-  if (error)
+  try {
+    const order = await orderDao.getById(parseInt(req.params.id));
+    if (!order) {
+      return res.status(404).json({ success: false, error: "Order not found" });
+    }
+    return res.json({ success: true, status: order.status });
+  } catch (error) {
     return res.status(500).json({ success: false, error: error.message });
-  return res.json({ success: true, status: data.status });
+  }
 });
 
 // Authenticated endpoint for getting user's own orders
@@ -150,5 +154,13 @@ router.post("/scheduling/admin/warehouse-slots", authenticateAdmin, assignSlotTo
 router.put("/scheduling/admin/warehouse-slots/:id", authenticateAdmin, updateWarehouseSlotConfig);
 router.delete("/scheduling/admin/warehouse-slots/:id", authenticateAdmin, removeSlotFromWarehouse);
 router.get("/scheduling/admin/warehouse/:warehouseId/slots", authenticateAdmin, getWarehouseSlots);
+
+// --- Payment & Online Order Routes (Merged) ---
+router.post("/payments/create-order", createRazorpayOrder);
+router.post("/payments/verify-payment", verifyRazorpayPayment);
+router.post("/payments/verify-signature", verifyRazorpaySignature);
+
+// Legacy Online Payment Order Route
+router.post("/online-order/create", placeOrderWithDetailedAddress);
 
 export default router;

@@ -1,12 +1,12 @@
 import { supabase } from "../config/supabaseClient.js";
 import { executeWalletTransaction } from "./walletController.js";
-import { createNotificationHelper } from "./NotificationHelpers.js";
+// import { createNotificationHelper } from "./NotificationHelpers.js";
 
 // Create Wallet Order (prepaid via wallet balance)
 export const createWalletOrder = async (req, res) => {
   try {
     console.log('Wallet Order Creation Request:', req.body);
-    
+
     const {
       user_id,
       product_id,
@@ -142,7 +142,7 @@ export const createWalletOrder = async (req, res) => {
     // Deduct from wallet using executeWalletTransaction
     try {
       const idempotencyKey = `wallet_order_${order.id}_${Date.now()}`;
-      
+
       const { wallet: updatedWallet, transaction } = await executeWalletTransaction(
         user_id,
         "SPEND",
@@ -158,6 +158,7 @@ export const createWalletOrder = async (req, res) => {
       );
 
       // Create notification
+      /*
       await createNotificationHelper(
         user_id,
         "Order Placed Successfully",
@@ -166,6 +167,7 @@ export const createWalletOrder = async (req, res) => {
         order.id,
         "user"
       );
+      */
 
       console.log('Wallet Order Created Successfully:', order);
       return res.status(201).json({
@@ -180,7 +182,7 @@ export const createWalletOrder = async (req, res) => {
       // Rollback order if wallet deduction fails
       await supabase.from("orders").delete().eq("id", order.id);
       await supabase.from("order_items").delete().eq("order_id", order.id);
-      
+
       return res.status(400).json({
         success: false,
         error: walletError.message || "Failed to deduct from wallet"

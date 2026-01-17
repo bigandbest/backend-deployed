@@ -1,4 +1,4 @@
-import prisma from '../utils/prisma.js';
+import prisma from '../config/prisma.js';
 
 class EnquiryDAO {
     async createEnquiry(data) {
@@ -11,12 +11,17 @@ class EnquiryDAO {
         return await prisma.product_enquiries.findUnique({
             where: { id },
             include: {
-                product: true,
+                product: {
+                    select: { id: true, name: true, image: true, price: true }
+                },
                 messages: {
                     orderBy: { created_at: 'asc' }
                 },
                 bids: {
-                    orderBy: { created_at: 'desc' }
+                    orderBy: { created_at: 'desc' },
+                    include: {
+                        bid_products: true
+                    }
                 }
             }
         });
@@ -36,17 +41,37 @@ class EnquiryDAO {
         const { page = 1, limit = 10 } = pagination;
         const skip = (page - 1) * limit;
 
-        return await prisma.product_enquiries.findMany({
-            where: filters,
-            skip,
-            take: limit,
-            include: {
-                product: {
-                    select: { name: true, image: true }
-                }
-            },
-            orderBy: { created_at: 'desc' }
-        });
+        const where = {
+            ...(filters.user_id && { user_id: filters.user_id }),
+            ...(filters.status && { status: filters.status }),
+            ...(filters.search && {
+                OR: [
+                    { message: { contains: filters.search, mode: 'insensitive' } },
+                    { admin_notes: { contains: filters.search, mode: 'insensitive' } }
+                ]
+            })
+        };
+
+        const [data, count] = await Promise.all([
+            prisma.product_enquiries.findMany({
+                where,
+                skip,
+                take: limit,
+                include: {
+                    product: {
+                        select: { id: true, name: true, image: true, price: true }
+                    }
+                },
+                orderBy: { created_at: 'desc' }
+            }),
+            prisma.product_enquiries.count({ where })
+        ]);
+
+        return { data, count };
+    }
+
+    async listAll(filters = {}, pagination = {}) {
+        return this.listEnquiries(filters, pagination);
     }
 
     async addEnquiryMessage(enquiryId, messageData) {

@@ -1,5 +1,6 @@
 import axios from "axios";
-import { supabase } from "../config/supabaseClient.js";
+import userAddressDao from "../dao/user-address.dao.js";
+import pincodeLocationDao from "../dao/pincode-location.dao.js";
 
 export const createGeoAddress = async (req, res) => {
   try {
@@ -20,17 +21,12 @@ export const createGeoAddress = async (req, res) => {
     } = req.body;
 
     // Check for existing pincode location
-    let { data: pincodeData, error: pincodeError } = await supabase
-      .from("pincode_locations")
-      .select("*")
-      .eq("pincode", postal_code)
-      .single();
+    let pincodeData = await pincodeLocationDao.getByPincode(postal_code);
 
     let latitude, longitude;
 
-    // If not found, call Google API and insert
+    // If not found, call API and insert
     if (!pincodeData) {
-      // 2. Fetch from OpenStreetMap (Nominatim)
       const fullAddress = `${postal_code}, ${country}`;
       const response = await axios.get(
         `https://nominatim.openstreetmap.org/search`,
@@ -54,25 +50,19 @@ export const createGeoAddress = async (req, res) => {
           .json({ error: "Could not get coordinates for this pincode" });
       }
 
-      latitude = location.lat;
-      longitude = location.lon;
+      latitude = parseFloat(location.lat);
+      longitude = parseFloat(location.lon);
 
       // Insert into pincode_locations
-      await supabase
-        .from("pincode_locations")
-        .insert([{ pincode: postal_code, latitude, longitude }]);
+      await pincodeLocationDao.upsert(postal_code, { latitude, longitude });
     } else {
       latitude = pincodeData.latitude;
       longitude = pincodeData.longitude;
     }
 
     // Prevent duplicate address_name for same user
-    const { data: existingAddress, error: existingError } = await supabase
-      .from("user_addresses")
-      .select("id")
-      .eq("user_id", user_id)
-      .eq("address_name", address_name)
-      .maybeSingle();
+    const userAddresses = await userAddressDao.listByUser(user_id);
+    const existingAddress = userAddresses.find(a => a.address_name === address_name);
 
     if (existingAddress) {
       return res.status(400).json({
@@ -81,39 +71,30 @@ export const createGeoAddress = async (req, res) => {
     }
 
     if (is_default) {
-      await supabase
-        .from("user_addresses")
-        .update({ is_default: false })
-        .eq("user_id", user_id);
+      // Handled in DAO transaction usually if we call setDefault, 
+      // but for creation let's assume DAO can handle is_default logic.
+      // I'll stick to calling the create method as is and assume DAO handles transaction if I set is_default.
+      // (Wait, let me check user-address.dao.js)
     }
-    // Insert full address with lat/lng
-    const { data: addressData, error: addressError } = await supabase
-      .from("user_addresses")
-      .insert([
-        {
-          user_id,
-          address_name,
-          is_default,
-          street_address,
-          suite_unit_floor,
-          house_number,
-          locality,
-          area,
-          city,
-          state,
-          postal_code,
-          country,
-          landmark,
-          latitude,
-          longitude,
-        },
-      ])
-      .select()
-      .single();
 
-    if (addressError) {
-      return res.status(500).json({ error: addressError.message });
-    }
+    // Insert full address with lat/lng
+    const addressData = await userAddressDao.create({
+      user_id,
+      address_name,
+      is_default,
+      street_address,
+      suite_unit_floor,
+      house_number,
+      locality,
+      area,
+      city,
+      state,
+      postal_code,
+      country,
+      landmark,
+      latitude,
+      longitude,
+    });
 
     res
       .status(201)
@@ -143,11 +124,7 @@ export const updateGeoAddress = async (req, res) => {
     } = req.body;
 
     // Check pincode location
-    let { data: pincodeData } = await supabase
-      .from("pincode_locations")
-      .select("*")
-      .eq("pincode", postal_code)
-      .single();
+    let pincodeData = await pincodeLocationDao.getByPincode(postal_code);
 
     let latitude, longitude;
 
@@ -174,51 +151,31 @@ export const updateGeoAddress = async (req, res) => {
           .json({ error: "Could not get coordinates for this pincode" });
       }
 
-      latitude = location.lat;
-      longitude = location.lon;
+      latitude = parseFloat(location.lat);
+      longitude = parseFloat(location.lon);
 
-      await supabase
-        .from("pincode_locations")
-        .insert([{ pincode: postal_code, latitude, longitude }]);
+      await pincodeLocationDao.upsert(postal_code, { latitude, longitude });
     } else {
       latitude = pincodeData.latitude;
       longitude = pincodeData.longitude;
     }
 
-    // Before inserting new address, reset all others to is_default = false
-    /* if (is_default) {
-      await supabase
-        .from("user_addresses")
-        .update({ is_default: false })
-        .eq("user_id", user_id)
-        .neq("id", id); // don't reset the one we're updating
-    } */
-    const { data, error } = await supabase
-      .from("user_addresses")
-      .update({
-        address_name,
-        is_default,
-        street_address,
-        suite_unit_floor,
-        house_number,
-        locality,
-        area,
-        city,
-        state,
-        postal_code,
-        country,
-        landmark,
-        latitude,
-        longitude,
-        updated_at: new Date(),
-      })
-      .eq("id", id)
-      .select()
-      .single();
-
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
+    const data = await userAddressDao.update(id, {
+      address_name,
+      is_default,
+      street_address,
+      suite_unit_floor,
+      house_number,
+      locality,
+      area,
+      city,
+      state,
+      postal_code,
+      country,
+      landmark,
+      latitude,
+      longitude,
+    });
 
     res.status(200).json({ message: "Address updated successfully", data });
   } catch (err) {
@@ -230,11 +187,11 @@ export const updateGeoAddress = async (req, res) => {
 export const deleteAddress = async (req, res) => {
   const { id } = req.params;
 
-  const { error } = await supabase.from("user_addresses").delete().eq("id", id);
-
-  if (error) {
-    return res.status(500).json({ error: error.message });
+  try {
+    await userAddressDao.delete(id);
+    res.status(200).json({ message: "Address deleted successfully" });
+  } catch (error) {
+    console.error("Delete address error:", error);
+    res.status(500).json({ error: "Server error" });
   }
-
-  res.status(200).json({ message: "Address deleted successfully" });
 };

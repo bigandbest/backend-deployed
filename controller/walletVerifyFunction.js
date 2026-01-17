@@ -2,7 +2,7 @@
 import { supabase } from "../config/supabaseClient.js";
 import crypto from "crypto";
 import Razorpay from "razorpay";
-import { createNotificationHelper } from "./NotificationHelpers.js";
+// import { createNotificationHelper } from "./NotificationHelpers.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -65,10 +65,10 @@ export const verifyWalletTopup = async (req, res) => {
 
     // Check if already processed
     if (pendingTopup.status === "COMPLETED") {
-      return res.json({ 
-        success: true, 
+      return res.json({
+        success: true,
         message: "Topup already processed",
-        already_processed: true 
+        already_processed: true
       });
     }
 
@@ -108,6 +108,7 @@ export const verifyWalletTopup = async (req, res) => {
         .eq("id", pendingTopup.id);
 
       // Create notification
+      /*
       await createNotificationHelper(
         user.id,
         "Wallet Recharged Successfully",
@@ -116,6 +117,7 @@ export const verifyWalletTopup = async (req, res) => {
         transaction.id,
         "user"
       );
+      */
 
       console.log(
         `Wallet topup completed: User ${user.id}, Amount: ${pendingTopup.amount}, New Balance: ${wallet.balance}`

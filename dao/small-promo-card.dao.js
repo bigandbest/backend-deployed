@@ -1,4 +1,4 @@
-import prisma from '../utils/prisma.js';
+import prisma from '../config/prisma.js';
 
 class SmallPromoCardDAO {
     async create(data) {
@@ -12,11 +12,15 @@ class SmallPromoCardDAO {
     }
 
     async list(filters = {}) {
-        const { active = true } = filters;
+        const { active } = filters;
+        const where = {};
+
+        if (active !== undefined) {
+            where.is_active = active;
+        }
+
         return await prisma.small_promo_cards.findMany({
-            where: {
-                ...(active !== undefined && { is_active: active })
-            },
+            where,
             orderBy: { display_order: 'asc' }
         });
     }

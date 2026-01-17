@@ -1,4 +1,4 @@
-import prisma from '../utils/prisma.js';
+import prisma from '../config/prisma.js';
 
 class WarehouseDAO {
     async create(data) {
@@ -15,6 +15,12 @@ class WarehouseDAO {
                 warehouse_pincodes: true,
                 scheduling_configs: { include: { slot: true } }
             }
+        });
+    }
+
+    async getByName(name) {
+        return await prisma.warehouses.findUnique({
+            where: { name }
         });
     }
 

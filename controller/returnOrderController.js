@@ -1,10 +1,12 @@
 // controllers/returnOrderController.js
 import { supabase } from "../config/supabaseClient.js";
+/*
 import {
   createReturnNotification,
   createAdminReturnNotification,
   createNotificationHelper,
 } from "./NotificationHelpers.js";
+*/
 
 // Helper function to calculate days since order delivery
 const calculateDaysSinceDelivery = (orderDate, orderStatus) => {
@@ -372,8 +374,8 @@ export const createReturnRequest = async (req, res) => {
       .eq("id", user_id)
       .single();
 
-    await createReturnNotification(user_id, order_id, "requested", return_type);
-    await createAdminReturnNotification(order_id, userData?.name, return_type);
+    // await createReturnNotification(user_id, order_id, "requested", return_type);
+    // await createAdminReturnNotification(order_id, userData?.name, return_type);
 
     // 9. Update Order Status
     // If cancellation, update order status to cancelled
@@ -598,6 +600,7 @@ export const updateReturnRequestStatus = async (req, res) => {
 
     try {
       // Create notification using helper
+      /*
       const notification = await createNotificationHelper(
         data.user_id,
         `${data.return_type === "cancellation" ? "Cancellation" : "Return"
@@ -606,6 +609,7 @@ export const updateReturnRequestStatus = async (req, res) => {
         "return",
         data.order_id
       );
+      */
 
       if (notification) {
         console.log("✅ Notification created successfully:", notification.id);

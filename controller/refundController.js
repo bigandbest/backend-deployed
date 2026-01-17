@@ -1,9 +1,11 @@
 // controllers/refundController.js
 import { supabase } from "../config/supabaseClient.js";
+/*
 import {
   createRefundNotification,
   createAdminRefundNotification,
 } from "./NotificationHelpers.js";
+*/
 
 // Create refund request for cancelled prepaid orders
 export const createRefundRequest = async (req, res) => {
@@ -121,6 +123,7 @@ export const createRefundRequest = async (req, res) => {
       .single();
 
     // Create notifications
+    /*
     try {
       await createRefundNotification(
         order.user_id,
@@ -139,6 +142,7 @@ export const createRefundRequest = async (req, res) => {
       console.error("Error creating refund notifications:", notificationError);
       // Don't fail the entire operation if notifications fail
     }
+    */
 
     res.json({
       success: true,
@@ -281,6 +285,7 @@ export const updateRefundRequestStatus = async (req, res) => {
     }
 
     // Create notification for user
+    /*
     try {
       await createRefundNotification(
         refundRequest.user_id,
@@ -291,6 +296,7 @@ export const updateRefundRequestStatus = async (req, res) => {
     } catch (notificationError) {
       console.error("Error creating refund notification:", notificationError);
     }
+    */
 
     res.json({
       success: true,

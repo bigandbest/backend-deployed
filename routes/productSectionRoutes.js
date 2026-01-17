@@ -15,6 +15,8 @@ import {
   removeCategoryFromSection,
   getCategoriesInSection,
   getSectionsForCategory,
+  getProductGridSettings,
+  updateProductGridSettings,
 } from "../controller/productSectionController.js";
 
 const router = express.Router();
@@ -67,5 +69,13 @@ router.delete("/:id/categories/:categoryId", removeCategoryFromSection);
 
 // Get sections for a specific category
 router.get("/categories/:categoryId/sections", getSectionsForCategory);
+
+// ========== GRID SETTINGS ROUTES ==========
+
+// Get product grid settings
+router.get("/grid-settings", getProductGridSettings);
+
+// Update product grid settings
+router.put("/grid-settings", updateProductGridSettings);
 
 export default router;

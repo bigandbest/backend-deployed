@@ -1,143 +1,85 @@
 import { supabase } from "../config/supabaseClient.js";
 import * as deliveryValidationService from "./deliveryValidationService.js";
+import productDao from "../dao/product.dao.js";
+import productVariantDao from "../dao/product-variant.dao.js";
+import productWarehouseStockDao from "../dao/product-warehouse-stock.dao.js";
+import categoryDao from "../dao/category.dao.js";
+import deliveryZoneDao from "../dao/delivery-zone.dao.js";
+import partnerDao from "../dao/partner.dao.js";
+import stockMovementDao from "../dao/stock-movement.dao.js";
+import warehousePincodeDao from "../dao/warehouse-pincode.dao.js";
+import zonePincodeDao from "../dao/zone-pincode.dao.js";
+import warehouseDao from "../dao/warehouse.dao.js";
+import prisma from "../config/prisma.js";
 
-// Variant join string - used consistently across all product queries
-const VARIANT_JOIN = `
-  product_variants!left(
-    id,
-    variant_name,
-    variant_price,
-    variant_old_price,
-    variant_discount,
-    variant_stock,
-    variant_weight,
-    variant_unit,
-    variant_image_url,
-    shipping_amount,
-    is_default,
-    active,
-    created_at
-  )
-`;
+// Helper for consistency in transformations
+const transformProduct = (product, assignments = []) => {
+  const activeVariants = (product.variants || []).filter(v => v.active !== false);
+  const defaultVariant = activeVariants.find(v => v.is_default === true);
+
+  return {
+    id: product.id,
+    name: product.name,
+    description: product.description,
+    price: product.price,
+    oldPrice: product.old_price,
+    rating: product.rating || 4.0,
+    reviews: product.review_count || 0,
+    discount: product.discount || 0,
+    image: product.image,
+    images: product.images,
+    inStock: (product.stock_quantity || product.stock || 0) > 0,
+    stock: product.stock_quantity || product.stock || 0,
+    stockQuantity: product.stock_quantity || product.stock || 0,
+    popular: product.popular,
+    featured: product.featured,
+    most_orders: product.most_orders,
+    top_sale: product.top_sale,
+    category: product.category?.name || product.category_name || product.category,
+    weight: product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
+    brand: product.brand_name || "BigandBest",
+    shipping_amount: product.shipping_amount || 0,
+    specifications: product.specifications,
+    created_at: product.created_at,
+    delivery_type: product.delivery_type || "nationwide",
+    return_applicable: product.return_applicable !== false,
+    return_days: product.return_days || 7,
+    quick_delivery: product.quick_delivery || false,
+    hasVariants: activeVariants.length > 0,
+    variants: activeVariants,
+    defaultVariant: defaultVariant || null,
+    warehouse_assignments: assignments
+  };
+};
 
 export const getAllProducts = async (req, res) => {
   try {
-    // Fetch products with ALL their variants
-    const { data, error } = await supabase
-      .from("products")
-      .select(`*, ${VARIANT_JOIN}`)
-      .eq("active", true);
+    const { items: products } = await productDao.listProducts({ active: true }, { limit: 1000 });
 
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    const productIds = data?.map((product) => product.id) || [];
+    const productIds = products.map((p) => p.id);
     const assignmentsByProduct = new Map();
 
     if (productIds.length > 0) {
-      const { data: assignmentRows, error: assignmentError } = await supabase
-        .from("product_warehouse_stock")
-        .select(
-          `
-          product_id,
-          warehouse_id,
-          stock_quantity,
-          reserved_quantity,
-          warehouses (
-            id,
-            name,
-            type,
-            parent_warehouse_id,
-            location
-          )
-        `
-        )
-        .in("product_id", productIds)
-        .eq("is_active", true);
-
-      if (assignmentError) {
-        console.error(
-          "Failed to load product warehouse assignments:",
-          assignmentError
-        );
-      } else {
-        assignmentRows?.forEach((row) => {
-          const assignments = assignmentsByProduct.get(row.product_id) || [];
-          assignments.push({
-            warehouse_id: row.warehouse_id,
-            warehouse_name: row.warehouses?.name,
-            warehouse_type: row.warehouses?.type,
-            parent_warehouse_id: row.warehouses?.parent_warehouse_id,
-            stock_quantity: row.stock_quantity,
-            reserved_quantity: row.reserved_quantity || 0,
-            available_quantity: Math.max(
-              row.stock_quantity - (row.reserved_quantity || 0),
-              0
-            ),
-            warehouse_pincode: row.warehouses?.location || null,
-          });
-          assignmentsByProduct.set(row.product_id, assignments);
+      const assignmentRows = await productWarehouseStockDao.listByProducts(productIds);
+      assignmentRows?.forEach((row) => {
+        const assignments = assignmentsByProduct.get(row.product_id) || [];
+        assignments.push({
+          warehouse_id: row.warehouse_id,
+          warehouse_name: row.warehouses?.name,
+          warehouse_type: row.warehouses?.type,
+          parent_warehouse_id: row.warehouses?.parent_warehouse_id,
+          stock_quantity: row.stock_quantity,
+          reserved_quantity: row.reserved_quantity || 0,
+          available_quantity: Math.max(row.stock_quantity - (row.reserved_quantity || 0), 0),
+          warehouse_pincode: row.warehouses?.location || null,
         });
-      }
+        assignmentsByProduct.set(row.product_id, assignments);
+      });
     }
 
-    // Transform the data to match frontend expectations
-    const transformedProducts = data.map((product) => {
-      // Filter active variants only
-      const activeVariants = (product.product_variants || []).filter(
-        (v) => v.active !== false
-      );
-      // Find default variant if exists
-      const defaultVariant = activeVariants.find((v) => v.is_default === true);
-
-      return {
-        id: product.id,
-        name: product.name,
-        description: product.description,
-        // ✅ ALWAYS use main product pricing for card display (NEVER variant pricing)
-        price: product.price,
-        oldPrice: product.old_price,
-        rating: product.rating || 4.0,
-        reviews: product.review_count || 0,
-        discount: product.discount || 0,
-        image: product.image,
-        images: product.images,
-        inStock: (product.stock_quantity || product.stock || 0) > 0,
-        stock: product.stock_quantity || product.stock || 0,
-        stockQuantity: product.stock_quantity || product.stock || 0,
-        popular: product.popular,
-        featured: product.featured,
-        most_orders: product.most_orders,
-        top_sale: product.top_sale,
-        category: product.category,
-        weight:
-          product.uom ||
-          `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
-        brand: product.brand_name || "BigandBest",
-        shipping_amount: product.shipping_amount || 0,
-        specifications: product.specifications,
-        created_at: product.created_at,
-        delivery_type: product.delivery_type || "nationwide",
-        // Return policy and delivery settings
-        return_applicable: product.return_applicable !== false,
-        return_days: product.return_days || 7,
-        quick_delivery: product.quick_delivery || false,
-        // ✅ Keep variants separate - DON'T let them override main product data
-        hasVariants: activeVariants.length > 0,
-        variants: activeVariants,
-        defaultVariant: defaultVariant || null,
-        // ✅ Preserve original product data (for card display)
-        originalPrice: product.price,
-        originalOldPrice: product.old_price,
-        originalStock: product.stock_quantity || product.stock || 0,
-        // ✅ Ensure main product data is never overridden
-        cardPrice: product.price,
-        cardOldPrice: product.old_price,
-        warehouse_assignments: assignmentsByProduct.get(product.id) || [],
-      };
-    });
+    const transformedProducts = products.map(product =>
+      transformProduct(product, assignmentsByProduct.get(product.id) || [])
+    );
 
     res.status(200).json({
       success: true,
@@ -153,71 +95,15 @@ export const getAllProducts = async (req, res) => {
 export const getProductsByCategory = async (req, res) => {
   try {
     const { category } = req.params;
+    const products = await productDao.getProductsByCategoryName(category);
 
-    // First, try to find the category by name to get its ID
-    const { data: categoryData, error: catError } = await supabase
-      .from("categories")
-      .select("id, name")
-      .eq("name", category)
-      .single();
-
-    if (catError && catError.code !== "PGRST116") {
-      console.error("Category lookup error:", catError);
-    }
-
-    // Query products by category_id if we found the category, otherwise try by name
-    let query = supabase
-      .from("products")
-      .select(`*, ${VARIANT_JOIN}`)
-      .eq("active", true);
-
-    if (categoryData) {
-      query = query.eq("category_id", categoryData.id);
-    } else {
-      // Fallback: try querying by category field (if it exists)
-      query = query.eq("category", category);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    const transformedProducts = data.map((product) => ({
-      id: product.id,
-      name: product.name,
-      description: product.description,
-      price: product.price,
-      oldPrice: product.old_price,
-      rating: product.rating || 4.0,
-      reviews: product.review_count || 0,
-      discount: product.discount || 0,
-      image: product.image,
-      images: product.images,
-      inStock: (product.stock || 0) > 0,
-      stock: product.stock || 0,
-      popular: product.popular,
-      featured: product.featured,
-      category: product.category,
-      weight:
-        product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
-      brand: product.brand_name || "BigandBest",
-      shipping_amount: product.shipping_amount || 0,
-      created_at: product.created_at,
-      hasVariants: product.product_variants?.length > 0,
-      variants: product.product_variants || [],
-      defaultVariant:
-        product.product_variants?.find((v) => v.is_default === true) || null,
-    }));
+    const transformedProducts = products.map(product => transformProduct(product));
 
     res.status(200).json({
       success: true,
       products: transformedProducts,
       total: transformedProducts.length,
       category: category,
-      category_id: categoryData?.id || null,
     });
   } catch (error) {
     console.error("Server error:", error);
@@ -227,52 +113,21 @@ export const getProductsByCategory = async (req, res) => {
 
 export const getAllCategories = async (req, res) => {
   try {
-    // First try to get categories from the categories table
-    const { data: categoriesData, error: categoriesError } = await supabase
-      .from("categories")
-      .select("*")
-      .eq("active", true);
+    const categories = await categoryDao.list({ active: true });
 
-    let categories = [];
-
-    // If we have data from categories table, use that
-    if (categoriesData && categoriesData.length > 0 && !categoriesError) {
-      categories = categoriesData.map((cat) => ({
-        id: cat.id,
-        name: cat.name,
-        description: cat.description,
-        image_url: cat.image_url,
-        featured: cat.featured,
-        icon: cat.icon,
-      }));
-    } else {
-      // Fallback: get unique categories from products table
-      const { data: productCategories, error: productError } = await supabase
-        .from("products")
-        .select("category")
-        .not("category", "is", null)
-        .eq("active", true);
-
-      if (productCategories && !productError) {
-        const uniqueProductCategories = [
-          ...new Set(productCategories.map((item) => item.category)),
-        ].filter(Boolean);
-
-        categories = uniqueProductCategories.map((catName) => ({
-          id: null,
-          name: catName,
-          description: null,
-          image_url: null,
-          featured: false,
-          icon: null,
-        }));
-      }
-    }
+    const transformedCategories = categories.map((cat) => ({
+      id: cat.id,
+      name: cat.name,
+      description: cat.description,
+      image_url: cat.image_url,
+      featured: cat.featured,
+      icon: cat.icon,
+    }));
 
     res.status(200).json({
       success: true,
-      categories: categories,
-      total: categories.length,
+      categories: transformedCategories,
+      total: transformedCategories.length,
     });
   } catch (error) {
     console.error("Server error in getAllCategories:", error);
@@ -285,107 +140,25 @@ export const getProductsCartData = async (req, res) => {
   try {
     const { product_ids } = req.body || {};
 
-    if (
-      !product_ids ||
-      !Array.isArray(product_ids) ||
-      product_ids.length === 0
-    ) {
+    if (!product_ids || !Array.isArray(product_ids) || product_ids.length === 0) {
       return res.status(200).json({ success: true, products: [] });
     }
 
-    const { data, error } = await supabase
-      .from("products")
-      .select(`*, ${VARIANT_JOIN}`)
-      .in("id", product_ids)
-      .eq("active", true);
-
-    if (error) {
-      console.error("Supabase error in getProductsCartData:", error);
-      return res.status(500).json({ success: false, error: error.message });
-    }
-
-    const transformed = data.map((product) => ({
-      id: product.id,
-      name: product.name,
-      description: product.description,
-      price: product.price,
-      oldPrice: product.old_price,
-      rating: product.rating || 4.0,
-      reviews: product.review_count || 0,
-      discount: product.discount || 0,
-      image: product.image,
-      images: product.images,
-      inStock: (product.stock_quantity || product.stock || 0) > 0,
-      stock: product.stock_quantity || product.stock || 0,
-      category: product.category,
-      brand: product.brand_name || "BigandBest",
-      shipping_amount: product.shipping_amount || 0,
-      created_at: product.created_at,
-      hasVariants: product.product_variants?.length > 0,
-      variants: product.product_variants || [],
-    }));
+    const products = await productDao.getProductsByIds(product_ids);
+    const transformed = products.map(product => transformProduct(product));
 
     return res.status(200).json({ success: true, products: transformed });
   } catch (error) {
     console.error("getProductsCartData error:", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
+    return res.status(500).json({ success: false, error: "Internal server error" });
   }
 };
 
 // Get featured products
 export const getFeaturedProducts = async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from("products")
-      .select(
-        `
-        *,
-        categories!products_category_id_fkey(
-          id,
-          name,
-          description,
-          image_url
-        ),
-        ${VARIANT_JOIN}
-      `
-      )
-      .eq("active", true)
-      .eq("featured", true)
-      .limit(20);
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    const transformedProducts = data.map((product) => ({
-      id: product.id,
-      name: product.name,
-      description: product.description,
-      price: product.price,
-      oldPrice: product.old_price,
-      rating: product.rating || 4.0,
-      reviews: product.review_count || 0,
-      discount: product.discount || 0,
-      image: product.image,
-      images: product.images,
-      inStock: (product.stock || 0) > 0,
-      stock: product.stock || 0,
-      popular: product.popular,
-      featured: product.featured,
-      category: product.category,
-      category_info: product.categories,
-      uom: product.uom,
-      brand_name: product.brand_name,
-      shipping_amount: product.shipping_amount || 0,
-      created_at: product.created_at,
-      hasVariants: product.product_variants?.length > 0,
-      variants: product.product_variants || [],
-      defaultVariant:
-        product.product_variants?.find((v) => v.is_default === true) || null,
-    }));
+    const products = await productDao.getFeaturedProducts(20);
+    const transformedProducts = products.map(product => transformProduct(product));
 
     res.status(200).json({
       success: true,
@@ -398,60 +171,10 @@ export const getFeaturedProducts = async (req, res) => {
   }
 };
 
-// Get Everyday Essentials
 export const getEverydayEssentials = async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from("products")
-      .select(
-        `
-        *,
-        categories!products_category_id_fkey(
-          id,
-          name,
-          description,
-          image_url
-        ),
-        ${VARIANT_JOIN}
-      `
-      )
-      .eq("active", true)
-      // For now, fetching random or specific products.
-      // You might want to add a specific flag 'everyday_essential' to products table later.
-      // Or filter by specific categories like "Groceries", "Household", etc.
-      .limit(20);
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    const transformedProducts = data.map((product) => ({
-      id: product.id,
-      name: product.name,
-      description: product.description,
-      price: product.price,
-      oldPrice: product.old_price,
-      rating: product.rating || 4.0,
-      reviews: product.review_count || 0,
-      discount: product.discount || 0,
-      image: product.image,
-      images: product.images,
-      inStock: (product.stock || 0) > 0,
-      stock: product.stock || 0,
-      popular: product.popular,
-      featured: product.featured,
-      category: product.category,
-      category_info: product.categories,
-      uom: product.uom,
-      brand_name: product.brand_name,
-      shipping_amount: product.shipping_amount || 0,
-      created_at: product.created_at,
-      hasVariants: product.product_variants?.length > 0,
-      variants: product.product_variants || [],
-      defaultVariant:
-        product.product_variants?.find((v) => v.is_default === true) || null,
-    }));
+    const products = await productDao.getEverydayEssentials(20);
+    const transformedProducts = products.map(product => transformProduct(product));
 
     res.status(200).json({
       success: true,
@@ -464,58 +187,10 @@ export const getEverydayEssentials = async (req, res) => {
   }
 };
 
-// Get Top Products
 export const getTopProducts = async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from("products")
-      .select(
-        `
-        *,
-        categories!products_category_id_fkey(
-          id,
-          name,
-          description,
-          image_url
-        ),
-        ${VARIANT_JOIN}
-      `
-      )
-      .eq("active", true)
-      .eq("top_sale", true) // Assuming 'top_sale' flag is used for top products
-      .limit(20);
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    const transformedProducts = data.map((product) => ({
-      id: product.id,
-      name: product.name,
-      description: product.description,
-      price: product.price,
-      oldPrice: product.old_price,
-      rating: product.rating || 4.0,
-      reviews: product.review_count || 0,
-      discount: product.discount || 0,
-      image: product.image,
-      images: product.images,
-      inStock: (product.stock || 0) > 0,
-      stock: product.stock || 0,
-      popular: product.popular,
-      featured: product.featured,
-      category: product.category,
-      category_info: product.categories,
-      uom: product.uom,
-      brand_name: product.brand_name,
-      shipping_amount: product.shipping_amount || 0,
-      created_at: product.created_at,
-      hasVariants: product.product_variants?.length > 0,
-      variants: product.product_variants || [],
-      defaultVariant:
-        product.product_variants?.find((v) => v.is_default === true) || null,
-    }));
+    const products = await productDao.getTopProducts(20);
+    const transformedProducts = products.map(product => transformProduct(product));
 
     res.status(200).json({
       success: true,
@@ -528,7 +203,6 @@ export const getTopProducts = async (req, res) => {
   }
 };
 
-// Get products with pagination and filters
 export const getProductsWithFilters = async (req, res) => {
   try {
     const {
@@ -544,104 +218,31 @@ export const getProductsWithFilters = async (req, res) => {
       search,
     } = req.query;
 
-    let query = supabase
-      .from("products")
-      .select(
-        `
-        *,
-        categories!products_category_id_fkey(
-          id,
-          name,
-          description,
-          image_url
-        ),
-        ${VARIANT_JOIN}
-      `,
-        { count: "exact" }
-      )
-      .eq("active", true);
+    const filters = {
+      active: true,
+      ...(category && { category_id: category }), // Assuming category ID for now, or name if handled by DAO
+      ...(minPrice && { price: { gte: parseFloat(minPrice) } }),
+      ...(maxPrice && { price: { lte: parseFloat(maxPrice) } }),
+      ...(featured === "true" && { featured: true }),
+      ...(popular === "true" && { popular: true }),
+      ...(most_orders === "true" && { most_orders: true }),
+      ...(top_sale === "true" && { top_sale: true }),
+    };
 
-    // Apply filters
-    if (category) {
-      query = query.or(
-        `category.eq.${category},categories.name.eq.${category}`
-      );
-    }
+    const { items: products, total, totalPages } = await productDao.listProducts(
+      filters,
+      { page: parseInt(page), limit: parseInt(limit) }
+    );
 
-    if (minPrice) {
-      query = query.gte("price", parseFloat(minPrice));
-    }
-
-    if (maxPrice) {
-      query = query.lte("price", parseFloat(maxPrice));
-    }
-
-    if (featured === "true") {
-      query = query.eq("featured", true);
-    }
-
-    if (popular === "true") {
-      query = query.eq("popular", true);
-    }
-
-    if (most_orders === "true") {
-      query = query.eq("most_orders", true);
-    }
-
-    if (top_sale === "true") {
-      query = query.eq("top_sale", true);
-    }
-
-    if (search) {
-      query = query.or(`name.ilike.%${search}%,description.ilike.%${search}%`);
-    }
-
-    // Apply pagination
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
-    query = query.range(from, to);
-
-    const { data, error, count } = await query;
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    const transformedProducts = data.map((product) => ({
-      id: product.id,
-      name: product.name,
-      description: product.description,
-      price: product.price,
-      oldPrice: product.old_price,
-      rating: product.rating || 4.0,
-      reviews: product.review_count || 0,
-      discount: product.discount || 0,
-      image: product.image,
-      images: product.images,
-      inStock: (product.stock || 0) > 0,
-      stock: product.stock || 0,
-      popular: product.popular,
-      featured: product.featured,
-      category: product.category,
-      category_info: product.categories,
-      uom: product.uom,
-      brand_name: product.brand_name,
-      shipping_amount: product.shipping_amount || 0,
-      created_at: product.created_at,
-      hasVariants: product.product_variants?.length > 0,
-      variants: product.product_variants || [],
-      defaultVariant:
-        product.product_variants?.find((v) => v.is_default === true) || null,
-    }));
+    const transformedProducts = products.map(product => transformProduct(product));
 
     res.status(200).json({
       success: true,
       products: transformedProducts,
-      total: count,
+      total,
       page: parseInt(page),
       limit: parseInt(limit),
-      totalPages: Math.ceil(count / limit),
+      totalPages,
     });
   } catch (error) {
     console.error("Server error:", error);
@@ -658,158 +259,60 @@ export const getProductById = async (req, res) => {
       return res.status(400).json({ error: "Product ID is required" });
     }
 
-    // Fetch product with ALL variants
-    const { data, error } = await supabase
-      .from("products")
-      .select(`*, ${VARIANT_JOIN}`)
-      .eq("id", id)
-      .eq("active", true)
-      .single();
+    const product = await productDao.getProductById(id);
 
-    if (error) {
-      console.error("Supabase error:", error);
-      if (error.code === "PGRST116") {
-        return res.status(404).json({ error: "Product not found" });
-      }
-      return res.status(500).json({ error: error.message });
-    }
-
-    if (!data) {
+    if (!product || !product.active) {
       return res.status(404).json({ error: "Product not found" });
     }
 
     // Get delivery information
     let deliveryInfo = {
-      delivery_type: data.delivery_type || "nationwide",
+      delivery_type: product.delivery_type || "nationwide",
       delivery_available: true,
       delivery_zones: [],
-      delivery_notes: data.delivery_notes || null,
+      delivery_notes: product.delivery_notes || null,
     };
 
-    // If delivery type is zonal, get zone details
     if (
-      data.delivery_type === "zonal" &&
-      data.allowed_zone_ids &&
-      data.allowed_zone_ids.length > 0
+      product.delivery_type === "zonal" &&
+      product.allowed_zone_ids &&
+      product.allowed_zone_ids.length > 0
     ) {
-      const { data: zones } = await supabase
-        .from("delivery_zones")
-        .select("id, name, display_name")
-        .in("id", data.allowed_zone_ids)
-        .eq("is_active", true);
-
-      if (zones) {
-        deliveryInfo.delivery_zones = zones;
-      }
+      const zones = await deliveryZoneDao.listByIds(product.allowed_zone_ids);
+      deliveryInfo.delivery_zones = zones;
     }
 
     // Check pincode-specific delivery if pincode provided
     if (pincode && /^\d{6}$/.test(pincode)) {
-      const { data: canDeliver } = await supabase.rpc(
-        "can_deliver_to_pincode",
-        {
-          product_id: parseInt(id),
-          target_pincode: pincode,
-        }
-      );
-
+      const canDeliver = await productDao.canDeliverToPincode(parseInt(id), pincode);
       deliveryInfo.can_deliver_to_pincode = canDeliver;
       deliveryInfo.checked_pincode = pincode;
     }
 
-    // Lookup brand_id if missing but brand_name exists
-    if (!data.brand_id && (data.brand_name || data.brand)) {
-      const brandName = data.brand_name || data.brand;
-      const { data: brandData, error: brandError } = await supabase
-        .from("brand")
-        .select("id")
-        .ilike("name", brandName)
-        .single();
-
-      if (brandData) {
-        data.brand_id = brandData.id;
-      }
-    }
-
-    // Lookup Store Name if store_id exists
-    let storeData = null;
-    if (data.store_id) {
-      const { data: store, error: storeError } = await supabase
-        .from("recommended_store")
-        .select("id, name")
-        .eq("id", data.store_id)
-        .single();
-
-      if (store) {
-        storeData = store;
-      }
-    }
-
-    // Filter active variants only
-    const activeVariants = (data.product_variants || []).filter(
-      (v) => v.active !== false
-    );
-
-    // Transform the data to match frontend expectations
-    const transformedProduct = {
-      id: data.id,
-      name: data.name,
-      description: data.description,
-      price: data.price,
-      oldPrice: data.old_price,
-      rating: data.rating || 4.0,
-      reviews: data.review_count || 0,
-      discount: data.discount || 0,
-      image: data.image,
-      images: data.images,
-      video: data.video,
-      inStock: (data.stock_quantity || data.stock || 0) > 0,
-      stock: data.stock_quantity || data.stock || 0,
-      popular: data.popular,
-      featured: data.featured,
-      category: data.category,
-      weight: data.uom || `${data.uom_value || 1} ${data.uom_unit || "kg"}`,
-      // Added comprehensive fields
-      portion: data.portion,
-      uom: data.uom,
-      uom_value: data.uom_value,
-      uom_unit: data.uom_unit,
-      category_id: data.category_id,
-      subcategory_id: data.subcategory_id,
-      is_brand: data.is_brand,
-      brand_id: data.brand_id,
-      brand_name: data.brand_name,
-      brand: data.brand_name || "BigandBest",
-      store_id: data.store_id, // Store ID from DB
-      store_name: storeData ? storeData.name : null, // Fetched Store Name
-      shipping_amount: data.shipping_amount || 0,
-      specifications: data.specifications,
-      // Bulk Order Info
-      enable_bulk_pricing: data.enable_bulk_pricing,
-      bulk_min_quantity: data.bulk_min_quantity,
-      bulk_discount_percentage: data.bulk_discount_percentage,
-      faq: data.faq,
-      created_at: data.created_at,
-      delivery_info: deliveryInfo,
-      // Return policy and delivery settings
-      return_applicable: data.return_applicable !== false,
-      return_days: data.return_days || 7,
-      quick_delivery: data.quick_delivery || false,
-      // Include variants
-      variants: activeVariants,
-      hasVariants: activeVariants.length > 0,
-      defaultVariant: activeVariants.find((v) => v.is_default === true) || null,
-    };
+    const transformedProduct = transformProduct(product);
 
     res.status(200).json({
       success: true,
-      product: transformedProduct,
+      product: {
+        ...transformedProduct,
+        delivery_info: deliveryInfo,
+        store_id: product.store_id,
+        store_name: product.store?.name || null,
+        brand_id: product.brand_id,
+        brand_name: product.brand_name,
+        enable_bulk_pricing: product.enable_bulk_pricing,
+        bulk_min_quantity: product.bulk_min_quantity,
+        bulk_discount_percentage: product.bulk_discount_percentage,
+        faq: product.faq,
+      },
     });
   } catch (error) {
     console.error("Server error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
+// --- Product Delivery Settings (Admin) ---
+
 
 /**
  * Create or update product with delivery settings (for admin)
@@ -828,82 +331,40 @@ export const updateProductDelivery = async (req, res) => {
       return res.status(400).json({ error: "Product ID is required" });
     }
 
-    // Validate delivery_type
     if (delivery_type && !["nationwide", "zonal"].includes(delivery_type)) {
       return res.status(400).json({
         error: "Invalid delivery_type. Must be 'nationwide' or 'zonal'",
       });
     }
 
-    // Validate zone IDs if delivery_type is zonal
-    if (
-      delivery_type === "zonal" &&
-      (!allowed_zone_ids || allowed_zone_ids.length === 0)
-    ) {
-      return res.status(400).json({
-        error: "Zone IDs are required for zonal delivery",
-      });
+    if (delivery_type === "zonal" && (!allowed_zone_ids || allowed_zone_ids.length === 0)) {
+      return res.status(400).json({ error: "Zone IDs are required for zonal delivery" });
     }
 
-    // If nationwide, clear zone IDs
-    let finalZoneIds = allowed_zone_ids;
-    if (delivery_type === "nationwide") {
-      finalZoneIds = [];
-    }
+    let finalZoneIds = delivery_type === "nationwide" ? [] : allowed_zone_ids;
 
-    // Validate zone IDs exist and are active
     if (finalZoneIds.length > 0) {
-      const { data: zones, error: zoneError } = await supabase
-        .from("delivery_zones")
-        .select("id")
-        .in("id", finalZoneIds)
-        .eq("is_active", true);
-
-      if (zoneError || !zones || zones.length !== finalZoneIds.length) {
-        return res.status(400).json({
-          error: "One or more zone IDs are invalid or inactive",
-        });
+      const zones = await deliveryZoneDao.listByIds(finalZoneIds);
+      if (!zones || zones.length !== finalZoneIds.length) {
+        return res.status(400).json({ error: "One or more zone IDs are invalid or inactive" });
       }
     }
 
-    // Update product delivery settings
-    const updateData = {};
-    if (delivery_type !== undefined) updateData.delivery_type = delivery_type;
-    if (allowed_zone_ids !== undefined)
-      updateData.allowed_zone_ids = finalZoneIds;
-    if (delivery_restrictions !== undefined)
-      updateData.delivery_restrictions = delivery_restrictions;
-    if (delivery_notes !== undefined)
-      updateData.delivery_notes = delivery_notes;
-
-    const { data, error } = await supabase
-      .from("products")
-      .update(updateData)
-      .eq("id", id)
-      .select(
-        "id, name, delivery_type, allowed_zone_ids, delivery_restrictions, delivery_notes"
-      )
-      .single();
-
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
-
-    if (!data) {
-      return res.status(404).json({ error: "Product not found" });
-    }
+    const updatedProduct = await productDao.updateProduct(id, {
+      delivery_type,
+      allowed_zone_ids: finalZoneIds,
+      delivery_restrictions,
+      delivery_notes,
+    });
 
     res.status(200).json({
       success: true,
-      message: "Product delivery settings updated successfully",
-      product: data,
+      message: "Delivery settings updated successfully",
+      product: updatedProduct,
     });
   } catch (error) {
-    console.error("Update product delivery error:", error);
-    res.status(500).json({
-      error: "Failed to update delivery settings",
-      message: error.message,
-    });
+    console.error("Server error:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 };
 
@@ -912,87 +373,35 @@ export const updateProductDelivery = async (req, res) => {
  */
 export const checkProductsDelivery = async (req, res) => {
   try {
-    const { product_ids, pincode } = req.body;
+    const { pincode, product_items } = req.body;
 
     if (!pincode || !/^\d{6}$/.test(pincode)) {
-      return res.status(400).json({
-        error: "Valid 6-digit pincode is required",
-      });
+      return res.status(400).json({ error: "Valid 6-digit pincode is required" });
     }
 
-    if (
-      !product_ids ||
-      !Array.isArray(product_ids) ||
-      product_ids.length === 0
-    ) {
-      return res.status(400).json({
-        error: "Product IDs array is required",
-      });
+    if (!product_items || !Array.isArray(product_items) || product_items.length === 0) {
+      return res.status(400).json({ error: "Product items are required" });
     }
 
-    const deliveryResults = [];
-
-    for (const productId of product_ids) {
-      try {
-        // Get product basic info
-        const { data: product } = await supabase
-          .from("products")
-          .select("id, name, delivery_type, active")
-          .eq("id", productId)
-          .single();
-
-        if (!product || !product.active) {
-          deliveryResults.push({
-            product_id: productId,
-            product_name: product?.name || "Unknown",
-            can_deliver: false,
-            reason: "Product not found or inactive",
-          });
-          continue;
-        }
-
-        // Check delivery availability
-        const { data: canDeliver } = await supabase.rpc(
-          "can_deliver_to_pincode",
-          {
-            product_id: productId,
-            target_pincode: pincode,
-          }
-        );
-
-        deliveryResults.push({
-          product_id: productId,
-          product_name: product.name,
-          delivery_type: product.delivery_type,
+    const results = await Promise.all(
+      product_items.map(async (item) => {
+        const canDeliver = await productDao.canDeliverToPincode(parseInt(item.product_id), pincode);
+        return {
+          product_id: item.product_id,
+          pincode,
           can_deliver: canDeliver,
-          reason: canDeliver ? "Available" : "Not available in your area",
-        });
-      } catch (productError) {
-        console.error(`Error checking product ${productId}:`, productError);
-        deliveryResults.push({
-          product_id: productId,
-          can_deliver: false,
-          reason: "Error checking delivery",
-        });
-      }
-    }
+        };
+      })
+    );
 
     res.status(200).json({
       success: true,
       pincode,
-      results: deliveryResults,
-      summary: {
-        total_products: product_ids.length,
-        deliverable: deliveryResults.filter((r) => r.can_deliver).length,
-        non_deliverable: deliveryResults.filter((r) => !r.can_deliver).length,
-      },
+      results,
     });
   } catch (error) {
-    console.error("Check products delivery error:", error);
-    res.status(500).json({
-      error: "Failed to check delivery availability",
-      message: error.message,
-    });
+    console.error("Server error in checkProductsDelivery:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 };
 
@@ -1411,65 +820,14 @@ export const getProductsBySubcategory = async (req, res) => {
   try {
     const { subcategoryId } = req.params;
 
-    const { data, error } = await supabase
-      .from("products")
-      .select(
-        `
-        *,
-        categories!products_category_id_fkey(
-          id,
-          name,
-          description,
-          image_url
-        ),
-        ${VARIANT_JOIN}
-      `
-      )
-      .eq("active", true)
-      .eq("subcategory_id", subcategoryId);
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    const transformedProducts = data.map((product) => ({
-      id: product.id,
-      name: product.name,
-      description: product.description,
-      price: product.price,
-      oldPrice: product.old_price,
-      rating: product.rating || 4.0,
-      reviews: product.review_count || 0,
-      discount: product.discount || 0,
-      image: product.image,
-      images: product.images,
-      inStock: (product.stock || 0) > 0,
-      stock: product.stock || 0,
-      popular: product.popular,
-      featured: product.featured,
-      category: product.category,
-      category_info: product.categories,
-      subcategory_id: product.subcategory_id,
-      group_id: product.group_id,
-      uom: product.uom,
-      brand_name: product.brand_name,
-      shipping_amount: product.shipping_amount || 0,
-      weight:
-        product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
-      brand: product.brand_name || "BigandBest",
-      created_at: product.created_at,
-      hasVariants: product.product_variants?.length > 0,
-      variants: product.product_variants || [],
-      defaultVariant:
-        product.product_variants?.find((v) => v.is_default === true) || null,
-    }));
+    const products = await productDao.getProductsByFilter({ subcategoryId });
+    const transformedProducts = products.map(product => transformProduct(product));
 
     res.status(200).json({
       success: true,
       products: transformedProducts,
       total: transformedProducts.length,
-      subcategoryId: subcategoryId,
+      subcategoryId,
     });
   } catch (error) {
     console.error("Server error:", error);
@@ -1482,62 +840,14 @@ export const getProductsByGroup = async (req, res) => {
   try {
     const { groupId } = req.params;
 
-    const { data, error } = await supabase
-      .from("products")
-      .select(
-        `
-        *,
-        categories!products_category_id_fkey(
-          id,
-          name,
-          description,
-          image_url
-        ),
-        ${VARIANT_JOIN}
-      `
-      )
-      .eq("active", true)
-      .eq("group_id", groupId);
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    const transformedProducts = data.map((product) => ({
-      id: product.id,
-      name: product.name,
-      description: product.description,
-      price: product.price,
-      oldPrice: product.old_price,
-      rating: product.rating || 4.0,
-      reviews: product.review_count || 0,
-      discount: product.discount || 0,
-      image: product.image,
-      images: product.images,
-      inStock: (product.stock || 0) > 0,
-      stock: product.stock || 0,
-      popular: product.popular,
-      featured: product.featured,
-      category: product.category,
-      category_info: product.categories,
-      subcategory_id: product.subcategory_id,
-      group_id: product.group_id,
-      uom: product.uom,
-      brand_name: product.brand_name,
-      shipping_amount: product.shipping_amount || 0,
-      created_at: product.created_at,
-      hasVariants: product.product_variants?.length > 0,
-      variants: product.product_variants || [],
-      defaultVariant:
-        product.product_variants?.find((v) => v.is_default === true) || null,
-    }));
+    const products = await productDao.getProductsByFilter({ groupId });
+    const transformedProducts = products.map(product => transformProduct(product));
 
     res.status(200).json({
       success: true,
       products: transformedProducts,
       total: transformedProducts.length,
-      groupId: groupId,
+      groupId,
     });
   } catch (error) {
     console.error("Server error:", error);
@@ -1552,102 +862,50 @@ export const assignProductToWarehouses = async (req, res) => {
     const { warehouse_assignments } = req.body;
 
     if (!warehouse_assignments || !Array.isArray(warehouse_assignments)) {
-      return res.status(400).json({
-        success: false,
-        error: "Warehouse assignments array is required",
-      });
+      return res.status(400).json({ success: false, error: "Warehouse assignments array is required" });
     }
 
-    // Validate product exists
-    const { data: product, error: productError } = await supabase
-      .from("products")
-      .select("id, name, delivery_type")
-      .eq("id", product_id)
-      .single();
+    const product = await productDao.getProductById(product_id);
+    if (!product) return res.status(404).json({ success: false, error: "Product not found" });
 
-    if (productError || !product) {
-      return res.status(404).json({
-        success: false,
-        error: "Product not found",
-      });
-    }
-
-    // Process each warehouse assignment
     const results = [];
     for (const assignment of warehouse_assignments) {
-      const {
-        warehouse_id,
-        stock_quantity,
-        minimum_threshold = 0,
-        maximum_capacity,
-      } = assignment;
+      const { warehouse_id, stock_quantity, minimum_threshold = 0, maximum_capacity } = assignment;
 
       try {
-        // Check if assignment already exists
-        const { data: existing } = await supabase
-          .from("product_warehouse_stock")
-          .select("id")
-          .eq("product_id", product_id)
-          .eq("warehouse_id", warehouse_id)
-          .single();
+        const existingStock = await productWarehouseStockDao.getByProductAndWarehouse(product_id, warehouse_id);
+        const stockData = {
+          stock_quantity,
+          minimum_threshold,
+          maximum_capacity,
+          last_updated_by: req.user?.id
+        };
 
-        if (existing) {
-          // Update existing assignment
-          const { data, error } = await supabase
-            .from("product_warehouse_stock")
-            .update({
-              stock_quantity,
-              minimum_threshold,
-              maximum_capacity,
-              last_updated_by: req.user?.id,
-            })
-            .eq("id", existing.id)
-            .select()
-            .single();
-
-          if (!error) {
-            results.push({ warehouse_id, action: "updated", data });
-          }
+        let result;
+        if (existingStock) {
+          result = await productWarehouseStockDao.upsertStock(product_id, warehouse_id, stockData);
+          results.push({ warehouse_id, action: "updated", data: result });
         } else {
-          // Create new assignment
-          const { data, error } = await supabase
-            .from("product_warehouse_stock")
-            .insert({
-              product_id,
-              warehouse_id,
-              stock_quantity,
-              minimum_threshold,
-              maximum_capacity,
-              last_updated_by: req.user?.id,
-              last_restocked_at: new Date().toISOString(),
-            })
-            .select()
-            .single();
+          stockData.last_restocked_at = new Date();
+          result = await productWarehouseStockDao.upsertStock(product_id, warehouse_id, stockData);
+          results.push({ warehouse_id, action: "created", data: result });
 
-          if (!error) {
-            results.push({ warehouse_id, action: "created", data });
-
-            // Log stock movement
-            await supabase.from("stock_movements").insert({
-              product_id,
-              warehouse_id,
-              movement_type: "inbound",
-              quantity: stock_quantity,
-              previous_stock: 0,
-              new_stock: stock_quantity,
-              reference_type: "assignment",
-              reason: "Product assigned to warehouse",
-              performed_by: req.user?.id,
-            });
-          }
+          // Log stock movement
+          await stockMovementDao.create({
+            product_id,
+            warehouse_id,
+            movement_type: "inbound",
+            quantity: stock_quantity,
+            previous_stock: 0,
+            new_stock: stock_quantity,
+            reference_type: "assignment",
+            reason: "Product assigned to warehouse",
+            performed_by: req.user?.id
+          });
         }
       } catch (error) {
         console.error(`Error processing warehouse ${warehouse_id}:`, error);
-        results.push({
-          warehouse_id,
-          action: "failed",
-          error: error.message,
-        });
+        results.push({ warehouse_id, action: "failed", error: error.message });
       }
     }
 
@@ -1655,74 +913,11 @@ export const assignProductToWarehouses = async (req, res) => {
       success: true,
       message: "Warehouse assignments processed",
       results,
-      product_info: {
-        id: product.id,
-        name: product.name,
-        delivery_type: product.delivery_type,
-      },
+      product_info: { id: product.id, name: product.name, delivery_type: product.delivery_type }
     });
   } catch (error) {
     console.error("Error in assignProductToWarehouses:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-    });
-  }
-};
-
-// Check product delivery with warehouse logic
-export const checkProductDeliveryWithWarehouse = async (req, res) => {
-  try {
-    const { product_id, pincode, quantity = 1 } = req.body;
-
-    if (!product_id || !pincode) {
-      return res.status(400).json({
-        success: false,
-        error: "Product ID and pincode are required",
-      });
-    }
-
-    // Use delivery validation service
-    const result = await deliveryValidationService.checkProductDelivery(
-      product_id,
-      pincode,
-      quantity
-    );
-
-    res.status(200).json(result);
-  } catch (error) {
-    console.error("Error in checkProductDeliveryWithWarehouse:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-    });
-  }
-};
-
-// Get product variants
-export const getProductVariants = async (req, res) => {
-  try {
-    const { productId } = req.params;
-
-    const { data, error } = await supabase
-      .from("product_variants")
-      .select("*")
-      .eq("product_id", productId)
-      .order("is_default", { ascending: false });
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    res.status(200).json({
-      success: true,
-      variants: data || [],
-      total: data?.length || 0,
-    });
-  } catch (error) {
-    console.error("Server error:", error);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 };
 
@@ -1732,82 +927,18 @@ export const getProductsByCategoryWithDiscount = async (req, res) => {
     const { categoryId } = req.params;
     const { minDiscount = 0, maxDiscount = 100, limit = 50 } = req.query;
 
-    // First, get the category to verify it exists
-    const { data: categoryData, error: catError } = await supabase
-      .from("categories")
-      .select("id, name")
-      .eq("id", categoryId)
-      .eq("active", true)
-      .single();
-
-    if (catError || !categoryData) {
-      return res.status(404).json({
-        success: false,
-        error: "Category not found",
-      });
-    }
-
-    // Get products for this category with discount filter
-    const { data, error } = await supabase
-      .from("products")
-      .select(`*, ${VARIANT_JOIN}`)
-      .eq("active", true)
-      .eq("category_id", categoryId)
-      .gte("discount", parseFloat(minDiscount))
-      .lte("discount", parseFloat(maxDiscount))
-      .order("discount", { ascending: false })
-      .limit(parseInt(limit));
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    const transformedProducts = data.map((product) => {
-      const activeVariants = (product.product_variants || []).filter(
-        (v) => v.active !== false
-      );
-      const defaultVariant = activeVariants.find((v) => v.is_default === true);
-
-      return {
-        id: product.id,
-        name: product.name,
-        description: product.description,
-        price: product.price,
-        oldPrice: product.old_price,
-        rating: product.rating || 4.0,
-        reviews: product.review_count || 0,
-        discount: product.discount || 0,
-        image: product.image,
-        images: product.images,
-        inStock: (product.stock_quantity || product.stock || 0) > 0,
-        stock: product.stock_quantity || product.stock || 0,
-        popular: product.popular,
-        featured: product.featured,
-        category: product.category,
-        category_id: product.category_id,
-        subcategory_id: product.subcategory_id,
-        weight:
-          product.uom ||
-          `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
-        brand: product.brand_name || "BigandBest",
-        shipping_amount: product.shipping_amount || 0,
-        created_at: product.created_at,
-        hasVariants: activeVariants.length > 0,
-        variants: activeVariants,
-        defaultVariant: defaultVariant || null,
-      };
+    const products = await productDao.getProductsByFilter({
+      categoryId,
+      minDiscount: parseFloat(minDiscount),
+      maxDiscount: parseFloat(maxDiscount)
     });
+
+    const transformedProducts = products.slice(0, parseInt(limit)).map(product => transformProduct(product));
 
     res.status(200).json({
       success: true,
       products: transformedProducts,
       total: transformedProducts.length,
-      category: categoryData,
-      filters: {
-        minDiscount: parseFloat(minDiscount),
-        maxDiscount: parseFloat(maxDiscount),
-      },
     });
   } catch (error) {
     console.error("Server error:", error);
@@ -1821,91 +952,18 @@ export const getProductsBySubcategoryWithDiscount = async (req, res) => {
     const { subcategoryId } = req.params;
     const { minDiscount = 0, maxDiscount = 100, limit = 50 } = req.query;
 
-    // First, get the subcategory to verify it exists
-    const { data: subcategoryData, error: subError } = await supabase
-      .from("subcategories")
-      .select(
-        `
-        id, 
-        name,
-        categories (
-          id,
-          name
-        )
-      `
-      )
-      .eq("id", subcategoryId)
-      .eq("active", true)
-      .single();
-
-    if (subError || !subcategoryData) {
-      return res.status(404).json({
-        success: false,
-        error: "Subcategory not found",
-      });
-    }
-
-    // Get products for this subcategory with discount filter
-    const { data, error } = await supabase
-      .from("products")
-      .select(`*, ${VARIANT_JOIN}`)
-      .eq("active", true)
-      .eq("subcategory_id", subcategoryId)
-      .gte("discount", parseFloat(minDiscount))
-      .lte("discount", parseFloat(maxDiscount))
-      .order("discount", { ascending: false })
-      .limit(parseInt(limit));
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    const transformedProducts = data.map((product) => {
-      const activeVariants = (product.product_variants || []).filter(
-        (v) => v.active !== false
-      );
-      const defaultVariant = activeVariants.find((v) => v.is_default === true);
-
-      return {
-        id: product.id,
-        name: product.name,
-        description: product.description,
-        price: product.price,
-        oldPrice: product.old_price,
-        rating: product.rating || 4.0,
-        reviews: product.review_count || 0,
-        discount: product.discount || 0,
-        image: product.image,
-        images: product.images,
-        inStock: (product.stock_quantity || product.stock || 0) > 0,
-        stock: product.stock_quantity || product.stock || 0,
-        popular: product.popular,
-        featured: product.featured,
-        category: product.category,
-        category_id: product.category_id,
-        subcategory_id: product.subcategory_id,
-        weight:
-          product.uom ||
-          `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
-        brand: product.brand_name || "BigandBest",
-        shipping_amount: product.shipping_amount || 0,
-        created_at: product.created_at,
-        hasVariants: activeVariants.length > 0,
-        variants: activeVariants,
-        defaultVariant: defaultVariant || null,
-      };
+    const products = await productDao.getProductsByFilter({
+      subcategoryId,
+      minDiscount: parseFloat(minDiscount),
+      maxDiscount: parseFloat(maxDiscount)
     });
+
+    const transformedProducts = products.slice(0, parseInt(limit)).map(product => transformProduct(product));
 
     res.status(200).json({
       success: true,
       products: transformedProducts,
       total: transformedProducts.length,
-      subcategory: subcategoryData,
-      filters: {
-        minDiscount: parseFloat(minDiscount),
-        maxDiscount: parseFloat(maxDiscount),
-      },
     });
   } catch (error) {
     console.error("Server error:", error);
@@ -1918,84 +976,14 @@ export const getProductsByBrand = async (req, res) => {
   try {
     const { brandId } = req.params;
 
-    // First, get the brand name from the brand table
-    const { data: brandData, error: brandError } = await supabase
-      .from("brand")
-      .select("id, name")
-      .eq("id", brandId)
-      .single();
-
-    if (brandError || !brandData) {
-      console.error("Brand lookup error:", brandError);
-      return res.status(404).json({
-        success: false,
-        error: "Brand not found",
-      });
-    }
-
-    // Now query products by brand_name
-    const { data, error } = await supabase
-      .from("products")
-      .select(
-        `
-        *,
-        categories!products_category_id_fkey(
-          id,
-          name,
-          description,
-          image_url
-        ),
-        ${VARIANT_JOIN}
-      `
-      )
-      .eq("active", true)
-      .eq("brand_name", brandData.name);
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    const transformedProducts = data.map((product) => ({
-      id: product.id,
-      name: product.name,
-      description: product.description,
-      price: product.price,
-      oldPrice: product.old_price,
-      rating: product.rating || 4.0,
-      reviews: product.review_count || 0,
-      discount: product.discount || 0,
-      image: product.image,
-      images: product.images,
-      inStock: (product.stock || 0) > 0,
-      stock: product.stock || 0,
-      popular: product.popular,
-      featured: product.featured,
-      category: product.category,
-      category_info: product.categories,
-      subcategory_id: product.subcategory_id,
-      group_id: product.group_id,
-      uom: product.uom,
-      brand_name: product.brand_name,
-      shipping_amount: product.shipping_amount || 0,
-      weight:
-        product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
-      brand: product.brand_name || "BigandBest",
-      created_at: product.created_at,
-      hasVariants: product.product_variants?.length > 0,
-      variants: product.product_variants || [],
-      defaultVariant:
-        product.product_variants?.find((v) => v.is_default === true) || null,
-    }));
+    const products = await productDao.getProductsByFilter({ brandId });
+    const transformedProducts = products.map(product => transformProduct(product));
 
     res.status(200).json({
       success: true,
       products: transformedProducts,
       total: transformedProducts.length,
-      brand: {
-        id: brandData.id,
-        name: brandData.name,
-      },
+      brand_id: brandId
     });
   } catch (error) {
     console.error("Server error:", error);
@@ -2006,109 +994,561 @@ export const getProductsByBrand = async (req, res) => {
 // Get related products based on cart items (by category)
 export const getRelatedProducts = async (req, res) => {
   try {
-    const { product_ids } = req.body || {};
+    const { product_ids } = req.body;
 
-    if (
-      !product_ids ||
-      !Array.isArray(product_ids) ||
-      product_ids.length === 0
-    ) {
-      return res.status(200).json({ success: true, products: [] });
+    if (!product_ids || !Array.isArray(product_ids)) {
+      return res.status(400).json({ success: false, error: "product_ids array is required" });
     }
 
-    // 1. Get categories of the cart products
-    const { data: cartProducts, error: cartError } = await supabase
-      .from("products")
-      .select("id, category_id, category")
-      .in("id", product_ids);
+    const products = await productDao.getRelatedProducts(product_ids);
+    const transformedProducts = products.map(product => transformProduct(product));
 
-    if (cartError) {
-      console.error("Error fetching cart products:", cartError);
-      return res.status(500).json({ success: false, error: cartError.message });
-    }
-
-    // Extract unique category IDs and category names
-    const categoryIds = [
-      ...new Set(cartProducts.map((p) => p.category_id).filter(Boolean)),
-    ];
-    const categoryNames = [
-      ...new Set(cartProducts.map((p) => p.category).filter(Boolean)),
-    ];
-
-    if (categoryIds.length === 0 && categoryNames.length === 0) {
-      return res.status(200).json({ success: true, products: [] });
-    }
-
-    // 2. Fetch related products from same categories, excluding cart items
-    let query = supabase
-      .from("products")
-      .select(`*, ${VARIANT_JOIN}`)
-      .eq("active", true)
-      .not("id", "in", `(${product_ids.join(",")})`)
-      .limit(10);
-
-    // Build category filter
-    if (categoryIds.length > 0 && categoryNames.length > 0) {
-      query = query.or(
-        `category_id.in.(${categoryIds.join(
-          ","
-        )}),category.in.(${categoryNames.join(",")})`
-      );
-    } else if (categoryIds.length > 0) {
-      query = query.in("category_id", categoryIds);
-    } else {
-      query = query.in("category", categoryNames);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error("Error fetching related products:", error);
-      return res.status(500).json({ success: false, error: error.message });
-    }
-
-    // 3. Transform data for frontend
-    const transformedProducts = data.map((product) => {
-      const activeVariants = (product.product_variants || []).filter(
-        (v) => v.active !== false
-      );
-      const defaultVariant = activeVariants.find((v) => v.is_default === true);
-
-      return {
-        id: product.id,
-        name: product.name,
-        description: product.description,
-        price: product.price,
-        old_price: product.old_price,
-        oldPrice: product.old_price,
-        rating: product.rating || 4.0,
-        reviews: product.review_count || 0,
-        discount: product.discount || 0,
-        image: product.image,
-        images: product.images,
-        inStock: (product.stock_quantity || product.stock || 0) > 0,
-        stock: product.stock_quantity || product.stock || 0,
-        category: product.category,
-        uom: product.uom,
-        weight:
-          product.uom ||
-          `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
-        brand: product.brand_name || "BigandBest",
-        shipping_amount: product.shipping_amount || 0,
-        created_at: product.created_at,
-        hasVariants: activeVariants.length > 0,
-        variants: activeVariants,
-        defaultVariant: defaultVariant || null,
-      };
+    res.status(200).json({
+      success: true,
+      products: transformedProducts
     });
-
-    return res
-      .status(200)
-      .json({ success: true, products: transformedProducts });
   } catch (error) {
     console.error("getRelatedProducts error:", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+// --- Variant Management ---
+
+export const getProductVariants = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const variants = await productVariantDao.listByProduct(productId, true);
+
+    res.status(200).json({
+      success: true,
+      variants: variants || [],
+    });
+  } catch (error) {
+    console.error("Server error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const addProductVariant = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const {
+      variant_name,
+      variant_price,
+      variant_old_price,
+      variant_discount,
+      variant_stock,
+      variant_weight,
+      variant_unit,
+      shipping_amount,
+      is_default,
+      variant_image_url,
+    } = req.body;
+
+    if (!variant_name || !variant_price || !variant_weight || !variant_unit) {
+      return res.status(400).json({
+        error: "Required fields: variant_name, variant_price, variant_weight, variant_unit"
+      });
+    }
+
+    const product = await productDao.getById(productId);
+    if (!product) {
+      return res.status(404).json({ error: "Product not found" });
+    }
+
+    const variant = await productVariantDao.create({
+      product_id: productId,
+      variant_name: variant_name.trim(),
+      variant_price: parseFloat(variant_price),
+      variant_old_price: variant_old_price ? parseFloat(variant_old_price) : null,
+      variant_discount: variant_discount ? parseInt(variant_discount) : 0,
+      variant_stock: variant_stock ? parseInt(variant_stock) : 0,
+      variant_weight: variant_weight.trim(),
+      variant_unit: variant_unit.trim(),
+      shipping_amount: shipping_amount ? parseFloat(shipping_amount) : 0,
+      is_default: Boolean(is_default),
+      variant_image_url: variant_image_url?.trim() || null,
+      active: true
+    });
+
+    res.status(201).json({
+      success: true,
+      variant,
+      message: "Variant added successfully"
+    });
+  } catch (error) {
+    console.error('Server error in addProductVariant:', error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const updateProductVariant = async (req, res) => {
+  try {
+    const { variantId } = req.params;
+    const updateData = req.body;
+
+    const existingVariant = await productVariantDao.getById(variantId);
+    if (!existingVariant) {
+      return res.status(404).json({ error: "Variant not found" });
+    }
+
+    const sanitizedData = { ...updateData };
+    delete sanitizedData.id;
+    delete sanitizedData.product_id;
+    delete sanitizedData.created_at;
+
+    if (sanitizedData.variant_price !== undefined) {
+      const price = parseFloat(sanitizedData.variant_price);
+      if (isNaN(price) || price <= 0) return res.status(400).json({ error: "Invalid variant price" });
+      sanitizedData.variant_price = price;
+    }
+
+    if (sanitizedData.variant_old_price !== undefined) {
+      sanitizedData.variant_old_price = sanitizedData.variant_old_price ? parseFloat(sanitizedData.variant_old_price) : null;
+    }
+
+    if (sanitizedData.variant_discount !== undefined) {
+      sanitizedData.variant_discount = parseInt(sanitizedData.variant_discount) || 0;
+    }
+
+    if (sanitizedData.variant_stock !== undefined) {
+      sanitizedData.variant_stock = parseInt(sanitizedData.variant_stock) || 0;
+    }
+
+    if (sanitizedData.variant_name) sanitizedData.variant_name = sanitizedData.variant_name.trim();
+
+    const updated = await productVariantDao.update(variantId, sanitizedData);
+
+    res.status(200).json({
+      success: true,
+      variant: updated,
+      message: "Variant updated successfully"
+    });
+  } catch (error) {
+    console.error('Server error in updateProductVariant:', error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const deleteProductVariant = async (req, res) => {
+  try {
+    const { variantId } = req.params;
+    const existingVariant = await productVariantDao.getById(variantId);
+    if (!existingVariant) {
+      return res.status(404).json({ error: "Variant not found" });
+    }
+
+    await productVariantDao.update(variantId, { active: false });
+
+    res.status(200).json({
+      success: true,
+      message: "Variant deleted successfully"
+    });
+  } catch (error) {
+    console.error('Server error in deleteProductVariant:', error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const updateVariantStock = async (req, res) => {
+  try {
+    const { variantId } = req.params;
+    const { variant_stock, active } = req.body;
+
+    if (variant_stock === undefined && active === undefined) {
+      return res.status(400).json({ error: "variant_stock or active status is required" });
+    }
+
+    const existingVariant = await productVariantDao.getById(variantId);
+    if (!existingVariant) {
+      return res.status(404).json({ error: "Variant not found" });
+    }
+
+    const updateData = {};
+    if (variant_stock !== undefined) {
+      const stock = parseInt(variant_stock);
+      if (isNaN(stock) || stock < 0) return res.status(400).json({ error: "Invalid stock quantity" });
+      updateData.variant_stock = stock;
+    }
+
+    if (active !== undefined) {
+      updateData.active = Boolean(active);
+    } else if (variant_stock !== undefined) {
+      updateData.active = variant_stock > 0;
+    }
+
+    const updated = await productVariantDao.update(variantId, updateData);
+
+    res.status(200).json({
+      success: true,
+      variant: updated,
+      message: "Variant stock updated successfully"
+    });
+  } catch (error) {
+    console.error('Server error in updateVariantStock:', error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const getVariantWarehouseStock = async (req, res) => {
+  try {
+    const { variantId } = req.params;
+    const variant = await productVariantDao.getById(variantId);
+    if (!variant) {
+      return res.status(404).json({ success: false, error: "Variant not found" });
+    }
+
+    const warehouseStock = await productWarehouseStockDao.listByVariant(variantId);
+
+    const stockData = warehouseStock?.map(item => ({
+      warehouse_id: item.warehouse_id,
+      warehouse_name: item.warehouses?.name,
+      warehouse_type: item.warehouses?.type,
+      parent_warehouse_id: item.warehouses?.parent_warehouse_id,
+      location: item.warehouses?.location,
+      stock_quantity: item.stock_quantity,
+      reserved_quantity: item.reserved_quantity || 0,
+      available_quantity: item.stock_quantity - (item.reserved_quantity || 0),
+      minimum_threshold: item.minimum_threshold || 0,
+      cost_per_unit: item.cost_per_unit,
+      last_restocked_at: item.last_restocked_at,
+      is_low_stock: item.stock_quantity <= (item.minimum_threshold || 0)
+    })) || [];
+
+    res.status(200).json({
+      success: true,
+      variant,
+      warehouse_stock: stockData,
+      total_warehouses: stockData.length
+    });
+  } catch (error) {
+    console.error('Server error in getVariantWarehouseStock:', error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+export const updateVariantWarehouseStock = async (req, res) => {
+  try {
+    const { variantId, warehouseId } = req.params;
+    const { stock_quantity, minimum_threshold, cost_per_unit } = req.body;
+
+    const variant = await productVariantDao.getById(variantId);
+    if (!variant) return res.status(404).json({ success: false, error: "Variant not found" });
+
+    const warehouse = await warehouseDao.getById(warehouseId);
+    if (!warehouse) return res.status(404).json({ success: false, error: "Warehouse not found" });
+
+    const stockData = {
+      stock_quantity: stock_quantity !== undefined ? parseInt(stock_quantity) : undefined,
+      minimum_threshold: minimum_threshold !== undefined ? parseInt(minimum_threshold) : undefined,
+      cost_per_unit: cost_per_unit !== undefined ? parseFloat(cost_per_unit) : undefined,
+    };
+
+    const result = await productWarehouseStockDao.upsertVariantStock(
+      variant.product_id,
+      variantId,
+      parseInt(warehouseId),
+      stockData
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        ...result,
+        warehouse_name: warehouse.name,
+        warehouse_type: warehouse.type,
+        available_quantity: result.stock_quantity - (result.reserved_quantity || 0)
+      },
+      message: "Variant warehouse stock updated successfully"
+    });
+  } catch (error) {
+    console.error('Server error in updateVariantWarehouseStock:', error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+export const addProductVariantWithStock = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const {
+      variant_name,
+      variant_price,
+      variant_old_price,
+      variant_discount,
+      variant_stock,
+      variant_weight,
+      variant_unit,
+      shipping_amount,
+      is_default,
+      variant_image_url,
+      warehouse_stock
+    } = req.body;
+
+    if (!variant_name || !variant_price || !variant_weight || !variant_unit) {
+      return res.status(400).json({ success: false, error: "Required fields missing" });
+    }
+
+    const product = await productDao.getById(productId);
+    if (!product) return res.status(404).json({ success: false, error: "Product not found" });
+
+    const variant = await productVariantDao.create({
+      product_id: productId,
+      variant_name: variant_name.trim(),
+      variant_price: parseFloat(variant_price),
+      variant_old_price: variant_old_price ? parseFloat(variant_old_price) : null,
+      variant_discount: variant_discount ? parseInt(variant_discount) : 0,
+      variant_stock: variant_stock ? parseInt(variant_stock) : 0,
+      variant_weight: variant_weight.trim(),
+      variant_unit: variant_unit.trim(),
+      shipping_amount: shipping_amount ? parseFloat(shipping_amount) : 0,
+      is_default: Boolean(is_default),
+      variant_image_url: variant_image_url?.trim() || null,
+      active: true
+    });
+
+    let warehouseStockResults = [];
+    if (warehouse_stock && Array.isArray(warehouse_stock) && warehouse_stock.length > 0) {
+      const stockRecords = warehouse_stock.map(ws => ({
+        product_id: productId,
+        warehouse_id: parseInt(ws.warehouse_id),
+        variant_id: variant.id,
+        stock_quantity: parseInt(ws.stock_quantity) || 0,
+        reserved_quantity: 0,
+        minimum_threshold: parseInt(ws.minimum_threshold) || 10,
+        cost_per_unit: parseFloat(ws.cost_per_unit) || 0,
+      }));
+      await productWarehouseStockDao.createMany(stockRecords);
+      warehouseStockResults = await productWarehouseStockDao.listByVariant(variant.id);
+    }
+
+    res.status(201).json({
+      success: true,
+      variant,
+      warehouse_stock: warehouseStockResults,
+      message: "Variant added successfully with warehouse stock"
+    });
+  } catch (error) {
+    console.error('Server error in addProductVariantWithStock:', error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+// --- Availability & Transfers ---
+
+export const checkProductAvailability = async (req, res) => {
+  try {
+    const { product_id, pincode } = req.query;
+    if (!product_id || !pincode) return res.status(400).json({ success: false, error: "Missing parameters" });
+
+    const product = await productDao.getById(product_id);
+    if (!product) return res.status(404).json({ success: false, error: "Product not found" });
+
+    const divisionWarehouse = await warehousePincodeDao.getByPincode(pincode);
+    if (divisionWarehouse) {
+      const divisionStock = await productWarehouseStockDao.getByProductAndWarehouse(product_id, divisionWarehouse.warehouse_id);
+      if (divisionStock && (divisionStock.stock_quantity - (divisionStock.reserved_quantity || 0)) > 0) {
+        return res.json({
+          success: true,
+          available: true,
+          warehouse_type: "division",
+          warehouse_id: divisionWarehouse.warehouse_id,
+          warehouse_name: divisionWarehouse.warehouses?.name,
+          delivery_days: 1,
+          delivery_message: "Delivery in 1 day",
+          available_quantity: divisionStock.stock_quantity - (divisionStock.reserved_quantity || 0),
+          pincode_info: { pincode: divisionWarehouse.pincode, city: divisionWarehouse.city, state: divisionWarehouse.state },
+        });
+      }
+    }
+
+    const zonePincode = await zonePincodeDao.getByPincode(pincode);
+    if (zonePincode) {
+      const zonalWarehouses = await deliveryZoneDao.getZonalWarehouses(zonePincode.zone_id);
+      for (const warehouse of zonalWarehouses) {
+        const zonalStock = await productWarehouseStockDao.getByProductAndWarehouse(product_id, warehouse.id);
+        if (zonalStock && (zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0)) > 0) {
+          return res.json({
+            success: true,
+            available: true,
+            warehouse_type: "zonal",
+            warehouse_id: warehouse.id,
+            warehouse_name: warehouse.name,
+            delivery_days: 3,
+            delivery_message: "Delivery in 3-4 working days",
+            available_quantity: zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0),
+            pincode_info: { pincode: zonePincode.pincode, city: zonePincode.city, state: zonePincode.state },
+          });
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      available: false,
+      delivery_message: "Not available for delivery to this pincode",
+      pincode_info: { pincode },
+    });
+  } catch (error) {
+    console.error("Error in checkProductAvailability:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+export const checkCartAvailability = async (req, res) => {
+  try {
+    const { items, pincode } = req.body;
+    if (!items || !Array.isArray(items) || !pincode) return res.status(400).json({ success: false, error: "Invalid input" });
+
+    const divisionWarehouse = await warehousePincodeDao.getByPincode(pincode);
+    const zonePincode = await zonePincodeDao.getByPincode(pincode);
+
+    const results = [];
+    let allAvailable = true;
+    let maxDeliveryDays = 0;
+
+    for (const item of items) {
+      const { product_id, quantity } = item;
+      const product = await productDao.getById(product_id);
+      if (!product) {
+        results.push({ product_id, available: false, error: "Product not found" });
+        allAvailable = false;
+        continue;
+      }
+
+      let availabilityInfo = null;
+      if (divisionWarehouse) {
+        const divisionStock = await productWarehouseStockDao.getByProductAndWarehouse(product_id, divisionWarehouse.warehouse_id);
+        const availableQty = divisionStock ? divisionStock.stock_quantity - (divisionStock.reserved_quantity || 0) : 0;
+        if (availableQty >= quantity) {
+          availabilityInfo = {
+            product_id, product_name: product.name, available: true, warehouse_type: "division",
+            warehouse_id: divisionWarehouse.warehouse_id, warehouse_name: divisionWarehouse.warehouses?.name,
+            delivery_days: 1, delivery_message: "Delivery in 1 day", available_quantity: availableQty, requested_quantity: quantity,
+          };
+          maxDeliveryDays = Math.max(maxDeliveryDays, 1);
+        }
+      }
+
+      if (!availabilityInfo && zonePincode) {
+        const zonalWarehouses = await deliveryZoneDao.getZonalWarehouses(zonePincode.zone_id);
+        for (const warehouse of zonalWarehouses) {
+          const zonalStock = await productWarehouseStockDao.getByProductAndWarehouse(product_id, warehouse.id);
+          const availableQty = zonalStock ? zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0) : 0;
+          if (availableQty >= quantity) {
+            availabilityInfo = {
+              product_id, product_name: product.name, available: true, warehouse_type: "zonal",
+              warehouse_id: warehouse.id, warehouse_name: warehouse.name,
+              delivery_days: 3, delivery_message: "Delivery in 3-4 working days", available_quantity: availableQty, requested_quantity: quantity,
+            };
+            maxDeliveryDays = Math.max(maxDeliveryDays, 3);
+            break;
+          }
+        }
+      }
+
+      if (availabilityInfo) {
+        results.push(availabilityInfo);
+      } else {
+        results.push({ product_id, product_name: product.name, available: false, delivery_message: "Not available", requested_quantity: quantity });
+        allAvailable = false;
+      }
+    }
+
+    res.json({
+      success: true, all_available: allAvailable, pincode, max_delivery_days: maxDeliveryDays,
+      delivery_message: maxDeliveryDays === 1 ? "Delivery in 1 day" : maxDeliveryDays === 3 ? "Delivery in 3-4 working days" : "Delivery time varies",
+      items: results,
+    });
+  } catch (error) {
+    console.error("Error in checkCartAvailability:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+export const autoTransferInventory = async (req, res) => {
+  try {
+    const { product_id, division_warehouse_id, quantity } = req.body;
+    const divisionWarehouse = await warehouseDao.getById(division_warehouse_id);
+    if (!divisionWarehouse || divisionWarehouse.type !== 'division' || !divisionWarehouse.parent_warehouse_id) {
+      return res.status(400).json({ success: false, error: "Invalid warehouse" });
+    }
+
+    const divisionStock = await productWarehouseStockDao.getByProductAndWarehouse(product_id, division_warehouse_id);
+    const zonalStock = await productWarehouseStockDao.getByProductAndWarehouse(product_id, divisionWarehouse.parent_warehouse_id);
+
+    if (!divisionStock || !zonalStock) return res.status(404).json({ success: false, error: "Stock record not found" });
+
+    const zonalAvailable = zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0);
+    const transferQty = quantity || divisionStock.minimum_threshold || 10;
+
+    if (zonalAvailable < transferQty) return res.status(400).json({ success: false, error: "Insufficient zonal stock" });
+
+    // Update stock via DAO
+    await productWarehouseStockDao.upsertStock(product_id, divisionWarehouse.parent_warehouse_id, {
+      stock_quantity: zonalStock.stock_quantity - transferQty
+    });
+    await productWarehouseStockDao.upsertStock(product_id, division_warehouse_id, {
+      stock_quantity: divisionStock.stock_quantity + transferQty,
+      last_restocked_at: new Date()
+    });
+
+    // Log movements
+    await stockMovementDao.create({
+      product_id, warehouse_id: divisionWarehouse.parent_warehouse_id, movement_type: "outbound",
+      quantity: transferQty, previous_stock: zonalStock.stock_quantity, new_stock: zonalStock.stock_quantity - transferQty,
+      reference_type: "auto_transfer", reference_id: division_warehouse_id.toString(), reason: `Auto transfer to ${divisionWarehouse.name}`
+    });
+    await stockMovementDao.create({
+      product_id, warehouse_id: division_warehouse_id, movement_type: "inbound",
+      quantity: transferQty, previous_stock: divisionStock.stock_quantity, new_stock: divisionStock.stock_quantity + transferQty,
+      reference_type: "auto_transfer", reference_id: divisionWarehouse.parent_warehouse_id.toString(), reason: `Auto transfer from zonal`
+    });
+
+    res.json({ success: true, message: "Inventory transferred successfully" });
+  } catch (error) {
+    console.error("Error in autoTransferInventory:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+export const monitorAndAutoTransfer = async (req, res) => {
+  try {
+    const lowStockThreshold = 2;
+    const records = await prisma.product_warehouse_stock.findMany({
+      where: { is_active: true, stock_quantity: { lte: lowStockThreshold }, warehouses: { type: 'division' } },
+      include: { warehouses: true }
+    });
+
+    const transfers = [];
+    for (const item of records) {
+      const parentId = item.warehouses?.parent_warehouse_id;
+      if (!parentId) continue;
+
+      const zonalStock = await productWarehouseStockDao.getByProductAndWarehouse(item.product_id, parentId);
+      const transferQty = item.minimum_threshold || 10;
+
+      if (zonalStock && (zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0)) >= transferQty) {
+        await productWarehouseStockDao.upsertStock(item.product_id, parentId, { stock_quantity: zonalStock.stock_quantity - transferQty });
+        await productWarehouseStockDao.upsertStock(item.product_id, item.warehouse_id, { stock_quantity: item.stock_quantity + transferQty, last_restocked_at: new Date() });
+
+        await stockMovementDao.create({
+          product_id: item.product_id, warehouse_id: parentId, movement_type: "outbound",
+          quantity: transferQty, previous_stock: zonalStock.stock_quantity, new_stock: zonalStock.stock_quantity - transferQty,
+          reference_type: "auto_transfer_monitor", reference_id: item.warehouse_id.toString(), reason: `Auto transfer low stock`
+        });
+        await stockMovementDao.create({
+          product_id: item.product_id, warehouse_id: item.warehouse_id, movement_type: "inbound",
+          quantity: transferQty, previous_stock: item.stock_quantity, new_stock: item.stock_quantity + transferQty,
+          reference_type: "auto_transfer_monitor", reference_id: parentId.toString(), reason: `Auto transfer from zonal`
+        });
+        transfers.push({ product_id: item.product_id, warehouse_id: item.warehouse_id });
+      }
+    }
+
+    res.json({ success: true, message: `Processed ${transfers.length} transfers` });
+  } catch (error) {
+    console.error("Error in monitorAndAutoTransfer:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 };

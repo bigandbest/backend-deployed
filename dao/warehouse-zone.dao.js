@@ -1,4 +1,4 @@
-import prisma from '../utils/prisma.js';
+import prisma from '../config/prisma.js';
 
 class WarehouseZoneDAO {
     async link(warehouseId, zoneId, priority = 1) {
@@ -22,6 +22,20 @@ class WarehouseZoneDAO {
             where: { warehouse_id: warehouseId },
             include: { zone: true },
             orderBy: { priority: 'asc' }
+        });
+    }
+
+    async listByZone(zoneId) {
+        return await prisma.warehouse_zones.findMany({
+            where: { zone_id: zoneId, is_active: true },
+            include: { warehouse: true }
+        });
+    }
+
+    async listActiveMappings() {
+        return await prisma.warehouse_zones.findMany({
+            where: { is_active: true },
+            include: { zone: true }
         });
     }
 

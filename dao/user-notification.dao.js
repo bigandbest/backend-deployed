@@ -1,54 +1,69 @@
-import prisma from '../utils/prisma.js';
+import prisma from '../config/prisma.js';
 
 class UserNotificationDAO {
     async create(data) {
         return await prisma.user_notifications.create({ data });
     }
 
-    async listByUser(userId, pagination = {}) {
-        const { page = 1, limit = 20, unreadOnly = false } = pagination;
-        const skip = (page - 1) * limit;
+    async listByUserId(userId, options = {}) {
+        const { unread_only = false, limit = 20 } = options;
+        const now = new Date();
 
         return await prisma.user_notifications.findMany({
             where: {
                 user_id: userId,
-                ...(unreadOnly && { is_read: false })
+                ...(unread_only && { is_read: false }),
+                expiry_date: { gte: now }
             },
-            skip,
             take: limit,
             orderBy: { created_at: 'desc' }
         });
     }
 
-    async markAsRead(id) {
+    async update(id, data) {
         return await prisma.user_notifications.update({
-            where: { id },
-            data: {
-                is_read: true,
-                read_at: new Date()
+            where: { id: parseInt(id) },
+            data
+        });
+    }
+
+    async getUnreadCount(userId) {
+        const now = new Date();
+        return await prisma.user_notifications.count({
+            where: {
+                user_id: userId,
+                is_read: false,
+                expiry_date: { gte: now }
             }
         });
     }
 
-    async markAllAsRead(userId) {
-        return await prisma.user_notifications.updateMany({
-            where: { user_id: userId, is_read: false },
-            data: {
-                is_read: true,
-                read_at: new Date()
-            }
+    async listActive(options = {}) {
+        const now = new Date();
+        return await prisma.user_notifications.findMany({
+            where: {
+                expiry_date: { gte: now }
+            },
+            orderBy: { created_at: 'desc' }
         });
     }
 
-    async delete(id) {
-        return await prisma.user_notifications.delete({
-            where: { id }
+    async listAdmin() {
+        // Based on original logic: notification_type eq admin OR user_id is null
+        return await prisma.user_notifications.findMany({
+            where: {
+                OR: [
+                    { notification_type: 'admin' },
+                    { user_id: null }
+                ]
+            },
+            orderBy: { created_at: 'desc' }
         });
     }
 
-    async deleteRead(userId) {
-        return await prisma.user_notifications.deleteMany({
-            where: { user_id: userId, is_read: true }
+    async createMany(notifications) {
+        return await prisma.user_notifications.createMany({
+            data: notifications
         });
     }
 }

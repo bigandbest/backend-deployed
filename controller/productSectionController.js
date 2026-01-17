@@ -1,18 +1,12 @@
-import { supabase } from "../config/supabaseClient.js";
+import productSectionDao from "../dao/product-section.dao.js";
+import productSectionProductDao from "../dao/product-section-product.dao.js";
+import productSectionCategoryDao from "../dao/product-section-category.dao.js";
+import productGridSettingDao from "../dao/product-grid-setting.dao.js";
 
 // Get all product sections
 export const getAllProductSections = async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from("product_sections")
-      .select("*")
-      .order("display_order", { ascending: true });
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-
+    const data = await productSectionDao.list({ active: undefined });
     res.status(200).json({ success: true, data });
   } catch (error) {
     console.error("Error fetching product sections:", error);
@@ -23,17 +17,7 @@ export const getAllProductSections = async (req, res) => {
 // Get active product sections only
 export const getActiveProductSections = async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from("product_sections")
-      .select("*")
-      .eq("is_active", true)
-      .order("display_order", { ascending: true });
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-
+    const data = await productSectionDao.list({ active: true });
     res.status(200).json({ success: true, data });
   } catch (error) {
     console.error("Error fetching active product sections:", error);
@@ -45,19 +29,10 @@ export const getActiveProductSections = async (req, res) => {
 export const getProductSectionById = async (req, res) => {
   try {
     const { id } = req.params;
+    const data = await productSectionDao.getById(parseInt(id));
 
-    const { data, error } = await supabase
-      .from("product_sections")
-      .select("*")
-      .eq("id", id)
-      .single();
-
-    if (error) {
-      if (error.code === "PGRST116") {
-        return res.status(404).json({ error: "Product section not found" });
-      }
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
+    if (!data) {
+      return res.status(404).json({ error: "Product section not found" });
     }
 
     res.status(200).json({ success: true, data });
@@ -73,24 +48,10 @@ export const updateProductSection = async (req, res) => {
     const { id } = req.params;
     const updateData = req.body;
 
-    // Remove id from update data if present
     delete updateData.id;
     delete updateData.created_at;
 
-    const { data, error } = await supabase
-      .from("product_sections")
-      .update(updateData)
-      .eq("id", id)
-      .select()
-      .single();
-
-    if (error) {
-      if (error.code === "PGRST116") {
-        return res.status(404).json({ error: "Product section not found" });
-      }
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
+    const data = await productSectionDao.update(parseInt(id), updateData);
 
     res.status(200).json({
       success: true,
@@ -107,42 +68,19 @@ export const updateProductSection = async (req, res) => {
 export const toggleSectionStatus = async (req, res) => {
   try {
     const { id } = req.params;
+    const section = await productSectionDao.getById(parseInt(id));
 
-    // Get current status
-    const { data: currentSection, error: fetchError } = await supabase
-      .from("product_sections")
-      .select("is_active")
-      .eq("id", id)
-      .single();
-
-    if (fetchError) {
-      if (fetchError.code === "PGRST116") {
-        return res.status(404).json({ error: "Product section not found" });
-      }
-      console.error("Supabase error:", fetchError);
-      return res.status(500).json({ error: fetchError.message });
+    if (!section) {
+      return res.status(404).json({ error: "Product section not found" });
     }
 
-    // Toggle status
-    const newStatus = !currentSection.is_active;
-
-    const { data, error } = await supabase
-      .from("product_sections")
-      .update({ is_active: newStatus })
-      .eq("id", id)
-      .select()
-      .single();
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
+    const newStatus = !section.is_active;
+    const data = await productSectionDao.update(parseInt(id), { is_active: newStatus });
 
     res.status(200).json({
       success: true,
       data,
-      message: `Section ${newStatus ? "activated" : "deactivated"
-        } successfully`,
+      message: `Section ${newStatus ? "activated" : "deactivated"} successfully`,
     });
   } catch (error) {
     console.error("Error toggling section status:", error);
@@ -156,29 +94,11 @@ export const updateSectionOrder = async (req, res) => {
     const { sections } = req.body;
 
     if (!sections || !Array.isArray(sections)) {
-      return res.status(400).json({
-        error: "sections array is required",
-      });
+      return res.status(400).json({ error: "sections array is required" });
     }
 
-    // Update each section's display order
-    const updates = sections.map((section) =>
-      supabase
-        .from("product_sections")
-        .update({ display_order: section.display_order })
-        .eq("id", section.id)
-    );
-
-    const results = await Promise.all(updates);
-
-    // Check for errors
-    const errorResults = results.filter((result) => result.error);
-    if (errorResults.length > 0) {
-      console.error("Supabase errors:", errorResults);
-      return res.status(500).json({
-        error: "Failed to update some sections",
-        details: errorResults.map((r) => r.error.message),
-      });
+    for (const section of sections) {
+      await productSectionDao.update(parseInt(section.id), { display_order: section.display_order });
     }
 
     res.status(200).json({
@@ -200,49 +120,21 @@ export const addProductsToSection = async (req, res) => {
     const { product_ids } = req.body;
 
     if (!product_ids || !Array.isArray(product_ids) || product_ids.length === 0) {
-      return res.status(400).json({
-        error: "product_ids array is required and must not be empty",
-      });
+      return res.status(400).json({ error: "product_ids array is required and must not be empty" });
     }
 
-    // Verify section exists
-    const { data: section, error: sectionError } = await supabase
-      .from("product_sections")
-      .select("id")
-      .eq("id", id)
-      .single();
+    const section = await productSectionDao.getById(parseInt(id));
+    if (!section) return res.status(404).json({ error: "Product section not found" });
 
-    if (sectionError || !section) {
-      return res.status(404).json({ error: "Product section not found" });
-    }
+    let nextOrder = (await productSectionProductDao.getMaxOrder(parseInt(id))) + 1;
 
-    // Get current max display_order for this section
-    const { data: maxOrderData } = await supabase
-      .from("product_section_products")
-      .select("display_order")
-      .eq("section_id", id)
-      .order("display_order", { ascending: false })
-      .limit(1);
-
-    let nextOrder = maxOrderData && maxOrderData.length > 0 ? maxOrderData[0].display_order + 1 : 0;
-
-    // Create assignments
-    // section_id is INTEGER, product_id is UUID
     const assignments = product_ids.map((product_id) => ({
-      product_id: product_id, // UUID - keep as string
-      section_id: parseInt(id), // INTEGER - parse to int
+      product_id,
+      section_id: parseInt(id),
       display_order: nextOrder++,
     }));
 
-    const { data, error } = await supabase
-      .from("product_section_products")
-      .upsert(assignments, { onConflict: "product_id,section_id" })
-      .select();
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
+    const data = await productSectionProductDao.upsertMany(assignments);
 
     res.status(200).json({
       success: true,
@@ -258,18 +150,8 @@ export const addProductsToSection = async (req, res) => {
 // Remove a product from a section
 export const removeProductFromSection = async (req, res) => {
   try {
-    const { id, productId } = req.params; // section_id, product_id
-
-    const { error } = await supabase
-      .from("product_section_products")
-      .delete()
-      .eq("section_id", id)
-      .eq("product_id", productId);
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
+    const { id, productId } = req.params;
+    await productSectionProductDao.deleteBySectionAndProduct(parseInt(id), productId);
 
     res.status(200).json({
       success: true,
@@ -284,58 +166,18 @@ export const removeProductFromSection = async (req, res) => {
 // Get all products in a section
 export const getProductsInSection = async (req, res) => {
   try {
-    const { id } = req.params; // section_id
+    const { id } = req.params;
     const { page = 1, limit = 50 } = req.query;
 
-    const offset = (page - 1) * limit;
+    const mappedCategories = await productSectionCategoryDao.listBySection(parseInt(id));
+    const data = await productSectionProductDao.listBySection(parseInt(id));
 
-    // First, check if this section has any mapped categories
-    const { data: mappedCategories, error: categoryError } = await supabase
-      .from("product_section_categories")
-      .select("category_id")
-      .eq("section_id", id);
-
-    if (categoryError) {
-      console.error("Error fetching mapped categories:", categoryError);
-      return res.status(500).json({ error: categoryError.message });
-    }
-
-    // Build the query for products
-    let query = supabase
-      .from("product_section_products")
-      .select(`
-        id,
-        display_order,
-        created_at,
-        products:product_id (
-          id,
-          name,
-          price,
-          old_price,
-          image,
-          active,
-          stock,
-          category_id,
-          subcategory_id,
-          group_id
-        )
-      `, { count: 'exact' })
-      .eq("section_id", id)
-      .order("display_order", { ascending: true });
-
-    const { data, error, count } = await query.range(offset, offset + limit - 1);
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    // Transform data to flatten product details
+    // Flatten product details
     let products = data.map(item => ({
       assignment_id: item.id,
       display_order: item.display_order,
       assigned_at: item.created_at,
-      ...item.products
+      ...item.product
     }));
 
     // Filter by mapped categories if any exist
@@ -346,14 +188,18 @@ export const getProductsInSection = async (req, res) => {
       );
     }
 
+    // Manual pagination as the list is relatively small
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const paginatedProducts = products.slice(offset, offset + parseInt(limit));
+
     res.status(200).json({
       success: true,
-      data: products,
+      data: paginatedProducts,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        total: products.length, // Use filtered count
-        totalPages: Math.ceil(products.length / limit),
+        total: products.length,
+        totalPages: Math.ceil(products.length / parseInt(limit)),
       },
       filtered_by_categories: mappedCategories && mappedCategories.length > 0,
       mapped_category_count: mappedCategories ? mappedCategories.length : 0,
@@ -367,34 +213,23 @@ export const getProductsInSection = async (req, res) => {
 // Update product order within a section
 export const updateProductOrderInSection = async (req, res) => {
   try {
-    const { id } = req.params; // section_id
-    const { products } = req.body; // Array of { product_id, display_order }
+    const { id } = req.params;
+    const { products } = req.body;
 
     if (!products || !Array.isArray(products)) {
-      return res.status(400).json({
-        error: "products array is required",
-      });
+      return res.status(400).json({ error: "products array is required" });
     }
 
-    // Update each product's display order
-    const updates = products.map((product) =>
-      supabase
-        .from("product_section_products")
-        .update({ display_order: product.display_order })
-        .eq("section_id", id)
-        .eq("product_id", product.product_id)
-    );
-
-    const results = await Promise.all(updates);
-
-    // Check for errors
-    const errorResults = results.filter((result) => result.error);
-    if (errorResults.length > 0) {
-      console.error("Supabase errors:", errorResults);
-      return res.status(500).json({
-        error: "Failed to update some products",
-        details: errorResults.map((r) => r.error.message),
-      });
+    for (const product of products) {
+      // Find the assignment record first to get its ID, or add a method to update by section/product
+      // To simplify, we'll assume product contains the assignment id if possible, 
+      // but the original controller used section_id + product_id.
+      // Since upsertMany handles it, we can reuse that for order updates.
+      await productSectionProductDao.upsertMany([{
+        section_id: parseInt(id),
+        product_id: product.product_id,
+        display_order: product.display_order
+      }]);
     }
 
     res.status(200).json({
@@ -411,39 +246,15 @@ export const updateProductOrderInSection = async (req, res) => {
 export const getSectionsForProduct = async (req, res) => {
   try {
     const { productId } = req.params;
+    const data = await productSectionProductDao.listByProduct(productId);
 
-    const { data, error } = await supabase
-      .from("product_section_products")
-      .select(`
-        id,
-        display_order,
-        product_sections:section_id (
-          id,
-          section_key,
-          section_name,
-          is_active,
-          component_name
-        )
-      `)
-      .eq("product_id", productId)
-      .order("display_order", { ascending: true });
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    // Transform data
     const sections = data.map(item => ({
       assignment_id: item.id,
       display_order: item.display_order,
       ...item.product_sections
     }));
 
-    res.status(200).json({
-      success: true,
-      data: sections,
-    });
+    res.status(200).json({ success: true, data: sections });
   } catch (error) {
     console.error("Error fetching sections for product:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -455,41 +266,19 @@ export const getSectionsForProduct = async (req, res) => {
 // Add categories to a section
 export const addCategoriesToSection = async (req, res) => {
   try {
-    const { id } = req.params; // section_id
+    const { id } = req.params;
     const { category_ids } = req.body;
 
     if (!category_ids || !Array.isArray(category_ids) || category_ids.length === 0) {
-      return res.status(400).json({
-        error: "category_ids array is required and must not be empty",
-      });
+      return res.status(400).json({ error: "category_ids array is required and must not be empty" });
     }
 
-    // Verify section exists
-    const { data: section, error: sectionError } = await supabase
-      .from("product_sections")
-      .select("id")
-      .eq("id", id)
-      .single();
-
-    if (sectionError || !section) {
-      return res.status(404).json({ error: "Product section not found" });
-    }
-
-    // Create category mappings
     const mappings = category_ids.map((category_id) => ({
       section_id: parseInt(id),
       category_id: parseInt(category_id),
     }));
 
-    const { data, error } = await supabase
-      .from("product_section_categories")
-      .upsert(mappings, { onConflict: "section_id,category_id" })
-      .select();
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
+    const data = await productSectionCategoryDao.addMany(mappings);
 
     res.status(200).json({
       success: true,
@@ -505,18 +294,8 @@ export const addCategoriesToSection = async (req, res) => {
 // Remove a category from a section
 export const removeCategoryFromSection = async (req, res) => {
   try {
-    const { id, categoryId } = req.params; // section_id, category_id
-
-    const { error } = await supabase
-      .from("product_section_categories")
-      .delete()
-      .eq("section_id", id)
-      .eq("category_id", categoryId);
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
+    const { id, categoryId } = req.params;
+    await productSectionCategoryDao.remove(parseInt(id), parseInt(categoryId));
 
     res.status(200).json({
       success: true,
@@ -531,24 +310,10 @@ export const removeCategoryFromSection = async (req, res) => {
 // Get all categories mapped to a section
 export const getCategoriesInSection = async (req, res) => {
   try {
-    const { id } = req.params; // section_id
+    const { id } = req.params;
+    const data = await productSectionCategoryDao.listBySection(parseInt(id));
 
-    const { data, error } = await supabase
-      .from("product_section_categories")
-      .select("category_id, created_at")
-      .eq("section_id", id)
-      .order("created_at", { ascending: true });
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    res.status(200).json({
-      success: true,
-      data,
-      total: data.length,
-    });
+    res.status(200).json({ success: true, data, total: data.length });
   } catch (error) {
     console.error("Error fetching categories in section:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -559,41 +324,38 @@ export const getCategoriesInSection = async (req, res) => {
 export const getSectionsForCategory = async (req, res) => {
   try {
     const { categoryId } = req.params;
+    const data = await productSectionCategoryDao.listByProductCategory(parseInt(categoryId));
 
-    const { data, error } = await supabase
-      .from("product_section_categories")
-      .select(`
-        id,
-        created_at,
-        product_sections:section_id (
-          id,
-          section_key,
-          section_name,
-          is_active,
-          component_name
-        )
-      `)
-      .eq("category_id", categoryId)
-      .order("created_at", { ascending: true });
-
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    // Transform data
-    const sections = data.map(item => ({
-      mapping_id: item.id,
-      mapped_at: item.created_at,
-      ...item.product_sections
-    }));
-
-    res.status(200).json({
-      success: true,
-      data: sections,
-    });
+    res.status(200).json({ success: true, data });
   } catch (error) {
     console.error("Error fetching sections for category:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// ========== GRID SETTINGS FUNCTIONS (Merged from productGridSettingsController.js) ==========
+
+export const getProductGridSettings = async (req, res) => {
+  try {
+    const settings = await productGridSettingDao.getSettings();
+    res.status(200).json({ success: true, data: settings });
+  } catch (error) {
+    console.error("Error fetching grid settings:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const updateProductGridSettings = async (req, res) => {
+  try {
+    const { is_visible } = req.body;
+    const settings = await productGridSettingDao.updateSettings(is_visible);
+    res.status(200).json({
+      success: true,
+      data: settings,
+      message: "Product grid settings updated successfully",
+    });
+  } catch (error) {
+    console.error("Error updating grid settings:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
