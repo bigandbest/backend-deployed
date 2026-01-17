@@ -228,6 +228,31 @@ class ProductWarehouseStockDAO {
             }
         });
     }
+    async listProductsInWarehouse(warehouseId) {
+        return await prisma.product_warehouse_stock.findMany({
+            where: {
+                warehouse_id: parseInt(warehouseId),
+                is_active: true
+            },
+            include: {
+                products: {
+                    select: {
+                        id: true,
+                        name: true,
+                        price: true,
+                        rating: true,
+                        image: true,
+                        category: {
+                            select: {
+                                id: true,
+                                name: true
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
 }
 
 export default new ProductWarehouseStockDAO();

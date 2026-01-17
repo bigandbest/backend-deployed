@@ -331,15 +331,17 @@ export const getProductsForWarehouse = async (req, res) => {
   try {
     const { warehouse_id } = req.params;
 
-    const { data, error } = await supabase
-      .from("product_warehouse")
-      .select("product_id, products (id, name, price, rating, image, category)")
-      .eq("warehouse_id", warehouse_id);
+    const stockItems = await productWarehouseStockDao.listProductsInWarehouse(warehouse_id);
 
-    if (error) return res.status(500).json({ error: error.message });
+    // Transform to match previous response structure if needed, or return as is
+    // The previous structure was likely flat or nested. 
+    // Supabase returns: [{ product_id, products: {...} }]
+    // DAO returns: [{ product_id, products: {...}, ...stockFields }]
+    // We can return the DAO result directly as it contains the necessary info.
 
-    res.status(200).json(data);
+    res.status(200).json(stockItems);
   } catch (err) {
+    console.error("Get products for warehouse error:", err);
     res.status(500).json({ error: "Server error" });
   }
 };

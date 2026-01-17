@@ -146,8 +146,9 @@ export const startScheduledJobs = () => {
     console.log('🕐 Starting scheduled jobs...');
 
     // Start scheduled order execution
-    executeScheduledOrdersJob.start();
-    console.log('✅ Scheduled order execution job started (runs every minute)');
+    // executeScheduledOrdersJob.start();
+    // console.log('✅ Scheduled order execution job started (runs every minute)');
+    console.log('⚠️ Scheduled order execution job is currently disabled by user request');
 
     // NOTE: Bidding system cron jobs are disabled until database functions are created
     // To enable: Run the SQL script at backend-deployed/database/enquiry_bids_schema.sql in Supabase

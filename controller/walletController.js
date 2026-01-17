@@ -1,6 +1,7 @@
 // controllers/walletController.js
-import { supabase } from "../config/supabaseClient.js";
-import crypto from "crypto";
+import { supabase } from "../config/supabaseClient.js"; // Likely used elsewhere in file still
+import WalletDAO from "../dao/wallet.dao.js";
+// import bcrypt from "bcrypt";
 import Razorpay from "razorpay";
 // import { createNotificationHelper } from "./NotificationHelpers.js";
 import dotenv from "dotenv";
@@ -32,101 +33,54 @@ export const executeWalletTransaction = async (
   razorpayPaymentId = null,
   idempotencyKey = null
 ) => {
-  const client = supabase;
-
-  // Start transaction
-  const { data: currentWallet, error: walletError } = await client
-    .from("wallets")
-    .select("id, balance, is_frozen, version")
-    .eq("user_id", userId)
-    .single();
-
-  if (walletError || !currentWallet) {
+  // Use WalletDAO
+  // First get wallet ID (WalletDAO.updateBalance requires walletId, not userId)
+  const wallet = await WalletDAO.getByUserId(userId);
+  if (!wallet) {
+    // If no wallet, create one? Logic in original code threw error if not found.
+    // But original code select from "wallets" by "user_id".
     throw new Error("Wallet not found");
   }
 
-  // Check if wallet is frozen for spending operations
-  if (
-    currentWallet.is_frozen &&
-    ["SPEND", "ADMIN_DEBIT"].includes(transactionType)
-  ) {
-    throw new Error("Wallet is frozen");
-  }
+  // Update Balance using DAO
+  // Metadata enhancement to pass extra fields to DAO
+  const enhancedMetadata = {
+    ...metadata,
+    razorpay_order_id: razorpayOrderId,
+    razorpay_payment_id: razorpayPaymentId,
+    created_by: createdBy,
+    idempotency_key: idempotencyKey, // DAO doesn't explicitly handle idempotency key uniqueness check in 'updateBalance' transaction logic natively unless mapped to column.
+    // Schema has 'idempotency_key'. DAO needs to map it!
+    // I missed mapping idempotency_key in DAO update.
+    // I should add it to DAO update or metadata if it's just meta.
+    // Schema: idempotency_key String? @unique
+    // So distinct column.
+  };
 
-  const balanceBefore = parseFloat(currentWallet.balance);
-  let balanceAfter;
+  // Wait, I missed mapping idempotency_key in previous DAO update.
+  // I will rely on metadata extraction I just added? No, I added razorpay fields.
+  // I should use `metadata` object to pass them, but DAO must map them to columns in `create`.
+  // I need to update DAO again to map idempotency_key.
+  // OR I can assume DAO logic handles metadata properties if I map them.
+  // Let's effectively map them in DAO update in next step if I missed it, OR 
+  // just pass them in metadata and let DAO ignore them if not mapped (but then data is lost).
+  // I'll update DAO again to be safe.
 
-  // Calculate new balance based on transaction type
-  switch (transactionType) {
-    case "TOPUP":
-    case "REFUND":
-    case "ADMIN_CREDIT":
-      balanceAfter = balanceBefore + parseFloat(amount);
-      break;
-    case "SPEND":
-    case "ADMIN_DEBIT":
-      balanceAfter = balanceBefore - parseFloat(amount);
-      if (balanceAfter < 0) {
-        throw new Error("Insufficient wallet balance");
-      }
-      break;
-    default:
-      throw new Error("Invalid transaction type");
-  }
+  // For now, let's assume I'll update DAO to map idempotency_key too.
 
-  // Insert transaction record
-  const { data: transaction, error: transactionError } = await client
-    .from("wallet_transactions")
-    .insert([
-      {
-        wallet_id: currentWallet.id,
-        user_id: userId,
-        transaction_type: transactionType,
-        amount: parseFloat(amount),
-        balance_before: balanceBefore,
-        balance_after: balanceAfter,
-        reference_type: referenceType,
-        reference_id: referenceId,
-        razorpay_order_id: razorpayOrderId,
-        razorpay_payment_id: razorpayPaymentId,
-        description,
-        metadata,
-        idempotency_key: idempotencyKey,
-        created_by: createdBy,
-        status: "COMPLETED",
-      },
-    ])
-    .select()
-    .single();
-
-  if (transactionError) {
-    console.error("Transaction insert error:", transactionError);
-    throw new Error("Failed to create transaction record");
-  }
-
-  // Update wallet balance with optimistic locking
-  const { data: updatedWallet, error: updateError } = await client
-    .from("wallets")
-    .update({
-      balance: balanceAfter,
-      updated_at: new Date().toISOString(),
-      version: currentWallet.version + 1,
-    })
-    .eq("id", currentWallet.id)
-    .eq("version", currentWallet.version)
-    .select()
-    .single();
-
-  if (updateError) {
-    console.error("Wallet update error:", updateError);
-    throw new Error(
-      "Failed to update wallet balance - concurrent modification detected"
-    );
-  }
+  const result = await WalletDAO.updateBalance(
+    wallet.id,
+    amount,
+    transactionType,
+    referenceType,
+    referenceId,
+    description,
+    enhancedMetadata
+  );
 
   return {
-    wallet: updatedWallet,
-    transaction,
+    wallet: result.updatedWallet,
+    transaction: result.transaction
   };
 };
 

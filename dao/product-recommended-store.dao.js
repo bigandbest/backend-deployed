@@ -34,6 +34,19 @@ class ProductRecommendedStoreDAO {
             include: { recommended_store: true }
         });
     }
+
+    async listProductsByStore(storeId) {
+        return await prisma.product_recommended_store.findMany({
+            where: { recommended_store_id: storeId },
+            include: {
+                products: {
+                    include: {
+                        product_variants: true
+                    }
+                }
+            }
+        });
+    }
 }
 
 export default new ProductRecommendedStoreDAO();
