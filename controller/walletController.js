@@ -1,7 +1,8 @@
 // controllers/walletController.js
-import { supabase } from "../config/supabaseClient.js"; // Likely used elsewhere in file still
+import { supabase } from "../config/supabaseClient.js";
 import WalletDAO from "../dao/wallet.dao.js";
-// import bcrypt from "bcrypt";
+import OrderDAO from "../dao/order.dao.js";
+import crypto from "crypto";
 import Razorpay from "razorpay";
 // import { createNotificationHelper } from "./NotificationHelpers.js";
 import dotenv from "dotenv";
@@ -31,7 +32,7 @@ export const executeWalletTransaction = async (
   createdBy = null,
   razorpayOrderId = null,
   razorpayPaymentId = null,
-  idempotencyKey = null
+  idempotencyKey = null,
 ) => {
   // Use WalletDAO
   // First get wallet ID (WalletDAO.updateBalance requires walletId, not userId)
@@ -62,7 +63,7 @@ export const executeWalletTransaction = async (
   // I should use `metadata` object to pass them, but DAO must map them to columns in `create`.
   // I need to update DAO again to map idempotency_key.
   // OR I can assume DAO logic handles metadata properties if I map them.
-  // Let's effectively map them in DAO update in next step if I missed it, OR 
+  // Let's effectively map them in DAO update in next step if I missed it, OR
   // just pass them in metadata and let DAO ignore them if not mapped (but then data is lost).
   // I'll update DAO again to be safe.
 
@@ -75,12 +76,12 @@ export const executeWalletTransaction = async (
     referenceType,
     referenceId,
     description,
-    enhancedMetadata
+    enhancedMetadata,
   );
 
   return {
     wallet: result.updatedWallet,
-    transaction: result.transaction
+    transaction: result.transaction,
   };
 };
 
@@ -95,7 +96,9 @@ export const getUserWallet = async (req, res) => {
     // Get or create wallet - select only necessary fields for better performance
     let { data: wallet, error: walletError } = await supabase
       .from("wallets")
-      .select("id, user_id, balance, is_frozen, frozen_reason, created_at, updated_at")
+      .select(
+        "id, user_id, balance, is_frozen, frozen_reason, created_at, updated_at",
+      )
       .eq("user_id", user.id)
       .single();
 
@@ -118,31 +121,44 @@ export const getUserWallet = async (req, res) => {
           console.log(`Creating user record in users table for: ${user.id}`);
 
           // Get user details from Supabase Auth
-          const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(user.id);
+          const { data: authUser, error: authError } =
+            await supabase.auth.admin.getUserById(user.id);
 
           if (authError || !authUser) {
             console.error("User not found in auth.users:", user.id, authError);
             return res.status(400).json({
               success: false,
-              error: "User account not found. Please ensure you are properly authenticated."
+              error:
+                "User account not found. Please ensure you are properly authenticated.",
             });
           }
 
           // Create user record in users table
           const { data: newUser, error: createUserError } = await supabase
             .from("users")
-            .upsert([{
-              id: user.id,
-              email: authUser.user.email,
-              name: authUser.user.user_metadata?.name || authUser.user.user_metadata?.full_name || null,
-              phone: authUser.user.phone || authUser.user.user_metadata?.phone || null,
-              avatar: authUser.user.user_metadata?.avatar_url || null,
-              photo_url: authUser.user.user_metadata?.avatar_url || null,
-              created_at: authUser.user.created_at,
-            }], {
-              onConflict: 'id',
-              ignoreDuplicates: false
-            })
+            .upsert(
+              [
+                {
+                  id: user.id,
+                  email: authUser.user.email,
+                  name:
+                    authUser.user.user_metadata?.name ||
+                    authUser.user.user_metadata?.full_name ||
+                    null,
+                  phone:
+                    authUser.user.phone ||
+                    authUser.user.user_metadata?.phone ||
+                    null,
+                  avatar: authUser.user.user_metadata?.avatar_url || null,
+                  photo_url: authUser.user.user_metadata?.avatar_url || null,
+                  created_at: authUser.user.created_at,
+                },
+              ],
+              {
+                onConflict: "id",
+                ignoreDuplicates: false,
+              },
+            )
             .select()
             .single();
 
@@ -151,7 +167,7 @@ export const getUserWallet = async (req, res) => {
             return res.status(500).json({
               success: false,
               error: "Failed to create user record",
-              details: createUserError.message
+              details: createUserError.message,
             });
           }
 
@@ -165,7 +181,7 @@ export const getUserWallet = async (req, res) => {
         return res.status(500).json({
           success: false,
           error: "Failed to sync user data",
-          details: userSyncError.message
+          details: userSyncError.message,
         });
       }
 
@@ -173,30 +189,38 @@ export const getUserWallet = async (req, res) => {
       const { data: newWallet, error: createError } = await supabase
         .from("wallets")
         .insert([{ user_id: user.id, balance: 0.0 }])
-        .select("id, user_id, balance, is_frozen, frozen_reason, created_at, updated_at")
+        .select(
+          "id, user_id, balance, is_frozen, frozen_reason, created_at, updated_at",
+        )
         .single();
 
       if (createError) {
         console.error("Error creating wallet:", createError);
 
         // Provide more specific error messages based on error code
-        if (createError.code === '23503') {
+        if (createError.code === "23503") {
           return res.status(400).json({
             success: false,
             error: "Cannot create wallet: User account not found in database",
-            details: "Foreign key constraint violation - this should not happen after user sync"
+            details:
+              "Foreign key constraint violation - this should not happen after user sync",
           });
-        } else if (createError.code === '42501') {
+        } else if (createError.code === "42501") {
           return res.status(500).json({
             success: false,
             error: "Database permission error. Please contact support.",
-            details: "Row-level security policy violation. The service role should bypass RLS - check Supabase RLS policies."
+            details:
+              "Row-level security policy violation. The service role should bypass RLS - check Supabase RLS policies.",
           });
         }
 
         return res
           .status(500)
-          .json({ success: false, error: "Failed to create wallet", details: createError.message });
+          .json({
+            success: false,
+            error: "Failed to create wallet",
+            details: createError.message,
+          });
       }
 
       wallet = newWallet;
@@ -240,7 +264,10 @@ export const getWalletTransactions = async (req, res) => {
 
     let query = supabase
       .from("wallet_transactions")
-      .select("id, transaction_type, amount, balance_before, balance_after, description, created_at, status", { count: "exact" })
+      .select(
+        "id, transaction_type, amount, balance_before, balance_after, description, created_at, status",
+        { count: "exact" },
+      )
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .range(offset, offset + parseInt(limit) - 1);
@@ -416,7 +443,8 @@ export const createWalletTopupOrder = async (req, res) => {
       if (error.statusCode === 401) {
         return res.status(500).json({
           success: false,
-          error: "Payment gateway authentication failed. Please contact support.",
+          error:
+            "Payment gateway authentication failed. Please contact support.",
           details: "Invalid Razorpay credentials configured on the server.",
         });
       }
@@ -507,7 +535,7 @@ export const verifyWalletTopup = async (req, res) => {
       pendingTopup.user_id,
       "TOPUP",
       pendingTopup.amount,
-      razorpay_order_id
+      razorpay_order_id,
     );
 
     try {
@@ -523,7 +551,7 @@ export const verifyWalletTopup = async (req, res) => {
         null,
         razorpay_order_id,
         razorpay_payment_id,
-        idempotencyKey
+        idempotencyKey,
       );
 
       // Update pending topup status
@@ -550,7 +578,7 @@ export const verifyWalletTopup = async (req, res) => {
       */
 
       console.log(
-        `Wallet topup verified and completed: User ${pendingTopup.user_id}, Amount: ${pendingTopup.amount}`
+        `Wallet topup verified and completed: User ${pendingTopup.user_id}, Amount: ${pendingTopup.amount}`,
       );
 
       res.json({
@@ -636,7 +664,7 @@ export const walletTopupWebhook = async (req, res) => {
       pendingTopup.user_id,
       "TOPUP",
       pendingTopup.amount,
-      razorpay_order_id
+      razorpay_order_id,
     );
 
     try {
@@ -652,7 +680,7 @@ export const walletTopupWebhook = async (req, res) => {
         null,
         razorpay_order_id,
         razorpay_payment_id,
-        idempotencyKey
+        idempotencyKey,
       );
 
       // Update pending topup status
@@ -679,7 +707,7 @@ export const walletTopupWebhook = async (req, res) => {
       */
 
       console.log(
-        `Wallet topup completed: User ${pendingTopup.user_id}, Amount: ${pendingTopup.amount}`
+        `Wallet topup completed: User ${pendingTopup.user_id}, Amount: ${pendingTopup.amount}`,
       );
 
       res.json({
@@ -777,7 +805,7 @@ export const spendFromWallet = async (req, res) => {
         null,
         null,
         null,
-        idempotencyKey
+        idempotencyKey,
       );
 
       // Create notification
@@ -787,7 +815,7 @@ export const spendFromWallet = async (req, res) => {
         `₹${spendAmount} debited from wallet for order #${order_id}. Remaining balance: ₹${wallet.balance}`,
         "wallet_spend",
         transaction.id,
-        "user"
+        "user",
       );
 
       res.json({
@@ -833,7 +861,7 @@ export const processRefundToWallet = async (req, res) => {
       user_id,
       "REFUND",
       refundAmount,
-      refund_request_id
+      refund_request_id,
     );
 
     // Check if refund already processed
@@ -863,7 +891,7 @@ export const processRefundToWallet = async (req, res) => {
         null,
         null,
         null,
-        idempotencyKey
+        idempotencyKey,
       );
 
       // Create notification
@@ -873,7 +901,7 @@ export const processRefundToWallet = async (req, res) => {
         `₹${refundAmount} has been credited to your wallet as refund. Current balance: ₹${wallet.balance}`,
         "wallet_refund",
         transaction.id,
-        "user"
+        "user",
       );
 
       res.json({
@@ -887,5 +915,182 @@ export const processRefundToWallet = async (req, res) => {
   } catch (error) {
     console.error("Error in processRefundToWallet:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+// ============================================
+// WALLET ORDER OPERATIONS (Merged from walletOrderController.js)
+// ============================================
+
+/**
+ * Create Wallet Order (prepaid via wallet balance)
+ * Merged from walletOrderController.js
+ */
+export const createWalletOrder = async (req, res) => {
+  try {
+    console.log('Wallet Order Creation Request:', req.body);
+
+    const {
+      user_id,
+      product_id,
+      user_name,
+      user_email,
+      product_name,
+      product_total_price,
+      user_address,
+      user_location,
+      quantity = 1,
+      items = [],
+      delivery_address,
+      mobile
+    } = req.body;
+
+    // Validate required fields
+    if (!user_id || !product_name || !product_total_price || !user_address) {
+      console.log('Validation Error: Missing required fields');
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields: user_id, product_name, product_total_price, user_address"
+      });
+    }
+
+    const totalPrice = parseFloat(product_total_price);
+
+    // Check wallet balance
+    const wallet = await WalletDAO.getByUserId(user_id);
+
+    if (!wallet) {
+      return res.status(404).json({ success: false, error: "Wallet not found" });
+    }
+
+    if (wallet.is_frozen) {
+      return res.status(400).json({ success: false, error: "Wallet is frozen. Please contact support." });
+    }
+
+    const walletBalance = parseFloat(wallet.balance || 0);
+    if (walletBalance < totalPrice) {
+      return res.status(400).json({
+        success: false,
+        error: `Insufficient wallet balance. Required: ₹${totalPrice}, Available: ₹${walletBalance}`
+      });
+    }
+
+    // Prepare Order Items for atomic creation
+    let orderItemsData = [];
+    if (items && items.length > 0) {
+      orderItemsData = items.map(item => ({
+        product_id: String(item.product_id),
+        quantity: parseInt(item.quantity),
+        price: parseFloat(item.price),
+      }));
+    } else if (product_id) {
+      orderItemsData.push({
+        product_id: String(product_id),
+        quantity: parseInt(quantity),
+        price: totalPrice / parseInt(quantity)
+      });
+    }
+
+    // Create order data with nested items
+    const orderCreateData = {
+      user_id: String(user_id),
+      user_name: String(user_name),
+      user_email: user_email ? String(user_email) : null,
+      user_location: user_location ? String(user_location) : null,
+      product_name: String(product_name),
+      product_total_price: totalPrice,
+      address: String(user_address),
+      payment_method: 'wallet',
+      status: 'pending',
+      total: totalPrice,
+      subtotal: totalPrice,
+      shipping: 0,
+      order_items: {
+        create: orderItemsData
+      }
+    };
+
+    console.log('Inserting wallet order into orders table via Prisma:', orderCreateData);
+
+    const order = await OrderDAO.create(orderCreateData);
+
+    if (!order) {
+      throw new Error("Failed to create order");
+    }
+
+    // Deduct from wallet using execute WalletTransaction
+    try {
+      const idempotencyKey = `wallet_order_${order.id}_${Date.now()}`;
+
+      const { wallet: updatedWallet, transaction } = await executeWalletTransaction(
+        user_id,
+        "SPEND",
+        totalPrice,
+        "ORDER",
+        order.id,
+        `Payment for order #${order.id}`,
+        { order_id: order.id, payment_method: 'wallet' },
+        null,
+        null,
+        null,
+        idempotencyKey
+      );
+
+      console.log('Wallet Order Created Successfully:', order);
+      return res.status(201).json({
+        success: true,
+        message: "Wallet order created successfully",
+        order: order,
+        wallet_balance: parseFloat(updatedWallet.balance),
+        transaction_id: transaction.id
+      });
+    } catch (walletError) {
+      console.error('Wallet Deduction Error:', walletError);
+      // Rollback order if wallet deduction fails
+      await OrderDAO.delete(order.id);
+
+      return res.status(400).json({
+        success: false,
+        error: walletError.message || "Failed to deduct from wallet"
+      });
+    }
+  } catch (error) {
+    console.error('Server Error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get all wallet orders
+ * Merged from walletOrderController.js
+ */
+export const getAllWalletOrders = async (req, res) => {
+  try {
+    const { items: orders } = await OrderDAO.listAll({ paymentMethod: 'wallet' }, { limit: 100 });
+    res.json({ success: true, orders });
+  } catch (error) {
+    console.error("Error fetching wallet orders:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * Get user's wallet orders
+ * Merged from walletOrderController.js
+ */
+export const getUserWalletOrders = async (req, res) => {
+  try {
+    const { user_id } = req.params;
+    const { items: orders } = await OrderDAO.listAll(
+      { userId: user_id, paymentMethod: 'wallet' },
+      { limit: 100 }
+    );
+    res.json({ success: true, orders });
+  } catch (error) {
+    console.error("Error fetching user wallet orders:", error);
+    res.status(500).json({ success: false, error: error.message });
   }
 };

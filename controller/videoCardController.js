@@ -1,4 +1,11 @@
+import VideoCardDAO from "../dao/video-card.dao.js";
 import { supabase } from "../config/supabaseClient.js";
+import crypto from "crypto";
+
+/**
+ * Video Card Controller - Routes for video card operations
+ * Updated to use video-card.dao.js for database operations
+ */
 
 // Add a Video Card
 export async function addVideoCard(req, res) {
@@ -6,7 +13,6 @@ export async function addVideoCard(req, res) {
     console.log("addVideoCard - req.body:", req.body);
     console.log("addVideoCard - req.files:", req.files);
 
-    // With multer.any(), text fields should be in req.body
     const { title, description, video_url, thumbnail_url, active, position } =
       req.body;
 
@@ -44,28 +50,20 @@ export async function addVideoCard(req, res) {
       processedThumbnailUrl = urlData.publicUrl;
     }
 
-    // Insert video card into database
-    const { data, error } = await supabase
-      .from("video_cards")
-      .insert([
-        {
-          title,
-          description,
-          video_url,
-          thumbnail_url: processedThumbnailUrl,
-          active: processedActive,
-          position: position || 0,
-        },
-      ])
-      .select();
-
-    if (error)
-      return res.status(400).json({ success: false, error: error.message });
+    // Insert video card into database using DAO
+    const videoCard = await VideoCardDAO.create({
+      title,
+      description,
+      video_url,
+      thumbnail_url: processedThumbnailUrl,
+      active: processedActive,
+      position: position || 0,
+    });
 
     res.status(201).json({
       success: true,
       message: "Video card added successfully",
-      videoCard: data[0],
+      videoCard,
     });
   } catch (error) {
     console.error("Error adding video card:", error);
@@ -81,7 +79,6 @@ export async function updateVideoCard(req, res) {
     console.log("updateVideoCard - req.files:", req.files);
 
     const { id } = req.params;
-    // With multer.any(), text fields should be in req.body
     const { title, description, video_url, thumbnail_url, active, position } =
       req.body;
 
@@ -123,28 +120,20 @@ export async function updateVideoCard(req, res) {
       processedThumbnailUrl = urlData.publicUrl;
     }
 
-    // Update video card in database
-    const { data, error } = await supabase
-      .from("video_cards")
-      .update({
-        title,
-        description,
-        video_url,
-        thumbnail_url: processedThumbnailUrl,
-        active: processedActive,
-        position,
-        updated_at: new Date(),
-      })
-      .eq("id", id)
-      .select();
-
-    if (error)
-      return res.status(400).json({ success: false, error: error.message });
+    // Update video card in database using DAO
+    const videoCard = await VideoCardDAO.update(id, {
+      title,
+      description,
+      video_url,
+      thumbnail_url: processedThumbnailUrl,
+      active: processedActive,
+      position,
+    });
 
     res.status(200).json({
       success: true,
       message: "Video card updated successfully",
-      videoCard: data[0],
+      videoCard,
     });
   } catch (error) {
     console.error("Error updating video card:", error);
@@ -157,10 +146,7 @@ export async function deleteVideoCard(req, res) {
   try {
     const { id } = req.params;
 
-    const { error } = await supabase.from("video_cards").delete().eq("id", id);
-
-    if (error)
-      return res.status(400).json({ success: false, error: error.message });
+    await VideoCardDAO.delete(id);
 
     res.status(200).json({
       success: true,
@@ -175,17 +161,11 @@ export async function deleteVideoCard(req, res) {
 // Get all Video Cards
 export async function getAllVideoCards(req, res) {
   try {
-    const { data, error } = await supabase
-      .from("video_cards")
-      .select("*")
-      .order("position", { ascending: true });
-
-    if (error)
-      return res.status(400).json({ success: false, error: error.message });
+    const videoCards = await VideoCardDAO.getAll();
 
     res.status(200).json({
       success: true,
-      videoCards: data,
+      videoCards,
     });
   } catch (error) {
     console.error("Error fetching video cards:", error);
@@ -196,18 +176,11 @@ export async function getAllVideoCards(req, res) {
 // Get active Video Cards
 export async function getActiveVideoCards(req, res) {
   try {
-    const { data, error } = await supabase
-      .from("video_cards")
-      .select("*")
-      .eq("active", true)
-      .order("position", { ascending: true });
-
-    if (error)
-      return res.status(400).json({ success: false, error: error.message });
+    const videoCards = await VideoCardDAO.getActive();
 
     res.status(200).json({
       success: true,
-      videoCards: data,
+      videoCards,
     });
   } catch (error) {
     console.error("Error fetching active video cards:", error);
@@ -220,18 +193,17 @@ export async function getVideoCardById(req, res) {
   try {
     const { id } = req.params;
 
-    const { data, error } = await supabase
-      .from("video_cards")
-      .select("*")
-      .eq("id", id)
-      .single();
+    const videoCard = await VideoCardDAO.getById(id);
 
-    if (error)
-      return res.status(400).json({ success: false, error: error.message });
+    if (!videoCard) {
+      return res
+        .status(404)
+        .json({ success: false, error: "Video card not found" });
+    }
 
     res.status(200).json({
       success: true,
-      videoCard: data,
+      videoCard,
     });
   } catch (error) {
     console.error("Error fetching video card:", error);

@@ -36,10 +36,13 @@ import {
   removeSlotFromWarehouse,
   getWarehouseSlots,
   getAvailableSlotsForWarehouse,
-  getSlotAvailability
+  getSlotAvailability,
 } from "../controller/scheduledOrderController.js";
 
-import { authenticateToken, authenticateAdmin } from "../middleware/authenticate.js";
+import {
+  authenticateToken,
+  authenticateAdmin,
+} from "../middleware/authenticate.js";
 import {
   validateDeliveryAvailability,
   enrichOrderWithDelivery,
@@ -86,13 +89,13 @@ router.post(
   "/place",
   validateDeliveryAvailability,
   enrichOrderWithDelivery,
-  placeOrder
+  placeOrder,
 );
 router.post(
   "/place-detailed",
   validateDeliveryAvailability,
   enrichOrderWithDelivery,
-  placeOrderWithDetailedAddress
+  placeOrderWithDetailedAddress,
 );
 router.get("/status/:id", async (req, res) => {
   try {
@@ -136,24 +139,48 @@ router.put("/scheduled/update/:id", authenticateToken, updateScheduledOrder);
 router.delete("/scheduled/cancel/:id", authenticateToken, cancelScheduledOrder);
 
 // User routes for scheduling slots
-router.get("/scheduling/available-slots/:warehouseId", authenticateToken, getAvailableSlotsForWarehouse);
-router.get("/scheduling/slot-availability", authenticateToken, getSlotAvailability);
+router.get(
+  "/scheduling/available-slots/:warehouseId",
+  authenticateToken,
+  getAvailableSlotsForWarehouse,
+);
+router.get(
+  "/scheduling/slot-availability",
+  authenticateToken,
+  getSlotAvailability,
+);
 
 // Admin routes for scheduled orders
 router.get("/scheduled/admin/all", authenticateAdmin, getAllScheduledOrders);
-router.post("/scheduled/admin/:id/execute", authenticateAdmin, manuallyExecuteOrder);
+router.post(
+  "/scheduled/admin/:id/execute",
+  authenticateAdmin,
+  manuallyExecuteOrder,
+);
 
 // Admin routes for time slot management
-router.post("/scheduling/admin/slots", authenticateAdmin, createTimeSlot);
-router.put("/scheduling/admin/slots/:id", authenticateAdmin, updateTimeSlot);
-router.delete("/scheduling/admin/slots/:id", authenticateAdmin, deleteTimeSlot);
-router.get("/scheduling/admin/slots", authenticateAdmin, getAllTimeSlots);
+router.post("/admin/slots", authenticateAdmin, createTimeSlot);
+router.put("/admin/slots/:id", authenticateAdmin, updateTimeSlot);
+router.delete("/admin/slots/:id", authenticateAdmin, deleteTimeSlot);
+router.get("/admin/slots", authenticateAdmin, getAllTimeSlots);
 
 // Admin routes for warehouse slot configuration
-router.post("/scheduling/admin/warehouse-slots", authenticateAdmin, assignSlotToWarehouse);
-router.put("/scheduling/admin/warehouse-slots/:id", authenticateAdmin, updateWarehouseSlotConfig);
-router.delete("/scheduling/admin/warehouse-slots/:id", authenticateAdmin, removeSlotFromWarehouse);
-router.get("/scheduling/admin/warehouse/:warehouseId/slots", authenticateAdmin, getWarehouseSlots);
+router.post("/admin/warehouse-slots", authenticateAdmin, assignSlotToWarehouse);
+router.put(
+  "/admin/warehouse-slots/:id",
+  authenticateAdmin,
+  updateWarehouseSlotConfig,
+);
+router.delete(
+  "/admin/warehouse-slots/:id",
+  authenticateAdmin,
+  removeSlotFromWarehouse,
+);
+router.get(
+  "/admin/warehouse/:warehouseId/slots",
+  authenticateAdmin,
+  getWarehouseSlots,
+);
 
 // --- Payment & Online Order Routes (Merged) ---
 router.post("/payments/create-order", createRazorpayOrder);
