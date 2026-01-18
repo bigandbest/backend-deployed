@@ -30,14 +30,12 @@ model add_banner {
   name               String
   image_url          String?
   banner_type        String?
+  description        String?             @db.VarChar
   link               String?
   active             Boolean?            @default(true)
   position           String?
   is_mobile          Boolean?            @default(false)
   updated_at         DateTime?           @default(now()) @db.Timestamptz
-
-  // Relations
-
 }
 
 
