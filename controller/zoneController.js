@@ -93,40 +93,75 @@ export const uploadZonePincodes = async (req, res) => {
           uploadResults.zonesCreated++;
         }
 
-        // Process pincodes for this zone
+        // Fetch existing pincodes for this zone to avoid N+1 queries
+        // We use getById which includes zone_pincodes. 
+        // NOTE: If zones get massive (100k+ pincodes), this might need a lighter query (just selecting pincodes).
+        // For now, this is much better than loop-query.
+        const existingZoneData = await DeliveryZoneDAO.getById(zoneId);
+        const existingPincodeMap = new Map();
+        if (existingZoneData && existingZoneData.zone_pincodes) {
+          existingZoneData.zone_pincodes.forEach(p => {
+            existingPincodeMap.set(String(p.pincode).trim(), p.id);
+          });
+        }
+
+        const toCreate = [];
+        const toUpdate = [];
+        const processedPincodes = new Set(); // To deduct duplicates within the file
+
         for (const pincodeData of pincodes) {
+          const pincodeStr = String(pincodeData.pincode).trim();
+
+          if (processedPincodes.has(pincodeStr)) continue; // Skip duplicates in file
+          processedPincodes.add(pincodeStr);
+
+          const data = {
+            pincode: pincodeStr,
+            city: pincodeData.city,
+            state: pincodeData.state,
+            district: pincodeData.district,
+            location_name: pincodeData.location_name,
+            village: pincodeData.village,
+            others: pincodeData.others,
+            zone_id: zoneId,
+            is_active: true
+          };
+
+          if (existingPincodeMap.has(pincodeStr)) {
+            // Update existing
+            const id = existingPincodeMap.get(pincodeStr);
+            toUpdate.push({ id, data });
+          } else {
+            // Create new
+            toCreate.push(data);
+          }
+        }
+
+        // Batch Create
+        if (toCreate.length > 0) {
           try {
-            // Upsert pincode via DAO
-            const data = {
-              pincode: pincodeData.pincode,
-              city: pincodeData.city,
-              state: pincodeData.state,
-              district: pincodeData.district,
-              location_name: pincodeData.location_name,
-              village: pincodeData.village,
-              others: pincodeData.others
-            };
+            await DeliveryZoneDAO.createPincodes(toCreate);
+            uploadResults.pincodesCreated += toCreate.length;
+          } catch (err) {
+            uploadResults.errors.push(`Error batch creating pincodes for zone ${zoneName}: ${err.message}`);
+          }
+        }
 
-            // Check if updated or created logic is handled inside DAO upsert wrapper?
-            // Not explicitly distinguishing created/updated in return, creates ambiguity for stats?
-            // Actually my `upsertPincode` logic does find then update/create.
-            // I could optimize this loop later but adhering to original logic structure.
-
-            // To perfectly track stats, I need to know if it existed.
-            // Relying on my DAO logic, I could re-implement specific check here or just accept approximated stats 
-            // or assume updated if it existed.
-            // Let's rely on DAO.
-
-            const existing = await DeliveryZoneDAO.findPincodeInZone(zoneId, pincodeData.pincode);
-            await DeliveryZoneDAO.upsertPincode(zoneId, data);
-
-            if (existing) uploadResults.pincodesUpdated++;
-            else uploadResults.pincodesCreated++;
-
-          } catch (pincodeError) {
-            uploadResults.errors.push(
-              `Error processing pincode ${pincodeData.pincode}: ${pincodeError.message}`
-            );
+        // Batch Update (Chunked concurrency)
+        if (toUpdate.length > 0) {
+          const CHUNK_SIZE = 50; // Update 50 at a time
+          for (let i = 0; i < toUpdate.length; i += CHUNK_SIZE) {
+            const chunk = toUpdate.slice(i, i + CHUNK_SIZE);
+            await Promise.all(chunk.map(async (item) => {
+              try {
+                // Remove update-immutable fields if necessary, or just spread
+                const { zone_id, ...updateData } = item.data;
+                await DeliveryZoneDAO.updatePincode(item.id, updateData);
+                uploadResults.pincodesUpdated++;
+              } catch (err) {
+                uploadResults.errors.push(`Error updating pincode ${item.data.pincode}: ${err.message}`);
+              }
+            }));
           }
         }
       } catch (zoneError) {

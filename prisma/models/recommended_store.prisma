@@ -9,4 +9,5 @@ model recommended_store {
   // Relations
   banner      banners?                       @relation(fields: [banner_id], references: [id])
   products    product_recommended_store[]
+  store_section_mappings store_section_mappings[]
 }

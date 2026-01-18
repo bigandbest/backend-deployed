@@ -43,6 +43,7 @@ model products {
   quickpick_group_product   quickpick_group_product[]
   wishlist_items            wishlist_items[]
   you_may_like              you_may_like[]
+  store_section_mappings    store_section_mappings[]
 
   @@index([vertical])
   @@index([category_id])

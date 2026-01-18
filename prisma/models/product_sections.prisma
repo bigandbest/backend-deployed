@@ -12,4 +12,7 @@ model product_sections {
   // Relations
   section_products     product_section_products[]
   subcategory_mappings section_subcategory_mappings[]
+  product_section_categories product_section_categories[]
+  product_section_groups     product_section_groups[]
+  store_section_mappings     store_section_mappings[]
 }

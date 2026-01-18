@@ -58,6 +58,34 @@ class ProductSectionDAO {
             where: { id }
         });
     }
+
+    async getSectionCounts() {
+        // Get product counts
+        const productCounts = await prisma.product_section_products.groupBy({
+            by: ['section_id'],
+            _count: {
+                id: true
+            }
+        });
+
+        // Get category counts
+        const categoryCounts = await prisma.$queryRaw`
+            SELECT section_id, COUNT(*)::int as count
+            FROM product_section_categories
+            GROUP BY section_id
+        `;
+
+        return {
+            products: productCounts.reduce((acc, pc) => {
+                acc[pc.section_id] = pc._count.id;
+                return acc;
+            }, {}),
+            categories: categoryCounts.reduce((acc, cc) => {
+                acc[cc.section_id] = cc.count;
+                return acc;
+            }, {})
+        };
+    }
 }
 
 export default new ProductSectionDAO();

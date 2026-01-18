@@ -9,5 +9,7 @@ model categories {
   
   // Relations
   subcategories subcategories[]
+  
+  product_section_categories product_section_categories[]
   products      products[]
 }
