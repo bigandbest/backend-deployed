@@ -6,13 +6,21 @@ class VideoCardDAO {
     }
 
     async list(filters = {}) {
-        const { active = true } = filters;
+        const { active } = filters;
         return await prisma.video_cards.findMany({
             where: {
                 ...(active !== undefined && { active })
             },
             orderBy: { position: 'asc' }
         });
+    }
+
+    async getAll() {
+        return await this.list({ active: undefined });
+    }
+
+    async getActive() {
+        return await this.list({ active: true });
     }
 
     async getById(id) {

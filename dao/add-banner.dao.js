@@ -7,8 +7,7 @@ class AddBannerDAO {
 
     async getById(id) {
         return await prisma.add_banner.findUnique({
-            where: { id },
-            include: { recommended_stores: true }
+            where: { id }
         });
     }
 

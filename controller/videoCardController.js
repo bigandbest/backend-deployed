@@ -57,7 +57,7 @@ export async function addVideoCard(req, res) {
       video_url,
       thumbnail_url: processedThumbnailUrl,
       active: processedActive,
-      position: position || 0,
+      position: position ? parseInt(position) : 0,
     });
 
     res.status(201).json({
@@ -127,7 +127,7 @@ export async function updateVideoCard(req, res) {
       video_url,
       thumbnail_url: processedThumbnailUrl,
       active: processedActive,
-      position,
+      position: position ? parseInt(position) : 0,
     });
 
     res.status(200).json({

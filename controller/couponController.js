@@ -60,6 +60,10 @@ export const createCoupon = async (req, res) => {
             });
         }
 
+        const tz = timezone || "UTC";
+        const processedValidFrom = moment.tz(valid_from, tz).toISOString();
+        const processedValidTo = moment.tz(valid_to, tz).toISOString();
+
         const data = await couponDAO.create({
             code: code.toUpperCase(),
             discount_type,
@@ -70,9 +74,9 @@ export const createCoupon = async (req, res) => {
             new_user_only: new_user_only || false,
             usage_limit_total,
             usage_limit_per_user: usage_limit_per_user || 1,
-            valid_from,
-            valid_to,
-            timezone: timezone || "UTC",
+            valid_from: processedValidFrom,
+            valid_to: processedValidTo,
+            timezone: tz,
             description,
             terms_conditions,
             created_by: req.user?.id,
@@ -108,6 +112,14 @@ export const updateCoupon = async (req, res) => {
                 success: false,
                 error: "Coupon not found"
             });
+        }
+
+        const tz = updates.timezone || currentCoupon.timezone || "UTC";
+        if (updates.valid_from) {
+            updates.valid_from = moment.tz(updates.valid_from, tz).toISOString();
+        }
+        if (updates.valid_to) {
+            updates.valid_to = moment.tz(updates.valid_to, tz).toISOString();
         }
 
         const data = await couponDAO.update(id, updates);
