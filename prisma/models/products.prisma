@@ -13,13 +13,13 @@ model products {
   id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name               String
   description        String?
-  vertical           Vertical           @default(grocery)
+  vertical           Vertical           @default(qwik)
   category_id        String?            @db.Uuid
   subcategory_id     String?            @db.Uuid
   group_id           String?            @db.Uuid
   store_id           String?            @db.Uuid
-  images             String[]?
-  video_url          String[]?
+  images             String[]
+  video_url          String[]
   rating             Decimal?           @default(0) @db.Decimal
   review_count       Int?               @default(0)
   return_applicable  Boolean?           @default(false)
@@ -38,6 +38,11 @@ model products {
   brands             product_brand[]
   reviews            product_reviews[]
   product_enquiries  product_enquiries[]
+  product_recommended_store product_recommended_store[]
+  product_section_products  product_section_products[]
+  quickpick_group_product   quickpick_group_product[]
+  wishlist_items            wishlist_items[]
+  you_may_like              you_may_like[]
 
   @@index([vertical])
   @@index([category_id])

@@ -6,7 +6,7 @@ model product_variants {
   price               Decimal                   @db.Decimal
   old_price           Decimal?                  @db.Decimal
   discount_percentage Int?                      @default(0)
-  images              String[]?
+  images              String[]
   features            String?
   is_default          Boolean?                  @default(false)
   active              Boolean?                  @default(true)
