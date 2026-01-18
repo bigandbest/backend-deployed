@@ -108,6 +108,8 @@ model categories {
   
   // Relations
   subcategories subcategories[]
+  
+  product_section_categories product_section_categories[]
   products      products[]
 }
 
@@ -345,6 +347,7 @@ model groups {
   // Relations
   subcategory    subcategories @relation(fields: [subcategory_id], references: [id])
   products       products[]
+  product_section_groups product_section_groups[]
 }
 
 
@@ -580,6 +583,37 @@ model product_reviews {
 }
 
 
+// --- Model: product_section_categories.prisma ---
+model product_section_categories {
+  id          Int       @id @default(autoincrement())
+  section_id  Int
+  category_id String    @db.Uuid
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+  
+  // Relations
+  product_sections product_sections @relation(fields: [section_id], references: [id], onDelete: Cascade)
+  categories       categories       @relation(fields: [category_id], references: [id], onDelete: Cascade)
+
+  @@unique([section_id, category_id])
+}
+
+
+// --- Model: product_section_groups.prisma ---
+model product_section_groups {
+  id          Int       @id @default(autoincrement())
+  section_id  Int
+  group_id    String    @db.Uuid
+  is_active   Boolean?  @default(true)
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+  
+  // Relations
+  product_sections product_sections @relation(fields: [section_id], references: [id], onDelete: Cascade)
+  groups           groups           @relation(fields: [group_id], references: [id], onDelete: Cascade)
+
+  @@unique([section_id, group_id])
+}
+
+
 // --- Model: product_section_products.prisma ---
 model product_section_products {
   id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -610,6 +644,9 @@ model product_sections {
   // Relations
   section_products     product_section_products[]
   subcategory_mappings section_subcategory_mappings[]
+  product_section_categories product_section_categories[]
+  product_section_groups     product_section_groups[]
+  store_section_mappings     store_section_mappings[]
 }
 
 
@@ -690,6 +727,7 @@ model products {
   quickpick_group_product   quickpick_group_product[]
   wishlist_items            wishlist_items[]
   you_may_like              you_may_like[]
+  store_section_mappings    store_section_mappings[]
 
   @@index([vertical])
   @@index([category_id])
@@ -785,6 +823,7 @@ model recommended_store {
   // Relations
   banner      banners?                       @relation(fields: [banner_id], references: [id])
   products    product_recommended_store[]
+  store_section_mappings store_section_mappings[]
 }
 
 
@@ -941,6 +980,23 @@ model stock_movements {
 
   // Relations
   warehouse      warehouses @relation(fields: [warehouse_id], references: [id])
+}
+
+
+// --- Model: store_section_mappings.prisma ---
+model store_section_mappings {
+  id           Int       @id @default(autoincrement())
+  store_id     String?   @db.Uuid
+  section_id   Int?
+  product_id   String?   @db.Uuid
+  mapping_type String?   @db.VarChar
+  is_active    Boolean?  @default(true)
+  created_at   DateTime? @default(now()) @db.Timestamp
+
+  // Relations
+  recommended_store recommended_store? @relation(fields: [store_id], references: [id])
+  product_sections  product_sections?  @relation(fields: [section_id], references: [id])
+  products          products?          @relation(fields: [product_id], references: [id])
 }
 
 

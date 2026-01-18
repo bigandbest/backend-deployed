@@ -25,6 +25,17 @@ export const getActiveProductSections = async (req, res) => {
   }
 };
 
+// Get counts for all sections
+export const getSectionCounts = async (req, res) => {
+  try {
+    const data = await productSectionDao.getSectionCounts();
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    console.error("Error fetching section counts:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
 // Get single product section by ID
 export const getProductSectionById = async (req, res) => {
   try {

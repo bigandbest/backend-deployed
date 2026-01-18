@@ -9,6 +9,7 @@ import {
   addProductsToSection,
   removeProductFromSection,
   getProductsInSection,
+  getSectionCounts,
   updateProductOrderInSection,
   getSectionsForProduct,
   addCategoriesToSection,
@@ -23,6 +24,9 @@ const router = express.Router();
 
 // Get all product sections
 router.get("/", getAllProductSections);
+
+// Get counts for all sections (must be before :id routes)
+router.get("/counts", getSectionCounts);
 
 // Get active product sections only
 router.get("/active", getActiveProductSections);
