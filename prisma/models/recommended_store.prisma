@@ -7,6 +7,6 @@ model recommended_store {
   banner_id   String?  @db.Uuid
 
   // Relations
-  banner      add_banner?                   @relation(fields: [banner_id], references: [id])
+  banner      banners?                       @relation(fields: [banner_id], references: [id])
   products    product_recommended_store[]
 }

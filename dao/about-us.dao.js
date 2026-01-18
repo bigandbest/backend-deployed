@@ -6,10 +6,27 @@ class AboutUsDAO {
     }
 
     async updateContent(id, data) {
-        return await prisma.about_us_content.upsert({
-            where: { id: id || '' },
-            update: data,
-            create: data
+        // If id is provided, update that specific record
+        if (id) {
+            return await prisma.about_us_content.update({
+                where: { id },
+                data
+            });
+        }
+
+        // If no ID provided, check if a record already exists (singleton pattern)
+        const existing = await prisma.about_us_content.findFirst();
+
+        if (existing) {
+            return await prisma.about_us_content.update({
+                where: { id: existing.id },
+                data
+            });
+        }
+
+        // If no record exists, create a new one
+        return await prisma.about_us_content.create({
+            data
         });
     }
 }

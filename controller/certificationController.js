@@ -1,3 +1,4 @@
+import { supabase } from "../config/supabaseClient.js";
 import CertificationDAO from "../dao/certification.dao.js";
 
 // Get all certifications (for admin)
