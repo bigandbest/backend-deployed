@@ -1,4 +1,4 @@
-import { supabase } from "../config/supabaseClient.js";
+import { uploadToCloudinary } from "../services/uploadService.js";
 import dailyDealsDao from "../dao/daily-deals.dao.js";
 import dailyDealsProductDao from "../dao/daily-deals-product.dao.js";
 import addBannerDao from "../dao/add-banner.dao.js";
@@ -14,19 +14,34 @@ export async function addDailyDeal(req, res) {
     let imageUrl = null;
 
     if (imageFile) {
-      const fileExt = imageFile.originalname.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from("daily-deals").upload(fileName, imageFile.buffer, { contentType: imageFile.mimetype, upsert: true });
+      console.log(
+        "Uploading daily deal image to Cloudinary:",
+        imageFile.originalname,
+      );
+      const uploadResult = await uploadToCloudinary(
+        imageFile.buffer,
+        "daily-deals",
+        imageFile.mimetype,
+      );
 
-      if (uploadError) return res.status(400).json({ success: false, error: uploadError.message });
-      const { data: urlData } = supabase.storage.from("daily-deals").getPublicUrl(fileName);
-      imageUrl = urlData.publicUrl;
+      if (!uploadResult.success) {
+        return res
+          .status(400)
+          .json({ success: false, error: uploadResult.error });
+      }
+      imageUrl = uploadResult.secure_url;
     }
 
     if (banner_id) {
       const bannerData = await addBannerDao.getById(banner_id);
       if (!bannerData || bannerData.banner_type !== "daily_deals") {
-        return res.status(400).json({ success: false, error: 'Invalid banner_id. Banner must exist and have type "daily_deals".' });
+        return res
+          .status(400)
+          .json({
+            success: false,
+            error:
+              'Invalid banner_id. Banner must exist and have type "daily_deals".',
+          });
       }
     }
 
@@ -57,15 +72,26 @@ export async function updateDailyDeal(req, res) {
     if (discount !== undefined) updateData.discount = discount;
     if (badge !== undefined) updateData.badge = badge;
     if (sort_order !== undefined) updateData.sort_order = parseInt(sort_order);
-    if (active !== undefined) updateData.active = active === 'true' || active === true;
+    if (active !== undefined)
+      updateData.active = active === "true" || active === true;
 
     if (imageFile) {
-      const fileExt = imageFile.originalname.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from("daily-deals").upload(fileName, imageFile.buffer, { contentType: imageFile.mimetype, upsert: true });
-      if (uploadError) return res.status(400).json({ success: false, error: uploadError.message });
-      const { data: urlData } = supabase.storage.from("daily-deals").getPublicUrl(fileName);
-      updateData.image_url = urlData.publicUrl;
+      console.log(
+        "Uploading daily deal update image to Cloudinary:",
+        imageFile.originalname,
+      );
+      const uploadResult = await uploadToCloudinary(
+        imageFile.buffer,
+        "daily-deals",
+        imageFile.mimetype,
+      );
+
+      if (!uploadResult.success) {
+        return res
+          .status(400)
+          .json({ success: false, error: uploadResult.error });
+      }
+      updateData.image_url = uploadResult.secure_url;
     }
 
     if (banner_id !== undefined) {
@@ -74,7 +100,13 @@ export async function updateDailyDeal(req, res) {
       } else {
         const bannerData = await addBannerDao.getById(banner_id);
         if (!bannerData || bannerData.banner_type !== "daily_deals") {
-          return res.status(400).json({ success: false, error: 'Invalid banner_id. Banner must exist and have type "daily_deals".' });
+          return res
+            .status(400)
+            .json({
+              success: false,
+              error:
+                'Invalid banner_id. Banner must exist and have type "daily_deals".',
+            });
         }
         updateData.banner_id = banner_id;
       }
@@ -83,7 +115,8 @@ export async function updateDailyDeal(req, res) {
     const data = await dailyDealsDao.update(id, updateData);
     res.json({ success: true, deal: data });
   } catch (err) {
-    if (err.code === 'P2025') return res.status(404).json({ success: false, error: "Deal not found" });
+    if (err.code === "P2025")
+      return res.status(404).json({ success: false, error: "Deal not found" });
     res.status(500).json({ success: false, error: err.message });
   }
 }
@@ -95,7 +128,8 @@ export async function deleteDailyDeal(req, res) {
     await dailyDealsDao.delete(id);
     res.json({ success: true, message: "Daily deal deleted successfully" });
   } catch (err) {
-    if (err.code === 'P2025') return res.status(404).json({ success: false, error: "Deal not found" });
+    if (err.code === "P2025")
+      return res.status(404).json({ success: false, error: "Deal not found" });
     res.status(500).json({ success: false, error: err.message });
   }
 }
@@ -114,19 +148,26 @@ export async function getAllDailyDeals(req, res) {
 export async function getAllDailyDealsWithProducts(req, res) {
   try {
     const deals = await dailyDealsDao.list({ active: true });
-    if (!deals || deals.length === 0) return res.json({ success: true, deals: [] });
+    if (!deals || deals.length === 0)
+      return res.json({ success: true, deals: [] });
 
-    const dealsWithProducts = await Promise.all(deals.map(async (deal) => {
-      const mappings = await dailyDealsProductDao.getProductsByDealId(deal.id);
-      const products = mappings.map(m => {
-        const product = m.product;
-        return {
-          ...product,
-          inStock: product.variants?.some(v => v.inventory?.stock_qty > 0) || false
-        };
-      });
-      return { ...deal, products };
-    }));
+    const dealsWithProducts = await Promise.all(
+      deals.map(async (deal) => {
+        const mappings = await dailyDealsProductDao.getProductsByDealId(
+          deal.id,
+        );
+        const products = mappings.map((m) => {
+          const product = m.product;
+          return {
+            ...product,
+            inStock:
+              product.variants?.some((v) => v.inventory?.stock_qty > 0) ||
+              false,
+          };
+        });
+        return { ...deal, products };
+      }),
+    );
 
     res.json({ success: true, deals: dealsWithProducts });
   } catch (err) {
@@ -140,7 +181,10 @@ export async function getDailyDealById(req, res) {
   try {
     const { id } = req.params;
     const data = await dailyDealsDao.getById(id);
-    if (!data) return res.status(404).json({ success: false, error: "Daily deal not found" });
+    if (!data)
+      return res
+        .status(404)
+        .json({ success: false, error: "Daily deal not found" });
     res.json({ success: true, deal: data });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -154,10 +198,14 @@ export const mapProductToDailyDeal = async (req, res) => {
   try {
     const { product_id, daily_deal_id } = req.body;
     if (!product_id || !daily_deal_id) {
-      return res.status(400).json({ error: "product_id and daily_deal_id are required." });
+      return res
+        .status(400)
+        .json({ error: "product_id and daily_deal_id are required." });
     }
     await dailyDealsProductDao.mapProduct(daily_deal_id, product_id);
-    res.status(201).json({ message: "Product mapped to Daily Deal successfully." });
+    res
+      .status(201)
+      .json({ message: "Product mapped to Daily Deal successfully." });
   } catch (err) {
     console.error("Map product error:", err);
     res.status(500).json({ error: err.message || "Server error" });
@@ -193,12 +241,16 @@ export const getProductsForDailyDeal = async (req, res) => {
   try {
     const { daily_deal_id } = req.params;
     const dealData = await dailyDealsDao.getById(daily_deal_id);
-    if (!dealData) return res.status(404).json({ success: false, error: "Daily deal not found" });
+    if (!dealData)
+      return res
+        .status(404)
+        .json({ success: false, error: "Daily deal not found" });
 
     const data = await dailyDealsProductDao.getProductsByDealId(daily_deal_id);
-    const products = data.map(item => {
+    const products = data.map((item) => {
       const p = item.product;
-      const defaultVariant = p.variants?.find(v => v.is_default) || p.variants?.[0] || {};
+      const defaultVariant =
+        p.variants?.find((v) => v.is_default) || p.variants?.[0] || {};
       return {
         id: p.id,
         name: p.name,
@@ -229,7 +281,9 @@ export const getProductsForDailyDeal = async (req, res) => {
     });
   } catch (err) {
     console.error("Get products for deal error:", err);
-    res.status(500).json({ success: false, error: err.message || "Server error" });
+    res
+      .status(500)
+      .json({ success: false, error: err.message || "Server error" });
   }
 };
 
@@ -238,22 +292,34 @@ export const bulkMapProductsToDailyDeal = async (req, res) => {
   try {
     const { daily_deal_title, product_names } = req.body;
     if (!daily_deal_title || !product_names || !Array.isArray(product_names)) {
-      return res.status(400).json({ error: "daily_deal_title and product_names[] are required." });
+      return res
+        .status(400)
+        .json({ error: "daily_deal_title and product_names[] are required." });
     }
     const deals = await dailyDealsDao.list();
-    const dailyDealData = deals.find(d => d.title === daily_deal_title);
-    if (!dailyDealData) return res.status(404).json({ error: "Daily Deal not found." });
+    const dailyDealData = deals.find((d) => d.title === daily_deal_title);
+    if (!dailyDealData)
+      return res.status(404).json({ error: "Daily Deal not found." });
 
-    const { items: products } = await productDao.listProducts({ name: { in: product_names } }, { limit: 1000 });
-    if (!products || !products.length) return res.status(404).json({ error: "No matching products found." });
+    const { items: products } = await productDao.listProducts(
+      { name: { in: product_names } },
+      { limit: 1000 },
+    );
+    if (!products || !products.length)
+      return res.status(404).json({ error: "No matching products found." });
 
-    await dailyDealsProductDao.bulkMap(dailyDealData.id, products.map(p => p.id));
+    await dailyDealsProductDao.bulkMap(
+      dailyDealData.id,
+      products.map((p) => p.id),
+    );
     res.status(201).json({
       message: `Mapped ${products.length} products to Daily Deal "${daily_deal_title}".`,
       mapped_products: products.map((p) => p.name),
     });
   } catch (err) {
     console.error("Bulk map error:", err.message);
-    res.status(500).json({ success: false, error: err.message || "Server error" });
+    res
+      .status(500)
+      .json({ success: false, error: err.message || "Server error" });
   }
 };

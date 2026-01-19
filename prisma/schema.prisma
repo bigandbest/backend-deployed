@@ -36,6 +36,9 @@ model add_banner {
   position           String?
   is_mobile          Boolean?            @default(false)
   updated_at         DateTime?           @default(now()) @db.Timestamptz
+
+  // Relations
+  daily_deals        daily_deals[]
 }
 
 
@@ -217,6 +220,38 @@ model customer_testimonials {
 
   // Note: Check constraints like "rating >= 1 AND rating <= 5" are not directly supported in Prisma schema DSL
   // but will be enforced by the database if added via raw SQL migration.
+}
+
+
+// --- Model: daily_deals.prisma ---
+model daily_deals {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title       String?   @db.VarChar
+  image_url   String?
+  discount    String?   @db.VarChar
+  badge       String?   @db.VarChar
+  sort_order  Int?      @default(0)
+  active      Boolean?  @default(true)
+  banner_id   String?   @db.Uuid
+  created_at  DateTime? @default(now()) @db.Timestamptz
+  updated_at  DateTime? @default(now()) @db.Timestamptz
+
+  // Relations
+  banner      add_banner? @relation(fields: [banner_id], references: [id])
+  products    daily_deals_product[]
+}
+
+
+// --- Model: daily_deals_product.prisma ---
+model daily_deals_product {
+  daily_deal_id String @db.Uuid
+  product_id    String @db.Uuid
+
+  // Relations
+  daily_deal    daily_deals @relation(fields: [daily_deal_id], references: [id], onDelete: Cascade)
+  product       products    @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@id([daily_deal_id, product_id])
 }
 
 
@@ -726,6 +761,8 @@ model products {
   wishlist_items            wishlist_items[]
   you_may_like              you_may_like[]
   store_section_mappings    store_section_mappings[]
+  daily_deals_products      daily_deals_product[]
+
 
   @@index([vertical])
   @@index([category_id])

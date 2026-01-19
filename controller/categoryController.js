@@ -1,39 +1,39 @@
-import { supabase } from "../config/supabaseClient.js";
+import { uploadToCloudinary } from "../services/uploadService.js";
+import prisma from "../config/prisma.js";
 import CategoryDAO from "../dao/category.dao.js";
 
 // Add new category
 export const addCategory = async (req, res) => {
   try {
-    const categoryData = req.body;
+    const categoryData = { ...req.body };
+    // Parse boolean fields manually because multer converts everything to strings
+    if (categoryData.active !== undefined)
+      categoryData.active = categoryData.active === "true";
+    if (categoryData.featured !== undefined)
+      categoryData.featured = categoryData.featured === "true";
+
     let imageUrl = categoryData.image_url;
 
     // Handle image upload if file is provided
     if (req.file) {
-      const fileExt = req.file.originalname.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}.${fileExt}`;
+      console.log(
+        "Uploading category image to Cloudinary:",
+        req.file.originalname,
+      );
+      const uploadResult = await uploadToCloudinary(
+        req.file.buffer,
+        "categories",
+        req.file.mimetype,
+      );
 
-      const { error: uploadError } = await supabase.storage
-        .from("categories")
-        .upload(fileName, req.file.buffer, {
-          contentType: req.file.mimetype,
-          upsert: true,
-        });
-
-      if (uploadError) {
-        console.error("Upload error:", uploadError);
+      if (!uploadResult.success) {
         return res.status(400).json({
           success: false,
-          error: `Failed to upload image: ${uploadError.message}`,
+          error: `Failed to upload image: ${uploadResult.error}`,
         });
       }
 
-      const { data: urlData } = supabase.storage
-        .from("categories")
-        .getPublicUrl(fileName);
-
-      imageUrl = urlData.publicUrl;
+      imageUrl = uploadResult.secure_url;
     }
 
     const data = await CategoryDAO.createCategory({
@@ -59,36 +59,36 @@ export const addCategory = async (req, res) => {
 export const updateCategory = async (req, res) => {
   try {
     const { id } = req.params;
-    const updates = req.body;
+    const updates = { ...req.body };
+
+    // Parse boolean fields
+    if (updates.active !== undefined)
+      updates.active = updates.active === "true";
+    if (updates.featured !== undefined)
+      updates.featured = updates.featured === "true";
+
     let imageUrl = updates.image_url;
 
     // Handle image upload if file is provided
     if (req.file) {
-      const fileExt = req.file.originalname.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}.${fileExt}`;
+      console.log(
+        "Uploading category image to Cloudinary:",
+        req.file.originalname,
+      );
+      const uploadResult = await uploadToCloudinary(
+        req.file.buffer,
+        "categories",
+        req.file.mimetype,
+      );
 
-      const { error: uploadError } = await supabase.storage
-        .from("categories")
-        .upload(fileName, req.file.buffer, {
-          contentType: req.file.mimetype,
-          upsert: true,
-        });
-
-      if (uploadError) {
-        console.error("Upload error:", uploadError);
+      if (!uploadResult.success) {
         return res.status(400).json({
           success: false,
-          error: `Failed to upload image: ${uploadError.message}`,
+          error: `Failed to upload image: ${uploadResult.error}`,
         });
       }
 
-      const { data: urlData } = supabase.storage
-        .from("categories")
-        .getPublicUrl(fileName);
-
-      imageUrl = urlData.publicUrl;
+      imageUrl = uploadResult.secure_url;
     }
 
     const data = await CategoryDAO.updateCategory(id, {
@@ -145,47 +145,22 @@ export const deleteCategory = async (req, res) => {
     const options = req.body || {};
 
     // Check if category has products
-    const { data: products, error: productsError } = await supabase
-      .from("products")
-      .select("id")
-      .eq("category_id", id)
-      .limit(1);
+    const productCount = await prisma.products.count({
+      where: { category_id: id },
+    });
 
-    if (productsError) {
-      console.error("Error checking products:", productsError);
-      return res
-        .status(500)
-        .json({ success: false, error: productsError.message });
-    }
-
-    if (products && products.length > 0) {
+    if (productCount > 0) {
       if (options.forceDelete) {
         // Force delete: delete all related products
-        const { error: deleteProductsError } = await supabase
-          .from("products")
-          .delete()
-          .eq("category_id", id);
-
-        if (deleteProductsError) {
-          return res
-            .status(500)
-            .json({
-              success: false,
-              error: "Failed to delete related products",
-            });
-        }
+        await prisma.products.deleteMany({
+          where: { category_id: id },
+        });
       } else if (options.reassignProductsTo) {
         // Reassign products to another category
-        const { error: reassignError } = await supabase
-          .from("products")
-          .update({ category_id: options.reassignProductsTo })
-          .eq("category_id", id);
-
-        if (reassignError) {
-          return res
-            .status(500)
-            .json({ success: false, error: "Failed to reassign products" });
-        }
+        await prisma.products.updateMany({
+          where: { category_id: id },
+          data: { category_id: options.reassignProductsTo },
+        });
       } else {
         // Return error indicating category has products
         return res.status(400).json({
@@ -197,30 +172,21 @@ export const deleteCategory = async (req, res) => {
     }
 
     // Delete subcategories and groups
-    // Logic: fetch subcats, delete their groups, delete subcats.
     // Using DAO `getSubcategoriesByCategoryId`
     const subcategories = await CategoryDAO.getSubcategoriesByCategoryId(id);
 
     if (subcategories && subcategories.length > 0) {
       const subcategoryIds = subcategories.map((sub) => sub.id);
 
-      // Prisma doesn't support "delete in array" easily via DAO single method?
-      // `deleteGroup` takes ID.
-      // We can iterate or use `prisma.groups.deleteMany` if we had it.
-      // Since I don't want to expose prisma directly if possible, but existing code used `in`.
-      // I will use `supabase` for bulk delete of groups/subcategories for efficiency
-      // OR iterate DAO. Iterating is slow.
-      // I'll use `supabase` for bulk delete here to maintain performance parity
-      // UNTIL `CategoryDAO` supports `deleteGroupsBySubCategoryIds`.
-      // But I am supposed to use DAO.
-      // I'll stick to Supabase for the bulk deletes here to avoid "N+1" delete calls which is bad.
+      // Bulk delete groups
+      await prisma.groups.deleteMany({
+        where: { subcategory_id: { in: subcategoryIds } },
+      });
 
-      await supabase
-        .from("groups")
-        .delete()
-        .in("subcategory_id", subcategoryIds);
-
-      await supabase.from("subcategories").delete().eq("category_id", id);
+      // Bulk delete subcategories
+      await prisma.subcategories.deleteMany({
+        where: { category_id: id },
+      });
     }
 
     // Delete the category using DAO
@@ -276,36 +242,38 @@ export const getSubcategoriesByCategory = async (req, res) => {
 // Add new subcategory
 export const addSubcategory = async (req, res) => {
   try {
-    const subcategoryData = req.body;
+    const subcategoryData = { ...req.body };
+    // Parse boolean fields
+    if (subcategoryData.active !== undefined)
+      subcategoryData.active = subcategoryData.active === "true";
+    if (subcategoryData.featured !== undefined)
+      subcategoryData.featured = subcategoryData.featured === "true";
+    // Parse integer fields
+    if (subcategoryData.sort_order !== undefined)
+      subcategoryData.sort_order = parseInt(subcategoryData.sort_order);
+
     let imageUrl = subcategoryData.image_url;
 
     // Handle image upload if file is provided
     if (req.file) {
-      const fileExt = req.file.originalname.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}.${fileExt}`;
+      console.log(
+        "Uploading subcategory image to Cloudinary:",
+        req.file.originalname,
+      );
+      const uploadResult = await uploadToCloudinary(
+        req.file.buffer,
+        "subcategories",
+        req.file.mimetype,
+      );
 
-      const { error: uploadError } = await supabase.storage
-        .from("subcategories")
-        .upload(fileName, req.file.buffer, {
-          contentType: req.file.mimetype,
-          upsert: true,
-        });
-
-      if (uploadError) {
-        console.error("Upload error:", uploadError);
+      if (!uploadResult.success) {
         return res.status(400).json({
           success: false,
-          error: `Failed to upload image: ${uploadError.message}`,
+          error: `Failed to upload image: ${uploadResult.error}`,
         });
       }
 
-      const { data: urlData } = supabase.storage
-        .from("subcategories")
-        .getPublicUrl(fileName);
-
-      imageUrl = urlData.publicUrl;
+      imageUrl = uploadResult.secure_url;
     }
 
     const data = await CategoryDAO.createSubcategory({
@@ -328,36 +296,38 @@ export const addSubcategory = async (req, res) => {
 export const updateSubcategory = async (req, res) => {
   try {
     const { id } = req.params;
-    const updates = req.body;
+    const updates = { ...req.body };
+    // Parse boolean fields
+    if (updates.active !== undefined)
+      updates.active = updates.active === "true";
+    if (updates.featured !== undefined)
+      updates.featured = updates.featured === "true";
+    // Parse integer fields
+    if (updates.sort_order !== undefined)
+      updates.sort_order = parseInt(updates.sort_order);
+
     let imageUrl = updates.image_url;
 
     // Handle image upload if file is provided
     if (req.file) {
-      const fileExt = req.file.originalname.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}.${fileExt}`;
+      console.log(
+        "Uploading subcategory image to Cloudinary:",
+        req.file.originalname,
+      );
+      const uploadResult = await uploadToCloudinary(
+        req.file.buffer,
+        "subcategories",
+        req.file.mimetype,
+      );
 
-      const { error: uploadError } = await supabase.storage
-        .from("subcategories")
-        .upload(fileName, req.file.buffer, {
-          contentType: req.file.mimetype,
-          upsert: true,
-        });
-
-      if (uploadError) {
-        console.error("Upload error:", uploadError);
+      if (!uploadResult.success) {
         return res.status(400).json({
           success: false,
-          error: `Failed to upload image: ${uploadError.message}`,
+          error: `Failed to upload image: ${uploadResult.error}`,
         });
       }
 
-      const { data: urlData } = supabase.storage
-        .from("subcategories")
-        .getPublicUrl(fileName);
-
-      imageUrl = urlData.publicUrl;
+      imageUrl = uploadResult.secure_url;
     }
 
     const data = await CategoryDAO.updateSubcategory(id, {
@@ -387,7 +357,10 @@ export const deleteSubcategory = async (req, res) => {
     // Note: Using Supabase for bulk delete of groups to be efficient/safe
     // unless CategoryDAO has deleteGroupsBySubcategoryId. It currently doesn't.
     // I'll stick to Supabase for the bulk delete part.
-    await supabase.from("groups").delete().eq("subcategory_id", id);
+    // Delete related groups first
+    await prisma.groups.deleteMany({
+      where: { subcategory_id: id },
+    });
 
     // Delete the subcategory
     await CategoryDAO.deleteSubcategory(id);
@@ -441,36 +414,38 @@ export const getGroupsBySubcategory = async (req, res) => {
 // Add new group
 export const addGroup = async (req, res) => {
   try {
-    const groupData = req.body;
+    const groupData = { ...req.body };
+    // Parse boolean fields
+    if (groupData.active !== undefined)
+      groupData.active = groupData.active === "true";
+    if (groupData.featured !== undefined)
+      groupData.featured = groupData.featured === "true";
+    // Parse integer fields
+    if (groupData.sort_order !== undefined)
+      groupData.sort_order = parseInt(groupData.sort_order);
+
     let imageUrl = groupData.image_url;
 
     // Handle image upload if file is provided
     if (req.file) {
-      const fileExt = req.file.originalname.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}.${fileExt}`;
+      console.log(
+        "Uploading group image to Cloudinary:",
+        req.file.originalname,
+      );
+      const uploadResult = await uploadToCloudinary(
+        req.file.buffer,
+        "groups",
+        req.file.mimetype,
+      );
 
-      const { error: uploadError } = await supabase.storage
-        .from("groups")
-        .upload(fileName, req.file.buffer, {
-          contentType: req.file.mimetype,
-          upsert: true,
-        });
-
-      if (uploadError) {
-        console.error("Upload error:", uploadError);
+      if (!uploadResult.success) {
         return res.status(400).json({
           success: false,
-          error: `Failed to upload image: ${uploadError.message}`,
+          error: `Failed to upload image: ${uploadResult.error}`,
         });
       }
 
-      const { data: urlData } = supabase.storage
-        .from("groups")
-        .getPublicUrl(fileName);
-
-      imageUrl = urlData.publicUrl;
+      imageUrl = uploadResult.secure_url;
     }
 
     const data = await CategoryDAO.createGroup({
@@ -493,36 +468,38 @@ export const addGroup = async (req, res) => {
 export const updateGroup = async (req, res) => {
   try {
     const { id } = req.params;
-    const updates = req.body;
+    const updates = { ...req.body };
+    // Parse boolean fields
+    if (updates.active !== undefined)
+      updates.active = updates.active === "true";
+    if (updates.featured !== undefined)
+      updates.featured = updates.featured === "true";
+    // Parse integer fields
+    if (updates.sort_order !== undefined)
+      updates.sort_order = parseInt(updates.sort_order);
+
     let imageUrl = updates.image_url;
 
     // Handle image upload if file is provided
     if (req.file) {
-      const fileExt = req.file.originalname.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}.${fileExt}`;
+      console.log(
+        "Uploading group image to Cloudinary:",
+        req.file.originalname,
+      );
+      const uploadResult = await uploadToCloudinary(
+        req.file.buffer,
+        "groups",
+        req.file.mimetype,
+      );
 
-      const { error: uploadError } = await supabase.storage
-        .from("groups")
-        .upload(fileName, req.file.buffer, {
-          contentType: req.file.mimetype,
-          upsert: true,
-        });
-
-      if (uploadError) {
-        console.error("Upload error:", uploadError);
+      if (!uploadResult.success) {
         return res.status(400).json({
           success: false,
-          error: `Failed to upload image: ${uploadError.message}`,
+          error: `Failed to upload image: ${uploadResult.error}`,
         });
       }
 
-      const { data: urlData } = supabase.storage
-        .from("groups")
-        .getPublicUrl(fileName);
-
-      imageUrl = urlData.publicUrl;
+      imageUrl = uploadResult.secure_url;
     }
 
     const data = await CategoryDAO.updateGroup(id, {
@@ -600,31 +577,34 @@ export const getSubcategoryDetails = async (req, res) => {
   try {
     const { subcategoryId } = req.params;
 
-    const { data, error } = await supabase
-      .from("subcategories")
-      .select(
-        `
-        *,
-        categories (
-          id,
-          name,
-          image_url,
-          icon
-        )
-      `,
-      )
-      .eq("id", subcategoryId)
-      .eq("active", true)
-      .single();
+    const subcategory = await prisma.subcategories.findUnique({
+      where: {
+        id: subcategoryId,
+        active: true,
+      },
+      include: {
+        category: {
+          select: {
+            id: true,
+            name: true,
+            image_url: true,
+            icon: true,
+          },
+        },
+      },
+    });
 
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error: error.message });
+    if (!subcategory) {
+      // Assuming not found or not active -> return null or handle error?
+      // Original code returned single(), likely implies null if not found
+      // But single() error handling was separate.
+      // We'll return 404 if not found or empty if desired.
+      // Keeping it consistent with data being returned.
     }
 
     res.status(200).json({
       success: true,
-      subcategory: data,
+      subcategory: subcategory,
     });
   } catch (error) {
     console.error("Server error in getSubcategoryDetails:", error);
@@ -638,77 +618,47 @@ export const getSubcategoriesForSection = async (req, res) => {
     const { sectionKey } = req.params;
 
     // First, get the section ID from the section key
-    const { data: section, error: sectionError } = await supabase
-      .from("product_sections")
-      .select("id")
-      .eq("section_key", sectionKey)
-      .single();
+    const section = await prisma.product_sections.findUnique({
+      where: { section_key: sectionKey },
+      select: { id: true },
+    });
 
-    if (sectionError || !section) {
+    if (!section) {
       return res.status(404).json({ error: "Section not found" });
     }
 
-    // Get subcategory mappings for this section
-    const { data: mappings, error: mappingsError } = await supabase
-      .from("section_subcategory_mappings")
-      .select("subcategory_id, display_order, is_active")
-      .eq("section_id", section.id)
-      .eq("is_active", true)
-      .order("display_order", { ascending: true });
+    // Get subcategory mappings for this section with subcategory inclusion
+    const mappings = await prisma.section_subcategory_mappings.findMany({
+      where: {
+        section_id: section.id,
+        is_active: true,
+      },
+      include: {
+        subcategory: {
+          where: { active: true },
+          include: {
+            category: {
+              select: {
+                id: true,
+                name: true,
+                image_url: true,
+                icon: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { display_order: "asc" },
+    });
 
-    if (mappingsError) {
-      console.error("Mappings error:", mappingsError);
-      return res.status(500).json({ error: mappingsError.message });
-    }
-
-    if (!mappings || mappings.length === 0) {
-      return res.status(200).json({
-        success: true,
-        subcategories: [],
-        total: 0,
-      });
-    }
-
-    // Get subcategory IDs from mappings
-    const subcategoryIds = mappings.map((m) => m.subcategory_id);
-
-    // Fetch subcategory details with their category info
-    const { data: subcategories, error: subError } = await supabase
-      .from("subcategories")
-      .select(
-        `
-        *,
-        categories (
-          id,
-          name,
-          image_url,
-          icon
-        )
-      `,
-      )
-      .in("id", subcategoryIds)
-      .eq("active", true);
-
-    if (subError) {
-      console.error("Subcategories error:", subError);
-      return res.status(500).json({ error: subError.message });
-    }
-
-    // Merge subcategory data with display_order from mappings
+    // Flatten and format structure
     const orderedSubcategories = mappings
-      .map((mapping) => {
-        const subcategory = subcategories.find(
-          (s) => s.id === mapping.subcategory_id,
-        );
-        if (subcategory) {
-          return {
-            ...subcategory,
-            display_order: mapping.display_order,
-          };
-        }
-        return null;
-      })
-      .filter((s) => s !== null);
+      .map((m) =>
+        m.subcategory
+          ? { ...m.subcategory, display_order: m.display_order }
+          : null,
+      )
+      .filter(Boolean);
 
     res.status(200).json({
       success: true,
@@ -727,77 +677,40 @@ export const getCategoriesForSection = async (req, res) => {
     const { sectionKey } = req.params;
 
     // First, get the section ID from the section key
-    const { data: section, error: sectionError } = await supabase
-      .from("product_sections")
-      .select("id")
-      .eq("section_key", sectionKey)
-      .single();
+    const section = await prisma.product_sections.findUnique({
+      where: { section_key: sectionKey },
+      select: { id: true },
+    });
 
-    if (sectionError || !section) {
+    if (!section) {
       return res.status(404).json({ error: "Section not found" });
     }
 
-    // Get category mappings for this section
-    const { data: categoryMappings, error: categoryMappingsError } =
-      await supabase
-        .from("product_section_categories")
-        .select("category_id")
-        .eq("section_id", section.id);
+    // Get category mappings
+    const categoryMappings = await prisma.product_section_categories.findMany({
+      where: { section_id: section.id },
+      select: { category_id: true },
+    });
 
-    if (categoryMappingsError) {
-      console.error("Category mappings error:", categoryMappingsError);
-      return res.status(500).json({ error: categoryMappingsError.message });
-    }
-
-    // Get subcategory mappings for this section
-    const { data: subcategoryMappings, error: subcategoryMappingsError } =
-      await supabase
-        .from("section_subcategory_mappings")
-        .select("subcategory_id, display_order, is_active")
-        .eq("section_id", section.id)
-        .eq("is_active", true)
-        .order("display_order", { ascending: true });
-
-    if (subcategoryMappingsError) {
-      console.error("Subcategory mappings error:", subcategoryMappingsError);
-      return res.status(500).json({ error: subcategoryMappingsError.message });
-    }
-
-    // If no mappings exist, return empty result
-    if (
-      (!categoryMappings || categoryMappings.length === 0) &&
-      (!subcategoryMappings || subcategoryMappings.length === 0)
-    ) {
-      return res.status(200).json({
-        success: true,
-        categories: [],
-        total: 0,
+    // Get subcategory mappings
+    const subcategoryMappings =
+      await prisma.section_subcategory_mappings.findMany({
+        where: { section_id: section.id, is_active: true },
+        select: { subcategory_id: true, display_order: true },
+        orderBy: { display_order: "asc" },
       });
-    }
 
-    // Get all categories
-    const { data: allCategories, error: catError } = await supabase
-      .from("categories")
-      .select("*")
-      .eq("active", true)
-      .order("name");
-
-    if (catError) {
-      console.error("Categories error:", catError);
-      return res.status(500).json({ error: catError.message });
-    }
-
-    // Get all subcategories
-    const { data: allSubcategories, error: subError } = await supabase
-      .from("subcategories")
-      .select("*")
-      .eq("active", true)
-      .order("sort_order");
-
-    if (subError) {
-      console.error("Subcategories error:", subError);
-      return res.status(500).json({ error: subError.message });
-    }
+    // Get all categories and subcategories (active)
+    const [allCategories, allSubcategories] = await Promise.all([
+      prisma.categories.findMany({
+        where: { active: true },
+        orderBy: { name: "asc" },
+      }),
+      prisma.subcategories.findMany({
+        where: { active: true },
+        orderBy: { sort_order: "asc" },
+      }),
+    ]);
 
     // Build category IDs set from both category and subcategory mappings
     const categoryIdsSet = new Set();

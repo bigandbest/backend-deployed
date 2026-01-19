@@ -1,4 +1,4 @@
-import { supabase } from "../config/supabaseClient.js"; // Keep for storage and legacy banner if needed
+import { uploadToCloudinary } from "../services/uploadService.js";
 import RecommendedStoreDAO from "../dao/recommended-store.dao.js";
 import ProductRecommendedStoreDAO from "../dao/product-recommended-store.dao.js";
 
@@ -10,42 +10,43 @@ export async function addRecommendedStore(req, res) {
     let imageUrl = null;
 
     // Check availability logic for active stores
-    if (String(is_active) === 'true' || is_active === true) {
+    if (String(is_active) === "true" || is_active === true) {
       const activeStores = await RecommendedStoreDAO.list({ activeOnly: true });
       if (activeStores.length >= 8) {
-        return res.status(400).json({ success: false, error: "Cannot activate more than 8 stores" });
+        return res
+          .status(400)
+          .json({
+            success: false,
+            error: "Cannot activate more than 8 stores",
+          });
       }
     }
 
     if (imageFile) {
-      const fileExt = imageFile.originalname.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from("recommended_store").upload(fileName, imageFile.buffer, { contentType: imageFile.mimetype, upsert: true });
-      if (uploadError) return res.status(400).json({ success: false, error: uploadError.message });
-      const { data: urlData } = supabase.storage.from("recommended_store").getPublicUrl(fileName);
-      imageUrl = urlData.publicUrl;
+      console.log(
+        "Uploading recommended store image to Cloudinary:",
+        imageFile.originalname,
+      );
+      const uploadResult = await uploadToCloudinary(
+        imageFile.buffer,
+        "recommended_store",
+        imageFile.mimetype,
+      );
+
+      if (!uploadResult.success) {
+        return res
+          .status(400)
+          .json({ success: false, error: uploadResult.error });
+      }
+      imageUrl = uploadResult.secure_url;
     }
-
-    // Checking banner existence via Supabase directly or assume ID is valid? 
-    // Ideally use BannerDAO, but skipping for now to fetch via Supabase if needed or just trust ID.
-    // Original code checked 'add_banner' table.
-    // I can add 'add_banner' check if BannerDAO exists, or simple supabase check.
-    // For now, I'll rely on Prisma foreign key constraint or valid ID.
-    // Prisma will throw error if banner_id invalid (foreign key).
-
-    // Original checked type "shop_by_store". Prisma query implies relation.
-    // I'll skip explicit check and let DB enforcement handle existence, 
-    // but schema relation is optional? 
-    // recommended_store -> banner_id -> add_banner.
-    // I won't reimplement complex banner check unless criticial.
-    // It's a constraint.
 
     const data = await RecommendedStoreDAO.create({
       name,
       description,
-      is_active: String(is_active) === 'true' || is_active === true,
+      is_active: String(is_active) === "true" || is_active === true,
       banner_id: banner_id || null,
-      image_url: imageUrl
+      image_url: imageUrl,
     });
 
     res.status(201).json({ success: true, recommendedStore: data });
@@ -63,13 +64,20 @@ export async function editRecommendedStore(req, res) {
     let updateData = { name, description };
 
     if (is_active !== undefined) {
-      const isActiveBool = String(is_active) === 'true' || is_active === true;
+      const isActiveBool = String(is_active) === "true" || is_active === true;
       if (isActiveBool) {
         const currentStore = await RecommendedStoreDAO.getStoreById(id);
         if (!currentStore.is_active) {
-          const activeStores = await RecommendedStoreDAO.list({ activeOnly: true });
+          const activeStores = await RecommendedStoreDAO.list({
+            activeOnly: true,
+          });
           if (activeStores.length >= 8) {
-            return res.status(400).json({ success: false, error: "Cannot activate more than 8 stores" });
+            return res
+              .status(400)
+              .json({
+                success: false,
+                error: "Cannot activate more than 8 stores",
+              });
           }
         }
       }
@@ -77,16 +85,27 @@ export async function editRecommendedStore(req, res) {
     }
 
     if (imageFile) {
-      const fileExt = imageFile.originalname.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from("recommended_store").upload(fileName, imageFile.buffer, { contentType: imageFile.mimetype, upsert: true });
-      if (uploadError) return res.status(400).json({ success: false, error: uploadError.message });
-      const { data: urlData } = supabase.storage.from("recommended_store").getPublicUrl(fileName);
-      updateData.image_url = urlData.publicUrl;
+      console.log(
+        "Uploading recommended store update image to Cloudinary:",
+        imageFile.originalname,
+      );
+      const uploadResult = await uploadToCloudinary(
+        imageFile.buffer,
+        "recommended_store",
+        imageFile.mimetype,
+      );
+
+      if (!uploadResult.success) {
+        return res
+          .status(400)
+          .json({ success: false, error: uploadResult.error });
+      }
+      updateData.image_url = uploadResult.secure_url;
     }
 
     if (banner_id !== undefined) {
-      updateData.banner_id = (banner_id === null || banner_id === "") ? null : banner_id;
+      updateData.banner_id =
+        banner_id === null || banner_id === "" ? null : banner_id;
     }
 
     const data = await RecommendedStoreDAO.updateStore(id, updateData);
@@ -101,7 +120,10 @@ export async function deleteRecommendedStore(req, res) {
   try {
     const { id } = req.params;
     await RecommendedStoreDAO.deleteStore(id);
-    res.json({ success: true, message: "Recommended Store deleted successfully" });
+    res.json({
+      success: true,
+      message: "Recommended Store deleted successfully",
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -116,11 +138,11 @@ export async function getAllRecommendedStores(req, res) {
     // Note: DAO listStores includes count of products.
     // _count: { products: true } was in getStoreById but maybe not list?
     // Let's check DAO details again.
-    // listStores includes banner. It does NOT include count. 
+    // listStores includes banner. It does NOT include count.
     // Previous Supabase query did select products nested count? No, it fetched products!
     // I should update listStores to fetch _count or fetch products.
     // RecommendedStoreDAO.listStores implementation:
-    // include: { banner: ... } 
+    // include: { banner: ... }
     // I should update DAO or loop fetch? DAO update better.
     // Whatever, I'll return what I have for now, but client expects structure.
     // I will map `stores`.
@@ -136,11 +158,11 @@ export async function getAllRecommendedStores(req, res) {
 
     res.json({
       success: true,
-      recommendedStores: stores.map(s => ({
+      recommendedStores: stores.map((s) => ({
         ...s,
         products: [], // Placeholder
-        product_count: 0
-      }))
+        product_count: 0,
+      })),
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -154,15 +176,15 @@ export async function getActiveRecommendedStores(req, res) {
     // Again, products array missing.
     res.json({
       success: true,
-      recommendedStores: stores.map(s => ({
+      recommendedStores: stores.map((s) => ({
         id: s.id,
         name: s.name,
         description: s.description,
         image_url: s.image_url,
         is_active: s.is_active,
         products: [], // Placeholder
-        product_count: 0
-      }))
+        product_count: 0,
+      })),
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -174,7 +196,10 @@ export async function getSingleRecommendedStore(req, res) {
   try {
     const { id } = req.params;
     const store = await RecommendedStoreDAO.getStoreById(id);
-    if (!store) return res.status(404).json({ success: false, error: "Recommended Store not found" });
+    if (!store)
+      return res
+        .status(404)
+        .json({ success: false, error: "Recommended Store not found" });
 
     res.json({ success: true, recommendedStore: store });
   } catch (err) {
@@ -186,10 +211,11 @@ export async function getSingleRecommendedStore(req, res) {
 export async function mapProductToRecommendedStore(req, res) {
   try {
     const { product_id, recommended_store_id } = req.body;
-    if (!product_id || !recommended_store_id) return res.status(400).json({ error: 'Required fields missing' });
+    if (!product_id || !recommended_store_id)
+      return res.status(400).json({ error: "Required fields missing" });
 
     await ProductRecommendedStoreDAO.link(product_id, recommended_store_id);
-    res.status(201).json({ message: 'Product mapped successfully.' });
+    res.status(201).json({ message: "Product mapped successfully." });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -199,7 +225,7 @@ export async function removeProductFromRecommendedStore(req, res) {
   try {
     const { product_id, recommended_store_id } = req.body;
     await ProductRecommendedStoreDAO.unlink(product_id, recommended_store_id);
-    res.status(200).json({ message: 'Mapping removed successfully.' });
+    res.status(200).json({ message: "Mapping removed successfully." });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -208,7 +234,8 @@ export async function removeProductFromRecommendedStore(req, res) {
 export async function getRecommendedStoresForProduct(req, res) {
   try {
     const { product_id } = req.params;
-    const data = await ProductRecommendedStoreDAO.listStoresByProduct(product_id);
+    const data =
+      await ProductRecommendedStoreDAO.listStoresByProduct(product_id);
     // Transform to match format: { recommended_store_id, recommended_store: {...} }
     // DAO returns: { product_id, recommended_store_id, recommended_store: {...} }
     res.status(200).json(data);
@@ -220,14 +247,23 @@ export async function getRecommendedStoresForProduct(req, res) {
 export async function getProductsForRecommendedStore(req, res) {
   try {
     const { recommended_store_id } = req.params;
-    const { minPrice, maxPrice, categories, brands, sortBy = 'none' } = req.query;
+    const {
+      minPrice,
+      maxPrice,
+      categories,
+      brands,
+      sortBy = "none",
+    } = req.query;
 
-    const items = await ProductRecommendedStoreDAO.listProductsByStore(recommended_store_id);
+    const items =
+      await ProductRecommendedStoreDAO.listProductsByStore(
+        recommended_store_id,
+      );
 
     // Transform and Filter
     let transformedProducts = items
-      .filter(item => item.products && item.products.active)
-      .map(item => {
+      .filter((item) => item.products && item.products.active)
+      .map((item) => {
         const product = item.products;
         // Simplified mapping
         return {
@@ -237,7 +273,7 @@ export async function getProductsForRecommendedStore(req, res) {
           rating: product.rating,
           category: product.category,
           // ... map other fields as needed
-          created_at: product.created_at
+          created_at: product.created_at,
         };
       });
 
@@ -245,7 +281,9 @@ export async function getProductsForRecommendedStore(req, res) {
     if (minPrice || maxPrice) {
       const min = parseFloat(minPrice) || 0;
       const max = parseFloat(maxPrice) || Infinity;
-      transformedProducts = transformedProducts.filter(p => p.price >= min && p.price <= max);
+      transformedProducts = transformedProducts.filter(
+        (p) => p.price >= min && p.price <= max,
+      );
     }
 
     // ... apply other filters ...
@@ -253,7 +291,7 @@ export async function getProductsForRecommendedStore(req, res) {
     res.status(200).json({
       success: true,
       products: transformedProducts,
-      total: transformedProducts.length
+      total: transformedProducts.length,
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -264,7 +302,11 @@ export async function bulkMapByNames(req, res) {
   try {
     const { recommended_store_name, product_names } = req.body;
 
-    if (!recommended_store_name || !product_names || !Array.isArray(product_names)) {
+    if (
+      !recommended_store_name ||
+      !product_names ||
+      !Array.isArray(product_names)
+    ) {
       return res.status(400).json({ error: "Invalid input" });
     }
 
@@ -273,10 +315,14 @@ export async function bulkMapByNames(req, res) {
     // If we were to implement it, we'd need to fetch store by name, fetch products by name IN operator, then link.
 
     // Stub implementation to fix syntax error and allow server start
-    res.status(501).json({ error: "Bulk mapping by names is not yet implemented in the migration phase." });
-
+    res
+      .status(501)
+      .json({
+        error:
+          "Bulk mapping by names is not yet implemented in the migration phase.",
+      });
   } catch (err) {
-    console.error('Bulk map error:', err.message);
-    res.status(500).json({ error: 'Server error' });
+    console.error("Bulk map error:", err.message);
+    res.status(500).json({ error: "Server error" });
   }
 }

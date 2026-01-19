@@ -1,4 +1,4 @@
-import { supabase } from "../config/supabaseClient.js";
+import { uploadToCloudinary } from "../services/uploadService.js";
 import BrandDAO from "../dao/brand.dao.js";
 
 // Add Brand
@@ -16,39 +16,32 @@ export async function addBrand(req, res) {
       });
     }
 
-    // Upload image to Supabase Storage if a file is provided
+    // Upload image to Cloudinary if a file is provided
     if (imageFile) {
-      const fileExt = imageFile.originalname.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}.${fileExt}`;
+      console.log(
+        "Uploading brand image to Cloudinary:",
+        imageFile.originalname,
+      );
+      const uploadResult = await uploadToCloudinary(
+        imageFile.buffer,
+        "brand",
+        imageFile.mimetype,
+      );
 
-      const { error: uploadError } = await supabase.storage
-        .from("brand")
-        .upload(fileName, imageFile.buffer, {
-          contentType: imageFile.mimetype,
-          upsert: true,
-        });
-
-      if (uploadError) {
-        console.error("Upload error:", uploadError);
+      if (!uploadResult.success) {
         return res.status(400).json({
           success: false,
-          error: `Failed to upload image: ${uploadError.message}`,
+          error: `Failed to upload image: ${uploadResult.error}`,
         });
       }
 
-      const { data: urlData } = supabase.storage
-        .from("brand")
-        .getPublicUrl(fileName);
-
-      imageUrl = urlData.publicUrl;
+      imageUrl = uploadResult.secure_url;
     }
 
     // Insert new Brand using DAO
     const data = await BrandDAO.createBrand({
       name: name.trim(),
-      image_url: imageUrl
+      image_url: imageUrl,
     });
 
     res.status(201).json({
@@ -91,31 +84,24 @@ export async function editBrand(req, res) {
 
     // Update image if a new one is provided
     if (imageFile) {
-      const fileExt = imageFile.originalname.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}.${fileExt}`;
+      console.log(
+        "Uploading brand update image to Cloudinary:",
+        imageFile.originalname,
+      );
+      const uploadResult = await uploadToCloudinary(
+        imageFile.buffer,
+        "brand",
+        imageFile.mimetype,
+      );
 
-      const { error: uploadError } = await supabase.storage
-        .from("brand")
-        .upload(fileName, imageFile.buffer, {
-          contentType: imageFile.mimetype,
-          upsert: true,
-        });
-
-      if (uploadError) {
-        console.error("Upload error:", uploadError);
+      if (!uploadResult.success) {
         return res.status(400).json({
           success: false,
-          error: `Failed to upload image: ${uploadError.message}`,
+          error: `Failed to upload image: ${uploadResult.error}`,
         });
       }
 
-      const { data: urlData } = supabase.storage
-        .from("brand")
-        .getPublicUrl(fileName);
-
-      updateData.image_url = urlData.publicUrl;
+      updateData.image_url = uploadResult.secure_url;
     }
 
     // Update the record using DAO

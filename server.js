@@ -137,7 +137,7 @@ const createApp = () => {
         "X-Client-Info",
       ],
       credentials: true,
-    })
+    }),
   );
 
   app.use(express.json());
@@ -181,6 +181,7 @@ const createApp = () => {
   app.use("/api/stores", storeRoutes);
   app.use("/api/sub-stores", subStoreRoutes);
   app.use("/api/you-may-like-products", YouMayLikeProductRoutes);
+  app.use("/api/add-banner", addBannerRoutes);
   app.use("/api/banner", addBannerRoutes);
   // app.use("/api/banner-groups", addBannerGroupRoutes);
   // app.use("/api/banner-group-products", addBannerGroupProductRoutes);
@@ -338,13 +339,13 @@ const validateEnv = () => {
   ];
 
   const missingEnvVars = requiredEnvVars.filter(
-    (varName) => !process.env[varName]
+    (varName) => !process.env[varName],
   );
 
   if (missingEnvVars.length > 0) {
     console.error(
       "❌ Missing required environment variables:",
-      missingEnvVars.join(", ")
+      missingEnvVars.join(", "),
     );
     console.error("⚠️  Server may not function correctly!");
     return false;
@@ -526,10 +527,10 @@ const app = createApp();
 
 // Initialize Prisma connection before starting server (skip if SKIP_DB is set)
 const startServer = async () => {
-  if (process.env.SKIP_DB !== 'true') {
+  if (process.env.SKIP_DB !== "true") {
     await connectPrisma();
   } else {
-    console.log('⚠️ Skipping database connection (SKIP_DB=true)');
+    console.log("⚠️ Skipping database connection (SKIP_DB=true)");
   }
 
   const server = app.listen(PORT, () => {
@@ -537,27 +538,28 @@ const startServer = async () => {
     const pid = process.pid;
 
     console.log(
-      "\n╔════════════════════════════════════════════════════════════╗"
+      "\n╔════════════════════════════════════════════════════════════╗",
     );
     console.log(
-      `║  🚀 Worker ${workerId} (PID: ${pid}) - Server Started on Port ${PORT}  ║`
+      `║  🚀 Worker ${workerId} (PID: ${pid}) - Server Started on Port ${PORT}  ║`,
     );
     console.log(
-      "╚════════════════════════════════════════════════════════════╝"
+      "╚════════════════════════════════════════════════════════════╝",
     );
     console.log(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
     console.log(`🌐 CORS: Configured to allow all origins`);
     console.log(
-      `💳 Razorpay Mode: ${process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
-      }`
+      `💳 Razorpay Mode: ${
+        process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
+      }`,
     );
-    console.log(
-      `🔗 Supabase: Storage & Auth only`
-    );
+    console.log(`🔗 Supabase: Storage & Auth only`);
     console.log(`🔧 Cluster Mode: DISABLED`);
-    console.log(`🗄️ Database: ${process.env.SKIP_DB === 'true' ? 'SKIPPED' : 'CONNECTED'}`);
     console.log(
-      "════════════════════════════════════════════════════════════\n"
+      `🗄️ Database: ${process.env.SKIP_DB === "true" ? "SKIPPED" : "CONNECTED"}`,
+    );
+    console.log(
+      "════════════════════════════════════════════════════════════\n",
     );
 
     // Start scheduled jobs (only in first worker or standalone mode)
