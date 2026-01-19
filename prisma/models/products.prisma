@@ -44,6 +44,8 @@ model products {
   wishlist_items            wishlist_items[]
   you_may_like              you_may_like[]
   store_section_mappings    store_section_mappings[]
+  daily_deals_products      daily_deals_product[]
+
 
   @@index([vertical])
   @@index([category_id])

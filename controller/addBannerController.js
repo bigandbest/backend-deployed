@@ -1,4 +1,4 @@
-import { supabase } from "../config/supabaseClient.js";
+import { uploadToCloudinary } from "../services/uploadService.js";
 import AddBannerDAO from "../dao/add-banner.dao.js";
 
 // Add a Banner
@@ -25,27 +25,24 @@ export async function addBanner(req, res) {
     const imageFile = req.file;
     let imageUrl = null;
 
-    // Upload image to Supabase Storage if a file is provided
+    // Upload image if a file is provided
     if (imageFile) {
-      const fileExt = imageFile.originalname.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage
-        .from("addBanner")
-        .upload(fileName, imageFile.buffer, {
-          contentType: imageFile.mimetype,
-          upsert: true,
-        });
+      console.log(
+        "Uploading banner image to Cloudinary:",
+        imageFile.originalname,
+      );
+      const uploadResult = await uploadToCloudinary(
+        imageFile.buffer,
+        "addBanner",
+        imageFile.mimetype,
+      );
 
-      if (uploadError)
+      if (!uploadResult.success) {
         return res
           .status(400)
-          .json({ success: false, error: uploadError.message });
-      const { data: urlData } = supabase.storage
-        .from("addBanner")
-        .getPublicUrl(fileName);
-      imageUrl = urlData.publicUrl;
+          .json({ success: false, error: uploadResult.error });
+      }
+      imageUrl = uploadResult.secure_url;
     }
 
     const bannerData = {
@@ -101,24 +98,22 @@ export async function updateBanner(req, res) {
 
     // Update image if a new one is provided
     if (imageFile) {
-      const fileExt = imageFile.originalname.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage
-        .from("addBanner")
-        .upload(fileName, imageFile.buffer, {
-          contentType: imageFile.mimetype,
-          upsert: true,
-        });
-      if (uploadError)
+      console.log(
+        "Uploading banner update image to Cloudinary:",
+        imageFile.originalname,
+      );
+      const uploadResult = await uploadToCloudinary(
+        imageFile.buffer,
+        "addBanner",
+        imageFile.mimetype,
+      );
+
+      if (!uploadResult.success) {
         return res
           .status(400)
-          .json({ success: false, error: uploadError.message });
-      const { data: urlData } = supabase.storage
-        .from("addBanner")
-        .getPublicUrl(fileName);
-      updateData.image_url = urlData.publicUrl;
+          .json({ success: false, error: uploadResult.error });
+      }
+      updateData.image_url = uploadResult.secure_url;
     }
 
     const data = await AddBannerDAO.update(id, updateData);

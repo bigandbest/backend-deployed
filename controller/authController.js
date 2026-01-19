@@ -1,4 +1,7 @@
-import { supabase } from "../config/supabaseClient.js";
+import {
+  uploadToCloudinary,
+  deleteFromCloudinary,
+} from "../services/uploadService.js";
 import jwt from "jsonwebtoken";
 import { setSessionCookie, clearSessionCookie } from "../utils/cookieUtils.js";
 import UserDAO from "../dao/user.dao.js";
@@ -148,26 +151,20 @@ export const updateUserAvatar = async (req, res) => {
 
     const userId = req.user.id;
     const file = req.file;
-    const fileName = `avatar_${userId}_${Date.now()}.${
-      file.mimetype.split("/")[1]
-    }`;
+    // Upload to Cloudinary
+    const uploadResult = await uploadToCloudinary(
+      file.buffer,
+      "avatars",
+      file.mimetype,
+    );
 
-    // Upload to Supabase Storage (Storage usage is allowed/retained)
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from("avatars")
-      .upload(fileName, file.buffer, {
-        contentType: file.mimetype,
-        upsert: true,
-      });
-
-    if (uploadError) {
+    if (!uploadResult.success) {
       return res.status(500).json({ error: "Failed to upload image" });
     }
 
-    // Get public URL
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from("avatars").getPublicUrl(fileName);
+    const publicUrl = uploadResult.secure_url;
+
+    /* Public URL already obtained from Cloudinary response */
 
     // Update user record using DAO
     const updatedUser = await UserDAO.updateUser(userId, { avatar: publicUrl });
@@ -183,11 +180,20 @@ export const removeUserAvatar = async (req, res) => {
     const userId = req.user.id;
 
     // Get user to find avatar filename using DAO
+    // Get user to find avatar filename using DAO
     const user = await UserDAO.getUserById(userId);
     if (user && user.avatar) {
-      const fileName = user.avatar.split("/").pop();
-      // Remove from storage
-      await supabase.storage.from("avatars").remove([fileName]);
+      // Extract public_id from Cloudinary URL if possible, or just skip delete if we don't store public_id
+      // Assuming naive approach: just nullify in DB for now as we don't strictly track public_id in User model yet
+      // Ideally we should extract public_id from URL:
+      // URL: https://res.cloudinary.com/demo/image/upload/v1234567890/avatars/filename.jpg
+      const urlParts = user.avatar.split("/");
+      const publicIdWithExt = urlParts
+        .slice(urlParts.indexOf("avatars"))
+        .join("/");
+      const publicId = publicIdWithExt.split(".")[0];
+
+      await deleteFromCloudinary(publicId);
     }
 
     // Update user record to remove avatar using DAO
