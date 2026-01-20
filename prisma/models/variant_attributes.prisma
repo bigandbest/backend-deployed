@@ -1,13 +1,12 @@
 model variant_attributes {
-  id              Int               @id @default(autoincrement())
-  variant_id      String            @db.Uuid
-  attribute_name  String            @db.VarChar // weight, size, duration, color, moq, unit, tier, speed
-  attribute_value String            @db.VarChar // 1kg, XL, 60min, Red, 50, item, premium, express
-  created_at      DateTime          @default(now()) @db.Timestamptz
+  id              String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  variant_id      String @db.Uuid
 
-  // Relations
-  variant         product_variants  @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+  attribute_name  String
+  attribute_value String
 
-  @@unique([variant_id, attribute_name])
-  @@index([attribute_name, attribute_value])
+  variant product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+
+  @@index([variant_id])
+  @@index([attribute_name])
 }
