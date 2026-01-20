@@ -33,6 +33,16 @@ async function seedAdmin() {
         console.log("✅ Admin role updated");
       }
 
+      // Start: Always update password for development/seed consistency
+      console.log("🔐 Updating password to ensure consistency...");
+      const hashedPassword = await hashPassword(adminPassword);
+      await prisma.users.update({
+        where: { id: existingAdmin.id },
+        data: { password: hashedPassword },
+      });
+      console.log("✅ Password updated to default");
+      // End
+
       return;
     }
 

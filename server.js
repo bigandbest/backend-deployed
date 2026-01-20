@@ -1,11 +1,9 @@
+// import "./config/loadEnv.js";
 import cluster from "cluster";
 import os from "os";
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 import prisma, { connectPrisma, disconnectPrisma } from "./config/prisma.js";
 
@@ -92,7 +90,6 @@ import deliveryChargeRoutes from "./routes/deliveryChargeRoutes.js";
 import chargeSettingsRoutes from "./routes/chargeSettingsRoutes.js";
 import couponRoutes from "./routes/couponRoutes.js";
 import adminUserRoutes from "./routes/adminUserRoutes.js";
-
 
 // Configuration
 const PORT = process.env.PORT || 8000;
@@ -553,7 +550,8 @@ const startServer = async () => {
     console.log(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
     console.log(`🌐 CORS: Configured to allow all origins`);
     console.log(
-      `💳 Razorpay Mode: ${process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
+      `💳 Razorpay Mode: ${
+        process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
       }`,
     );
     console.log(`🔗 Supabase: Storage & Auth only`);

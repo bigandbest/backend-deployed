@@ -1,21 +1,30 @@
 model product_variants {
-  id                  String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  product_id          String                    @db.Uuid
-  sku                 String                    @unique @db.VarChar
-  title               String                    @db.VarChar // "1kg Pack", "60min Service", "Half Plate"
-  price               Decimal                   @db.Decimal
-  old_price           Decimal?                  @db.Decimal
-  discount_percentage Int?                      @default(0)
-  images              String[]
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id          String   @db.Uuid
+
+  sku                 String   @unique @db.VarChar
+  title               String   @db.VarChar // "1kg Pack", "60min Service", "Half Plate"
+  price               Decimal  @db.Decimal
+  old_price           Decimal? @db.Decimal
+  discount_percentage Int?     @default(0)
+
+  // Short human-readable packaging info
+  packaging_details   String?  // e.g. "Sealed plastic pouch", "Glass bottle with outer box"
+
+  // Optional GST override per variant
+  gst_rate_override   Decimal? @db.Decimal
+
   features            String?
-  is_default          Boolean?                  @default(false)
-  active              Boolean?                  @default(true)
-  shipping_amount     Decimal?                  @default(0) @db.Decimal
-  created_at          DateTime                  @default(now()) @db.Timestamptz
-  updated_at          DateTime                  @updatedAt @db.Timestamptz
+  is_default          Boolean? @default(false)
+  active              Boolean? @default(true)
+  shipping_amount     Decimal? @default(0) @db.Decimal
+
+  created_at          DateTime @default(now()) @db.Timestamptz
+  updated_at          DateTime @updatedAt @db.Timestamptz
 
   // Relations
-  product             products                  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  product             products          @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  media               product_media[]
   attributes          variant_attributes[]
   inventory           inventory?
   cart_items          cart_items[]

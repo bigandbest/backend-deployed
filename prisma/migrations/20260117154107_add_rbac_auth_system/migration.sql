@@ -10,7 +10,7 @@ CREATE TYPE "ServiceStatus" AS ENUM ('pending', 'assigned', 'in_progress', 'comp
 
 -- CreateTable
 CREATE TABLE "about_us_content" (
-    "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "banner_image_url" TEXT,
     "title" VARCHAR DEFAULT 'About Our Company',
     "subtitle" VARCHAR DEFAULT 'About Big&Best',
@@ -74,7 +74,7 @@ CREATE TABLE "categories" (
 
 -- CreateTable
 CREATE TABLE "certifications" (
-    "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "name" VARCHAR NOT NULL,
     "image_url" TEXT NOT NULL,
     "description" TEXT,
@@ -115,7 +115,7 @@ CREATE TABLE "contact_queries" (
 
 -- CreateTable
 CREATE TABLE "coupon_usage" (
-    "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "coupon_id" UUID NOT NULL,
     "user_id" UUID NOT NULL,
     "order_id" UUID NOT NULL,
@@ -136,7 +136,7 @@ CREATE TABLE "coupon_usage" (
 
 -- CreateTable
 CREATE TABLE "coupons" (
-    "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "code" VARCHAR NOT NULL,
     "discount_type" VARCHAR NOT NULL,
     "discount_value" DECIMAL NOT NULL,
@@ -161,7 +161,7 @@ CREATE TABLE "coupons" (
 
 -- CreateTable
 CREATE TABLE "customer_testimonials" (
-    "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "name" VARCHAR NOT NULL,
     "rating" INTEGER NOT NULL DEFAULT 5,
     "image_url" TEXT,
@@ -362,7 +362,7 @@ CREATE TABLE "orders" (
 
 -- CreateTable
 CREATE TABLE "partners" (
-    "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "name" VARCHAR NOT NULL,
     "image_url" TEXT NOT NULL,
     "active" BOOLEAN DEFAULT true,
@@ -571,7 +571,7 @@ CREATE TABLE "quick_pick" (
 
 -- CreateTable
 CREATE TABLE "quick_pick_group" (
-    "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "name" TEXT,
     "image_url" TEXT,
     "quick_pick_id" UUID,
@@ -581,7 +581,7 @@ CREATE TABLE "quick_pick_group" (
 
 -- CreateTable
 CREATE TABLE "quickpick_group_product" (
-    "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "quick_pick_group_id" UUID NOT NULL,
     "product_id" UUID NOT NULL,
 
@@ -741,7 +741,7 @@ CREATE TABLE "subcategories" (
 
 -- CreateTable
 CREATE TABLE "team_members" (
-    "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "name" VARCHAR NOT NULL,
     "designation" VARCHAR NOT NULL,
     "image_url" TEXT,
@@ -787,7 +787,7 @@ CREATE TABLE "users" (
 
 -- CreateTable
 CREATE TABLE "user_addresses" (
-    "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "user_id" UUID NOT NULL,
     "address_name" VARCHAR NOT NULL,
     "is_default" BOOLEAN DEFAULT false,
@@ -965,7 +965,7 @@ CREATE TABLE "wishlist_items" (
 
 -- CreateTable
 CREATE TABLE "you_may_like" (
-    "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "product_id" UUID,
 
     CONSTRAINT "you_may_like_pkey" PRIMARY KEY ("id")
