@@ -91,6 +91,8 @@ import teamMemberRoutes from "./routes/teamMemberRoutes.js";
 import deliveryChargeRoutes from "./routes/deliveryChargeRoutes.js";
 import chargeSettingsRoutes from "./routes/chargeSettingsRoutes.js";
 import couponRoutes from "./routes/couponRoutes.js";
+import adminUserRoutes from "./routes/adminUserRoutes.js";
+
 
 // Configuration
 const PORT = process.env.PORT || 8000;
@@ -230,6 +232,8 @@ const createApp = () => {
   app.use("/api/stock", stockRoutes);
   app.use("/api/upload", uploadRoutes);
   app.use("/api/admin", adminProductRoutes);
+  app.use("/api/admin/users", adminUserRoutes);
+
   app.use("/api/enquiries", enquiriesRoutes);
   app.use("/api/wallet", walletRoutes);
   app.use("/api/admin/wallets", adminWalletRoutes);
@@ -549,8 +553,7 @@ const startServer = async () => {
     console.log(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
     console.log(`🌐 CORS: Configured to allow all origins`);
     console.log(
-      `💳 Razorpay Mode: ${
-        process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
+      `💳 Razorpay Mode: ${process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
       }`,
     );
     console.log(`🔗 Supabase: Storage & Auth only`);

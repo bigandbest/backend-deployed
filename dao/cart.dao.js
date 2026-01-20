@@ -48,9 +48,11 @@ class CartDAO {
         return await prisma.cart_items.findUnique({
             where: { id },
             include: {
-                product: true,
-                variant: true,
-                locked_bid: true
+                variant: {
+                    include: {
+                        product: true
+                    }
+                }
             }
         });
     }
@@ -69,9 +71,11 @@ class CartDAO {
         return await prisma.cart_items.findMany({
             where: { user_id: userId },
             include: {
-                product: true,
-                variant: true,
-                locked_bid: true
+                variant: {
+                    include: {
+                        product: true
+                    }
+                }
             },
             orderBy: { added_at: 'desc' }
         });

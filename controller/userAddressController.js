@@ -17,7 +17,6 @@ export const getUserAddresses = async (req, res) => {
       .from("user_addresses")
       .select("*")
       .eq("user_id", userId)
-      .eq("is_active", true)
       .order("is_default", { ascending: false })
       .order("created_at", { ascending: false });
 
@@ -73,10 +72,10 @@ export const getAddressById = async (req, res) => {
     // Normalize address
     const normalizedAddress = address
       ? {
-          ...address,
-          label: address.label || address.address_name,
-          address_line1: address.address_line1 || address.street_address,
-        }
+        ...address,
+        label: address.label || address.address_name,
+        address_line1: address.address_line1 || address.street_address,
+      }
       : null;
 
     return res.json({
@@ -124,9 +123,8 @@ export const createAddress = async (req, res) => {
     // Construct address_line1 if broken down fields are provided
     let finalAddressLine1 = address_line1;
     if (flat_no || building_name) {
-      finalAddressLine1 = `${flat_no ? flat_no + ", " : ""}${
-        building_name || ""
-      }`;
+      finalAddressLine1 = `${flat_no ? flat_no + ", " : ""}${building_name || ""
+        }`;
     }
 
     // Validation
@@ -177,7 +175,6 @@ export const createAddress = async (req, res) => {
       pincode,
       landmark: landmark || null,
       is_default: is_default || false,
-      is_active: true,
       // Add building_type if the column exists in your DB, otherwise it might be ignored or error.
       // Assuming user wants it stored. If DB schema doesn't have it, we might need to add it to address_line2 or similar.
       // For now, attempting to add it as requested.
@@ -309,7 +306,7 @@ export const deleteAddress = async (req, res) => {
 
     const { data: deletedAddress, error } = await supabase
       .from("user_addresses")
-      .update({ is_active: false })
+      .delete()
       .eq("id", id)
       .eq("user_id", userId)
       .select()
@@ -396,7 +393,6 @@ export const getDefaultAddress = async (req, res) => {
       .select("*")
       .eq("user_id", userId)
       .eq("is_default", true)
-      .eq("is_active", true)
       .single();
 
     if (error && error.code !== "PGRST116") {
@@ -411,10 +407,10 @@ export const getDefaultAddress = async (req, res) => {
     // Normalize address
     const normalizedAddress = address
       ? {
-          ...address,
-          label: address.label || address.address_name,
-          address_line1: address.address_line1 || address.street_address,
-        }
+        ...address,
+        label: address.label || address.address_name,
+        address_line1: address.address_line1 || address.street_address,
+      }
       : null;
 
     return res.json({

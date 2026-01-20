@@ -189,9 +189,7 @@ class ProductWarehouseStockDAO {
                     select: {
                         id: true,
                         name: true,
-                        price: true,
-                        image: true,
-                        delivery_type: true
+                        images: true
                     }
                 },
                 warehouses: {
@@ -239,9 +237,8 @@ class ProductWarehouseStockDAO {
                     select: {
                         id: true,
                         name: true,
-                        price: true,
                         rating: true,
-                        image: true,
+                        images: true,
                         category: {
                             select: {
                                 id: true,

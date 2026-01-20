@@ -43,10 +43,10 @@ export async function createNotification(req, res) {
     const expiryISO = new Date(`${expiry_date}T23:59:59Z`).toISOString();
 
     const data = await userNotificationDao.create({
-      heading,
-      description,
-      expiry_date: expiryISO,
-      image_url,
+      title: heading,
+      message: description,
+      type: "SYSTEM",
+      // expiry_date and image_url are not in current schema
     });
 
     res.status(201).json({ success: true, notification: data });
@@ -150,15 +150,11 @@ export async function createOrderNotification(userId, orderId, status) {
 
     const data = await userNotificationDao.create({
       user_id: userId,
-      heading: `Order Update - ${status.charAt(0).toUpperCase() + status.slice(1)
-        }`,
-      description:
-        statusMessages[status] || "Your order status has been updated.",
+      title: `Order Update - ${status.charAt(0).toUpperCase() + status.slice(1)}`,
+      message: statusMessages[status] || "Your order status has been updated.",
       related_id: orderId.toString(),
       related_type: "order",
-      expiry_date: new Date(
-        Date.now() + 30 * 24 * 60 * 60 * 1000
-      ).toISOString(),
+      type: "ORDER"
     });
 
     return { success: true, data };
@@ -180,11 +176,9 @@ export async function updateNotification(req, res) {
     }
 
     const updates = {};
-    if (heading) updates.heading = heading;
-    if (description) updates.description = description;
-    if (expiry_date)
-      updates.expiry_date = new Date(`${expiry_date}T23:59:59Z`).toISOString();
-    if (image_url) updates.image_url = image_url;
+    if (heading) updates.title = heading;
+    if (description) updates.message = description;
+    // expiry_date and image_url are not in current schema
 
     const data = await userNotificationDao.update(id, updates);
 
@@ -270,11 +264,11 @@ export async function createProductUpdateNotification(
     // Create notifications for each user
     const notifications = userIds.map((userId) => ({
       user_id: userId,
-      heading,
-      description,
+      title: heading,
+      message: description,
       related_id: productId.toString(),
       related_type: "product",
-      expiry_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days
+      type: "PRODUCT"
     }));
 
     await userNotificationDao.createMany(notifications);

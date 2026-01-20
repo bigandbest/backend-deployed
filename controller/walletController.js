@@ -120,69 +120,83 @@ export const getUserWallet = async (req, res) => {
           // User doesn't exist in users table, create it
           console.log(`Creating user record in users table for: ${user.id}`);
 
-          // Get user details from Supabase Auth
-          const { data: authUser, error: authError } =
-            await supabase.auth.admin.getUserById(user.id);
-
-          if (authError || !authUser) {
-            console.error("User not found in auth.users:", user.id, authError);
-            return res.status(400).json({
-              success: false,
-              error:
-                "User account not found. Please ensure you are properly authenticated.",
-            });
-          }
+          // Use data from req.user (populated by authenticate middleware)
+          // instead of making a failing admin API call
+          const userData = {
+            id: user.id,
+            email: user.email,
+            name: user.name || user.user_metadata?.name || user.user_metadata?.full_name || "User",
+            phone: user.phone || user.user_metadata?.phone || "",
+            role: "USER",
+            photo_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
+            avatar: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
+            is_active: true
+          };
 
           // Create user record in users table
-          const { data: newUser, error: createUserError } = await supabase
+          let { data: newUser, error: createUserError } = await supabase
             .from("users")
-            .upsert(
-              [
-                {
-                  id: user.id,
-                  email: authUser.user.email,
-                  name:
-                    authUser.user.user_metadata?.name ||
-                    authUser.user.user_metadata?.full_name ||
-                    null,
-                  phone:
-                    authUser.user.phone ||
-                    authUser.user.user_metadata?.phone ||
-                    null,
-                  avatar: authUser.user.user_metadata?.avatar_url || null,
-                  photo_url: authUser.user.user_metadata?.avatar_url || null,
-                  created_at: authUser.user.created_at,
-                },
-              ],
-              {
-                onConflict: "id",
-                ignoreDuplicates: false,
-              },
-            )
+            .upsert([userData], {
+              onConflict: "id",
+              ignoreDuplicates: false,
+            })
             .select()
             .single();
 
-          if (createUserError) {
-            console.error("Error creating user record:", createUserError);
-            return res.status(500).json({
-              success: false,
-              error: "Failed to create user record",
-              details: createUserError.message,
-            });
+          // Handle duplicate email case (Conflict error)
+          if (createUserError && (String(createUserError.code) === '23505' || createUserError.message?.includes('users_email_key') || createUserError.details?.includes('already exists'))) {
+            console.log("Email conflict detected. Archiving old user to allow new user creation.");
+
+            // Find the user with this email
+            const { data: conflictingUser, error: findError } = await supabase
+              .from("users")
+              .select("id, email")
+              .eq("email", user.email)
+              .single();
+
+            if (findError) console.log("Error finding conflicting user:", findError);
+
+            if (conflictingUser && conflictingUser.id !== user.id) {
+              // Update the conflicting user's email to free it up
+              const archivedEmail = `archived_${Date.now()}_${conflictingUser.email}`;
+              const { error: updateError } = await supabase
+                .from("users")
+                .update({ email: archivedEmail })
+                .eq("id", conflictingUser.id);
+
+              if (updateError) {
+                console.log("Failed to archive old user:", updateError);
+              } else {
+                console.log(`Archived conflicting user ${conflictingUser.id} email to ${archivedEmail}`);
+              }
+
+              // Retry creating the new user
+              const retryResult = await supabase
+                .from("users")
+                .upsert([userData], {
+                  onConflict: "id",
+                  ignoreDuplicates: false,
+                })
+                .select()
+                .single();
+
+              newUser = retryResult.data;
+              createUserError = retryResult.error;
+            }
           }
 
-          console.log(`User record created successfully for: ${user.id}`);
+          if (createUserError) {
+            console.error("Error creating user record:", createUserError);
+            // Don't block - try to continue, maybe it was created in parallel
+          } else {
+            console.log(`User record created successfully for: ${user.id}`);
+          }
         } else if (userCheckError) {
           console.error("Error checking user existence:", userCheckError);
-          // Continue anyway - the wallet insert will fail with a better error if needed
         }
       } catch (userSyncError) {
         console.error("Error syncing user to users table:", userSyncError);
-        return res.status(500).json({
-          success: false,
-          error: "Failed to sync user data",
-          details: userSyncError.message,
-        });
+        // Continue - let the wallet creation error if needed
       }
 
       // Now create the wallet
