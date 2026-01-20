@@ -34,7 +34,7 @@ class WishlistDAO {
             include: {
                 product: {
                     include: {
-                        product_variants: {
+                        variants: {
                             where: { active: true }
                         }
                     }

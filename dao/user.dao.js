@@ -3,9 +3,39 @@ import prisma from "../config/prisma.js";
 class UserDAO {
   // --- User Operations ---
   async createUser(data) {
-    return await prisma.users.create({
-      data,
-    });
+    try {
+      return await prisma.users.create({
+        data,
+      });
+    } catch (error) {
+      // Handle unique constraint violation on email (P2002)
+      if (error.code === 'P2002' && error.meta?.target?.includes('email')) {
+        console.log("UserDAO: Email conflict detected. Archiving old user.");
+
+        // Find conflicting user
+        const conflictingUser = await prisma.users.findUnique({
+          where: { email: data.email }
+        });
+
+        if (conflictingUser && conflictingUser.id !== data.id) {
+          const archivedEmail = `archived_${Date.now()}_${conflictingUser.email}`;
+
+          // Archive old user
+          await prisma.users.update({
+            where: { id: conflictingUser.id },
+            data: { email: archivedEmail }
+          });
+
+          console.log(`UserDAO: Archived user ${conflictingUser.id} to ${archivedEmail}`);
+
+          // Retry creation
+          return await prisma.users.create({
+            data,
+          });
+        }
+      }
+      throw error;
+    }
   }
 
   async getUserById(id) {

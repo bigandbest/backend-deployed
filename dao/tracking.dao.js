@@ -23,7 +23,7 @@ class TrackingDAO {
                 product: {
                   select: {
                     name: true,
-                    image: true,
+                    images: true,
                   },
                 },
               },
@@ -55,7 +55,7 @@ class TrackingDAO {
                 product: {
                   select: {
                     name: true,
-                    image: true,
+                    images: true,
                   },
                 },
               },

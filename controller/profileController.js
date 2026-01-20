@@ -161,13 +161,34 @@ export const getUserProfile = async (req, res) => {
       });
     }
 
-    const data = await userDao.getUserById(userId);
+    let data = await userDao.getUserById(userId);
 
+    // If user doesn't exist in database, create them
     if (!data) {
-      return res.status(404).json({
-        success: false,
-        error: "User not found",
-      });
+      console.log("Creating user record in users table for:", userId);
+      try {
+        data = await userDao.createUser({
+          id: userId,
+          email: req.user.email || "",
+          name: req.user.name || req.user.user_metadata?.name || "User",
+          phone: req.user.phone || req.user.user_metadata?.phone || "",
+          role: req.user.role === "authenticated" ? "USER" : req.user.role?.toUpperCase() || "USER",
+          is_active: true,
+        });
+      } catch (createError) {
+        console.error("Error creating user record:", createError);
+        // If creation fails, return a basic user object
+        return res.json({
+          success: true,
+          user: {
+            id: userId,
+            email: req.user.email,
+            name: req.user.name || req.user.user_metadata?.name || "User",
+            phone: req.user.phone || "",
+            role: "USER",
+          },
+        });
+      }
     }
 
     res.json({

@@ -26,7 +26,7 @@ class OrderDAO {
                                 product: {
                                     select: {
                                         name: true,
-                                        image: true
+                                        images: true
                                     }
                                 }
                             }

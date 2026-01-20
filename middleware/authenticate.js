@@ -63,8 +63,30 @@ export const authenticateToken = async (req, res, next) => {
     // Decode JWT token to extract user info
     const decoded = decodeToken(token);
 
+    // Debug: Log the decoded token structure
+    console.log("Decoded token:", JSON.stringify(decoded, null, 2));
+
     if (!decoded || !decoded.id) {
       console.log("Failed to decode token or missing user ID");
+      console.log("Available fields in token:", decoded ? Object.keys(decoded) : "null");
+
+      // Try alternative field names
+      const userId = decoded?.id || decoded?.user_id || decoded?.sub || decoded?.userId;
+
+      if (userId) {
+        console.log(`Found user ID in alternative field: ${userId}`);
+        req.user = {
+          id: userId,
+          email: decoded.email,
+          role: decoded.role || decoded.user_role,
+          name: decoded.name || decoded.user_name || decoded.user_metadata?.name || decoded.user_metadata?.full_name,
+          phone: decoded.phone || decoded.user_metadata?.phone,
+          user_metadata: decoded.user_metadata || {},
+          app_metadata: decoded.app_metadata || {}
+        };
+        return next();
+      }
+
       return res.status(401).json({
         success: false,
         error: "Invalid token",

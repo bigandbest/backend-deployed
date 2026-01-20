@@ -12,8 +12,7 @@ class UserNotificationDAO {
         return await prisma.user_notifications.findMany({
             where: {
                 user_id: userId,
-                ...(unread_only && { is_read: false }),
-                expiry_date: { gte: now }
+                ...(unread_only && { is_read: false })
             },
             take: limit,
             orderBy: { created_at: 'desc' }
@@ -32,8 +31,7 @@ class UserNotificationDAO {
         return await prisma.user_notifications.count({
             where: {
                 user_id: userId,
-                is_read: false,
-                expiry_date: { gte: now }
+                is_read: false
             }
         });
     }
@@ -41,9 +39,7 @@ class UserNotificationDAO {
     async listActive(options = {}) {
         const now = new Date();
         return await prisma.user_notifications.findMany({
-            where: {
-                expiry_date: { gte: now }
-            },
+            where: {},
             orderBy: { created_at: 'desc' }
         });
     }
@@ -53,7 +49,7 @@ class UserNotificationDAO {
         return await prisma.user_notifications.findMany({
             where: {
                 OR: [
-                    { notification_type: 'admin' },
+                    { type: 'SYSTEM' },
                     { user_id: null }
                 ]
             },

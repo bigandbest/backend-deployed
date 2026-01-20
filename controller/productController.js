@@ -12,6 +12,8 @@ import zonePincodeDao from "../dao/zone-pincode.dao.js";
 import warehouseDao from "../dao/warehouse.dao.js";
 import prisma from "../config/prisma.js";
 
+const VARIANT_JOIN = "product_variants(*)";
+
 // Helper for consistency in transformations
 const transformProduct = (product, assignments = []) => {
   const activeVariants = (product.variants || []).filter(v => v.active !== false);

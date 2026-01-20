@@ -39,10 +39,8 @@ import {
   getSlotAvailability,
 } from "../controller/scheduledOrderController.js";
 
-import {
-  authenticateToken,
-  authenticateAdmin,
-} from "../middleware/authenticate.js";
+import { authenticateToken } from "../middleware/authenticate.js";
+import { requireAdmin } from "../middleware/authorize.js";
 import {
   validateDeliveryAvailability,
   enrichOrderWithDelivery,
@@ -50,38 +48,7 @@ import {
 
 const router = express.Router();
 
-// Authentication middleware
-const authenticateUser = async (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-    const token = authHeader && authHeader.split(" ")[1];
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        error: "No authorization token provided",
-      });
-    }
-
-    // Verify token with Supabase
-    const { data: user, error } = await supabase.auth.getUser(token);
-
-    if (error || !user) {
-      return res.status(401).json({
-        success: false,
-        error: "Invalid or expired token",
-      });
-    }
-
-    req.user = user.user;
-    next();
-  } catch (error) {
-    return res.status(401).json({
-      success: false,
-      error: "Authentication failed",
-    });
-  }
-};
+// Authentication middleware removed - using centralized authenticateToken from middleware/authenticate.js
 
 router.get("/all", getAllOrders);
 router.get("/", getAllOrders);
@@ -110,10 +77,10 @@ router.get("/status/:id", async (req, res) => {
 });
 
 // Authenticated endpoint for getting user's own orders
-router.get("/my-orders", authenticateUser, getMyOrders);
+router.get("/my-orders", authenticateToken, getMyOrders);
 
 // Get complete order details by ID for authenticated user
-router.get("/details/:orderId", authenticateUser, getOrderDetails);
+router.get("/details/:orderId", authenticateToken, getOrderDetails);
 
 // Admin/legacy endpoint with user_id parameter
 router.get("/user/:user_id", getUserOrders);
@@ -151,34 +118,34 @@ router.get(
 );
 
 // Admin routes for scheduled orders
-router.get("/scheduled/admin/all", authenticateAdmin, getAllScheduledOrders);
+router.get("/scheduled/admin/all", authenticateToken, requireAdmin, getAllScheduledOrders);
 router.post(
   "/scheduled/admin/:id/execute",
-  authenticateAdmin,
+  authenticateToken, requireAdmin,
   manuallyExecuteOrder,
 );
 
 // Admin routes for time slot management
-router.post("/admin/slots", authenticateAdmin, createTimeSlot);
-router.put("/admin/slots/:id", authenticateAdmin, updateTimeSlot);
-router.delete("/admin/slots/:id", authenticateAdmin, deleteTimeSlot);
-router.get("/admin/slots", authenticateAdmin, getAllTimeSlots);
+router.post("/admin/slots", authenticateToken, requireAdmin, createTimeSlot);
+router.put("/admin/slots/:id", authenticateToken, requireAdmin, updateTimeSlot);
+router.delete("/admin/slots/:id", authenticateToken, requireAdmin, deleteTimeSlot);
+router.get("/admin/slots", authenticateToken, requireAdmin, getAllTimeSlots);
 
 // Admin routes for warehouse slot configuration
-router.post("/admin/warehouse-slots", authenticateAdmin, assignSlotToWarehouse);
+router.post("/admin/warehouse-slots", authenticateToken, requireAdmin, assignSlotToWarehouse);
 router.put(
   "/admin/warehouse-slots/:id",
-  authenticateAdmin,
+  authenticateToken, requireAdmin,
   updateWarehouseSlotConfig,
 );
 router.delete(
   "/admin/warehouse-slots/:id",
-  authenticateAdmin,
+  authenticateToken, requireAdmin,
   removeSlotFromWarehouse,
 );
 router.get(
   "/admin/warehouse/:warehouseId/slots",
-  authenticateAdmin,
+  authenticateToken, requireAdmin,
   getWarehouseSlots,
 );
 
