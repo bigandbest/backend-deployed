@@ -1,5 +1,5 @@
 model you_may_like {
-  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   product_id String?   @db.Uuid
 
   // Relations

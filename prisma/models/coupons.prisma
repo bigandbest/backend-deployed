@@ -1,5 +1,5 @@
 model coupons {
-  id                   String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                   String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   code                 String         @unique @db.VarChar
   discount_type        String         @db.VarChar
   discount_value       Decimal        @db.Decimal
