@@ -1,4 +1,4 @@
-import "./loadEnv.js";
+// import "./loadEnv.js";
 import { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = global;

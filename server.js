@@ -1,4 +1,4 @@
-import "./config/loadEnv.js";
+// import "./config/loadEnv.js";
 import cluster from "cluster";
 import os from "os";
 import express from "express";
