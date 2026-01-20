@@ -21,8 +21,6 @@ model products {
   subcategory_id     String?            @db.Uuid
   group_id           String?            @db.Uuid
   store_id           String?            @db.Uuid
-  images             String[]
-  video_url          String[]
   rating             Decimal?           @default(0) @db.Decimal
   review_count       Int?               @default(0)
   return_applicable  Boolean?           @default(false)
@@ -37,6 +35,7 @@ model products {
   subcategory        subcategories?     @relation(fields: [subcategory_id], references: [id])
   group              groups?            @relation(fields: [group_id], references: [id])
   store              stores?            @relation(fields: [store_id], references: [id])
+  media              product_media[]
   variants           product_variants[]
   brands             product_brand[]
   reviews            product_reviews[]

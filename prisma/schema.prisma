@@ -584,6 +584,28 @@ model product_enquiries {
 }
 
 
+// --- Model: product_media.prisma ---
+model product_media {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id  String   @db.Uuid
+  variant_id  String?  @db.Uuid
+
+  media_type  String   // image | video
+  url         String
+  thumbnail   String?
+  is_primary  Boolean  @default(false)
+  sort_order  Int      @default(0)
+
+  created_at DateTime @default(now()) @db.Timestamptz
+
+  product    products  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  variant    product_variants? @relation(fields: [variant_id], references: [id])
+
+  @@index([product_id])
+  @@index([variant_id])
+}
+
+
 // --- Model: product_recommended_store.prisma ---
 model product_recommended_store {
   product_id            String            @db.Uuid
@@ -692,7 +714,6 @@ model product_variants {
   price               Decimal                   @db.Decimal
   old_price           Decimal?                  @db.Decimal
   discount_percentage Int?                      @default(0)
-  images              String[]
   features            String?
   is_default          Boolean?                  @default(false)
   active              Boolean?                  @default(true)
@@ -702,6 +723,7 @@ model product_variants {
 
   // Relations
   product             products                  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  media               product_media[]
   attributes          variant_attributes[]
   inventory           inventory?
   cart_items          cart_items[]
@@ -738,8 +760,6 @@ model products {
   subcategory_id     String?            @db.Uuid
   group_id           String?            @db.Uuid
   store_id           String?            @db.Uuid
-  images             String[]
-  video_url          String[]
   rating             Decimal?           @default(0) @db.Decimal
   review_count       Int?               @default(0)
   return_applicable  Boolean?           @default(false)
@@ -754,6 +774,7 @@ model products {
   subcategory        subcategories?     @relation(fields: [subcategory_id], references: [id])
   group              groups?            @relation(fields: [group_id], references: [id])
   store              stores?            @relation(fields: [store_id], references: [id])
+  media              product_media[]
   variants           product_variants[]
   brands             product_brand[]
   reviews            product_reviews[]
