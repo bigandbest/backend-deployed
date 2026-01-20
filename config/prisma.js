@@ -1,34 +1,22 @@
+// import "./loadEnv.js";
 import { PrismaClient } from "@prisma/client";
 
-const prisma = new PrismaClient({
-  log: [
-    {
-      emit: "event",
-      level: "query",
-    },
-    {
-      emit: "stdout",
-      level: "error",
-    },
-    {
-      emit: "stdout",
-      level: "info",
-    },
-    {
-      emit: "stdout",
-      level: "warn",
-    },
-  ],
-});
+const globalForPrisma = global;
 
-// Log queries in development
-// if (process.env.NODE_ENV === 'development') {
-//     prisma.$on('query', (e) => {
-//         console.log('Query: ' + e.query);
-//         console.log('Params: ' + e.params);
-//         console.log('Duration: ' + e.duration + 'ms');
-//     });
-// }
+const prisma =
+  globalForPrisma.prisma ||
+  new PrismaClient({
+    log: [
+      { emit: "event", level: "query" },
+      { emit: "stdout", level: "error" },
+      { emit: "stdout", level: "info" },
+      { emit: "stdout", level: "warn" },
+    ],
+  });
+
+if (process.env.NODE_ENV !== "production") {
+  globalForPrisma.prisma = prisma;
+}
 
 /**
  * Connect to database and verify connection

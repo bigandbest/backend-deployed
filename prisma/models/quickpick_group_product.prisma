@@ -1,5 +1,5 @@
 model quickpick_group_product {
-  id                  String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   quick_pick_group_id String           @db.Uuid
   product_id          String           @db.Uuid
 
