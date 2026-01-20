@@ -13,6 +13,9 @@ model products {
   id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name               String
   description        String?
+  hsn_code           String?            @db.VarChar
+  sac_code           String?            @db.VarChar
+  gst_rate           Decimal?           @default(0) @db.Decimal
   vertical           Vertical           @default(qwik)
   category_id        String?            @db.Uuid
   subcategory_id     String?            @db.Uuid

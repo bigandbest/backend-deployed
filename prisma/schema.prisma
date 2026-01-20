@@ -14,7 +14,7 @@ datasource db {
 
 // --- Model: about_us_content.prisma ---
 model about_us_content {
-  id               String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   banner_image_url String?
   title            String?   @default("About Our Company") @db.VarChar
   subtitle         String?   @default("About Big&Best") @db.VarChar
@@ -117,7 +117,7 @@ model categories {
 
 // --- Model: certifications.prisma ---
 model certifications {
-  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name        String    @db.VarChar
   image_url   String
   description String?
@@ -155,7 +155,7 @@ model contact_queries {
 
 // --- Model: coupon_usage.prisma ---
 model coupon_usage {
-  id               String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   coupon_id        String    @db.Uuid
   user_id          String    @db.Uuid
   order_id         String    @unique @db.Uuid
@@ -181,7 +181,7 @@ model coupon_usage {
 
 // --- Model: coupons.prisma ---
 model coupons {
-  id                   String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                   String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   code                 String         @unique @db.VarChar
   discount_type        String         @db.VarChar
   discount_value       Decimal        @db.Decimal
@@ -208,7 +208,7 @@ model coupons {
 
 // --- Model: customer_testimonials.prisma ---
 model customer_testimonials {
-  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name       String    @db.VarChar
   rating     Int       @default(5)
   image_url  String?
@@ -493,7 +493,7 @@ model orders {
 
 // --- Model: partners.prisma ---
 model partners {
-  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name       String    @db.VarChar
   image_url  String
   active     Boolean?  @default(true)
@@ -730,6 +730,9 @@ model products {
   id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name               String
   description        String?
+  hsn_code           String?            @db.VarChar
+  sac_code           String?            @db.VarChar
+  gst_rate           Decimal?           @default(0) @db.Decimal
   vertical           Vertical           @default(qwik)
   category_id        String?            @db.Uuid
   subcategory_id     String?            @db.Uuid
@@ -823,7 +826,7 @@ model quick_pick {
 
 // --- Model: quick_pick_group.prisma ---
 model quick_pick_group {
-  id             String                    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id             String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name           String?
   image_url      String?
   quick_pick_id  String?                   @db.Uuid
@@ -836,7 +839,7 @@ model quick_pick_group {
 
 // --- Model: quickpick_group_product.prisma ---
 model quickpick_group_product {
-  id                  String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   quick_pick_group_id String           @db.Uuid
   product_id          String           @db.Uuid
 
@@ -1070,7 +1073,7 @@ model subcategories {
 
 // --- Model: team_members.prisma ---
 model team_members {
-  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name        String    @db.VarChar
   designation String    @db.VarChar
   image_url   String?
@@ -1138,7 +1141,7 @@ model users {
 
 // --- Model: user_addresses.prisma ---
 model user_addresses {
-  id               String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id          String               @db.Uuid
   address_name     String               @db.VarChar
   is_default       Boolean?             @default(false)
@@ -1359,7 +1362,7 @@ model wishlist_items {
 
 // --- Model: you_may_like.prisma ---
 model you_may_like {
-  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   product_id String?   @db.Uuid
 
   // Relations
