@@ -1,32 +1,45 @@
 enum Vertical {
-  //zepto like
+  // zepto like
   qwik
   // zomato
   eato
-  // india mart/meesho/flipkart
+  // india mart / meesho / flipkart
   bazar 
-  // urban clab
+  // urban clap
   star
+}
+
+enum MediaType {
+  image
+  video
 }
 
 model products {
   id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name               String
   description        String?
+
+  // Tax & Compliance
   hsn_code           String?            @db.VarChar
   sac_code           String?            @db.VarChar
   gst_rate           Decimal?           @default(0) @db.Decimal
+
   vertical           Vertical           @default(qwik)
+
   category_id        String?            @db.Uuid
   subcategory_id     String?            @db.Uuid
   group_id           String?            @db.Uuid
   store_id           String?            @db.Uuid
+
   rating             Decimal?           @default(0) @db.Decimal
   review_count       Int?               @default(0)
+
   return_applicable  Boolean?           @default(false)
   return_days        Int?               @default(0)
+
   active             Boolean?           @default(true)
   has_variants       Boolean?           @default(false)
+
   created_at         DateTime?          @default(now()) @db.Timestamptz
   updated_at         DateTime?          @updatedAt @db.Timestamptz
 
@@ -35,6 +48,7 @@ model products {
   subcategory        subcategories?     @relation(fields: [subcategory_id], references: [id])
   group              groups?            @relation(fields: [group_id], references: [id])
   store              stores?            @relation(fields: [store_id], references: [id])
+
   media              product_media[]
   variants           product_variants[]
   brands             product_brand[]
@@ -47,7 +61,6 @@ model products {
   you_may_like              you_may_like[]
   store_section_mappings    store_section_mappings[]
   daily_deals_products      daily_deals_product[]
-
 
   @@index([vertical])
   @@index([category_id])

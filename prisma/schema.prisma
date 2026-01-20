@@ -586,25 +586,24 @@ model product_enquiries {
 
 // --- Model: product_media.prisma ---
 model product_media {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  product_id  String   @db.Uuid
-  variant_id  String?  @db.Uuid
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id  String    @db.Uuid
+  variant_id  String?   @db.Uuid
 
-  media_type  String   // image | video
+  media_type  MediaType
   url         String
   thumbnail   String?
-  is_primary  Boolean  @default(false)
-  sort_order  Int      @default(0)
+  is_primary  Boolean   @default(false)
+  sort_order  Int       @default(0)
 
-  created_at DateTime @default(now()) @db.Timestamptz
+  created_at  DateTime  @default(now()) @db.Timestamptz
 
-  product    products  @relation(fields: [product_id], references: [id], onDelete: Cascade)
-  variant    product_variants? @relation(fields: [variant_id], references: [id])
+  product     products          @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  variant     product_variants? @relation(fields: [variant_id], references: [id])
 
   @@index([product_id])
   @@index([variant_id])
 }
-
 
 // --- Model: product_recommended_store.prisma ---
 model product_recommended_store {
@@ -707,22 +706,31 @@ model product_sections {
 
 // --- Model: product_variants.prisma ---
 model product_variants {
-  id                  String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  product_id          String                    @db.Uuid
-  sku                 String                    @unique @db.VarChar
-  title               String                    @db.VarChar // "1kg Pack", "60min Service", "Half Plate"
-  price               Decimal                   @db.Decimal
-  old_price           Decimal?                  @db.Decimal
-  discount_percentage Int?                      @default(0)
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id          String   @db.Uuid
+
+  sku                 String   @unique @db.VarChar
+  title               String   @db.VarChar // "1kg Pack", "60min Service", "Half Plate"
+  price               Decimal  @db.Decimal
+  old_price           Decimal? @db.Decimal
+  discount_percentage Int?     @default(0)
+
+  // Short human-readable packaging info
+  packaging_details   String?  // e.g. "Sealed plastic pouch", "Glass bottle with outer box"
+
+  // Optional GST override per variant
+  gst_rate_override   Decimal? @db.Decimal
+
   features            String?
-  is_default          Boolean?                  @default(false)
-  active              Boolean?                  @default(true)
-  shipping_amount     Decimal?                  @default(0) @db.Decimal
-  created_at          DateTime                  @default(now()) @db.Timestamptz
-  updated_at          DateTime                  @updatedAt @db.Timestamptz
+  is_default          Boolean? @default(false)
+  active              Boolean? @default(true)
+  shipping_amount     Decimal? @default(0) @db.Decimal
+
+  created_at          DateTime @default(now()) @db.Timestamptz
+  updated_at          DateTime @updatedAt @db.Timestamptz
 
   // Relations
-  product             products                  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  product             products          @relation(fields: [product_id], references: [id], onDelete: Cascade)
   media               product_media[]
   attributes          variant_attributes[]
   inventory           inventory?
@@ -738,34 +746,47 @@ model product_variants {
 
 // --- Model: products.prisma ---
 enum Vertical {
-  //zepto like
+  // zepto like
   qwik
   // zomato
   eato
-  // india mart/meesho/flipkart
+  // india mart / meesho / flipkart
   bazar 
-  // urban clab
+  // urban clap
   star
+}
+
+enum MediaType {
+  image
+  video
 }
 
 model products {
   id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name               String
   description        String?
+
+  // Tax & Compliance
   hsn_code           String?            @db.VarChar
   sac_code           String?            @db.VarChar
   gst_rate           Decimal?           @default(0) @db.Decimal
+
   vertical           Vertical           @default(qwik)
+
   category_id        String?            @db.Uuid
   subcategory_id     String?            @db.Uuid
   group_id           String?            @db.Uuid
   store_id           String?            @db.Uuid
+
   rating             Decimal?           @default(0) @db.Decimal
   review_count       Int?               @default(0)
+
   return_applicable  Boolean?           @default(false)
   return_days        Int?               @default(0)
+
   active             Boolean?           @default(true)
   has_variants       Boolean?           @default(false)
+
   created_at         DateTime?          @default(now()) @db.Timestamptz
   updated_at         DateTime?          @updatedAt @db.Timestamptz
 
@@ -774,6 +795,7 @@ model products {
   subcategory        subcategories?     @relation(fields: [subcategory_id], references: [id])
   group              groups?            @relation(fields: [group_id], references: [id])
   store              stores?            @relation(fields: [store_id], references: [id])
+
   media              product_media[]
   variants           product_variants[]
   brands             product_brand[]
@@ -787,12 +809,10 @@ model products {
   store_section_mappings    store_section_mappings[]
   daily_deals_products      daily_deals_product[]
 
-
   @@index([vertical])
   @@index([category_id])
   @@index([active])
 }
-
 
 // --- Model: promo_banners.prisma ---
 model promo_banners {
@@ -1205,19 +1225,17 @@ model user_notifications {
 
 // --- Model: variant_attributes.prisma ---
 model variant_attributes {
-  id              Int               @id @default(autoincrement())
-  variant_id      String            @db.Uuid
-  attribute_name  String            @db.VarChar // weight, size, duration, color, moq, unit, tier, speed
-  attribute_value String            @db.VarChar // 1kg, XL, 60min, Red, 50, item, premium, express
-  created_at      DateTime          @default(now()) @db.Timestamptz
+  id              String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  variant_id      String @db.Uuid
 
-  // Relations
-  variant         product_variants  @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+  attribute_name  String
+  attribute_value String
 
-  @@unique([variant_id, attribute_name])
-  @@index([attribute_name, attribute_value])
+  variant product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+
+  @@index([variant_id])
+  @@index([attribute_name])
 }
-
 
 // --- Model: video_cards.prisma ---
 model video_cards {

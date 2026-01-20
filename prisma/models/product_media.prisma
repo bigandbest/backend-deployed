@@ -1,18 +1,18 @@
 model product_media {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  product_id  String   @db.Uuid
-  variant_id  String?  @db.Uuid
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id  String    @db.Uuid
+  variant_id  String?   @db.Uuid
 
-  media_type  String   // image | video
+  media_type  MediaType
   url         String
   thumbnail   String?
-  is_primary  Boolean  @default(false)
-  sort_order  Int      @default(0)
+  is_primary  Boolean   @default(false)
+  sort_order  Int       @default(0)
 
-  created_at DateTime @default(now()) @db.Timestamptz
+  created_at  DateTime  @default(now()) @db.Timestamptz
 
-  product    products  @relation(fields: [product_id], references: [id], onDelete: Cascade)
-  variant    product_variants? @relation(fields: [variant_id], references: [id])
+  product     products          @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  variant     product_variants? @relation(fields: [variant_id], references: [id])
 
   @@index([product_id])
   @@index([variant_id])
