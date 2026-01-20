@@ -6,7 +6,6 @@ model product_variants {
   price               Decimal                   @db.Decimal
   old_price           Decimal?                  @db.Decimal
   discount_percentage Int?                      @default(0)
-  images              String[]
   features            String?
   is_default          Boolean?                  @default(false)
   active              Boolean?                  @default(true)
@@ -16,6 +15,7 @@ model product_variants {
 
   // Relations
   product             products                  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  media               product_media[]
   attributes          variant_attributes[]
   inventory           inventory?
   cart_items          cart_items[]
