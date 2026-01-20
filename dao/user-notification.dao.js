@@ -21,7 +21,7 @@ class UserNotificationDAO {
 
     async update(id, data) {
         return await prisma.user_notifications.update({
-            where: { id: parseInt(id) },
+            where: { id: id },
             data
         });
     }
@@ -60,6 +60,12 @@ class UserNotificationDAO {
     async createMany(notifications) {
         return await prisma.user_notifications.createMany({
             data: notifications
+        });
+    }
+
+    async delete(id) {
+        return await prisma.user_notifications.delete({
+            where: { id: id }
         });
     }
 }

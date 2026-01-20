@@ -46,7 +46,8 @@ export async function createNotification(req, res) {
       title: heading,
       message: description,
       type: "SYSTEM",
-      // expiry_date and image_url are not in current schema
+      image_url: image_url,
+      expiry_date: expiryISO,
     });
 
     res.status(201).json({ success: true, notification: data });
@@ -129,7 +130,7 @@ export async function markAllNotificationsRead(req, res) {
 // ✅ Get All Active Notifications
 export async function getNotifications(req, res) {
   try {
-    const data = await userNotificationDao.listByUser(null, { active_only: true });
+    const data = await userNotificationDao.listByUserId(null, { active_only: true });
     res.status(200).json({ success: true, notifications: data || [] });
   } catch (err) {
     console.error("getNotifications error:", err);
@@ -178,7 +179,8 @@ export async function updateNotification(req, res) {
     const updates = {};
     if (heading) updates.title = heading;
     if (description) updates.message = description;
-    // expiry_date and image_url are not in current schema
+    if (image_url) updates.image_url = image_url;
+    if (expiry_date) updates.expiry_date = new Date(`${expiry_date}T23:59:59Z`).toISOString();
 
     const data = await userNotificationDao.update(id, updates);
 
@@ -284,7 +286,13 @@ export async function createProductUpdateNotification(
 export async function getAdminNotifications(req, res) {
   try {
     const data = await userNotificationDao.listAdmin();
-    return res.json({ success: true, notifications: data });
+    // Map database fields to what Admin UI expects
+    const mappedData = data.map(n => ({
+      ...n,
+      heading: n.title,
+      description: n.message
+    }));
+    return res.json({ success: true, notifications: mappedData });
   } catch (error) {
     console.error("Error fetching admin notifications:", error.message);
     return res.status(500).json({ success: false, message: error.message });

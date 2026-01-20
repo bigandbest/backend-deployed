@@ -1,3 +1,7 @@
+-- Enable extensions
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
 -- CreateEnum
 CREATE TYPE "Vertical" AS ENUM ('grocery', 'food', 'service', 'b2b');
 
