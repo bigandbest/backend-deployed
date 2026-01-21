@@ -13,7 +13,7 @@ model product_variants {
 
   // Optional GST override per variant
   gst_rate_override   Decimal? @db.Decimal
-
+cess_rate_override   Decimal? @db.Decimal
   features            String?
   is_default          Boolean? @default(false)
   active              Boolean? @default(true)

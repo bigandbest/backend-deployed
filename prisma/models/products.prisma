@@ -20,10 +20,9 @@ model products {
   description        String?
 
   // Tax & Compliance
-  hsn_code           String?            @db.VarChar
-  sac_code           String?            @db.VarChar
+  hsn_or_sac_code           String?            @db.VarChar
   gst_rate           Decimal?           @default(0) @db.Decimal
-
+cess_rate          Decimal?           @default(0) @db.Decimal
   vertical           Vertical           @default(qwik)
 
   category_id        String?            @db.Uuid

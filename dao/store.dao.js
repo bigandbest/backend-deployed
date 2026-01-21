@@ -2,19 +2,19 @@ import prisma from '../config/prisma.js';
 
 class StoreDAO {
     async create(data) {
-        return await prisma.store.create({
+        return await prisma.stores.create({
             data
         });
     }
 
     async getById(id) {
-        return await prisma.store.findUnique({
+        return await prisma.stores.findUnique({
             where: { id }
         });
     }
 
     async update(id, data) {
-        return await prisma.store.update({
+        return await prisma.stores.update({
             where: { id },
             data: {
                 ...data
@@ -23,13 +23,13 @@ class StoreDAO {
     }
 
     async delete(id) {
-        return await prisma.store.delete({
+        return await prisma.stores.delete({
             where: { id }
         });
     }
 
     async listAll() {
-        return await prisma.store.findMany({
+        return await prisma.stores.findMany({
             orderBy: { name: 'asc' }
         });
     }

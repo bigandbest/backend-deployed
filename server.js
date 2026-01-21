@@ -167,7 +167,7 @@ const createApp = () => {
   // app.use("/api/b&b-group-product", bnbGroupProductRoutes);
   app.use("/api/daily-deals", dailyDealsRoutes);
   app.use("/api/daily-deals-product", dailyDealsProductRoutes);
-  app.use("/api/brand", brandRoutes);
+  app.use("/api/brands", brandRoutes);
   app.use("/api/product-brand", brandProductsRoutes);
   app.use("/api/recommended-stores", recommendedStoreRoutes);
   app.use("/api/product-recommended-stores", recommendedStoreRoutes);
@@ -550,8 +550,7 @@ const startServer = async () => {
     console.log(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
     console.log(`🌐 CORS: Configured to allow all origins`);
     console.log(
-      `💳 Razorpay Mode: ${
-        process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
+      `💳 Razorpay Mode: ${process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
       }`,
     );
     console.log(`🔗 Supabase: Storage & Auth only`);

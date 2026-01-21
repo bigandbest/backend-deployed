@@ -108,6 +108,23 @@ export const updateCategory = async (req, res) => {
   }
 };
 
+// Get all categories (simple list)
+export const getAllCategories = async (req, res) => {
+  try {
+    const products = await CategoryDAO.listCategories({ limit: 1000 });
+    res.json({
+      success: true,
+      categories: products.items || [],
+    });
+  } catch (err) {
+    console.error("Error fetching categories:", err);
+    res.status(500).json({
+      success: false,
+      error: "An unexpected error occurred",
+    });
+  }
+};
+
 // Delete category
 // Check if category has products
 // Using prisma via simple query since CategoryDAO doesn't expose raw checking yet.
