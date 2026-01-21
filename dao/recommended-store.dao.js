@@ -19,6 +19,10 @@ class RecommendedStoreDAO {
         });
     }
 
+    async getStoreById(id) {
+        return this.getById(id);
+    }
+
     async update(id, data) {
         return await prisma.recommended_store.update({
             where: { id },
@@ -26,10 +30,18 @@ class RecommendedStoreDAO {
         });
     }
 
+    async updateStore(id, data) {
+        return this.update(id, data);
+    }
+
     async delete(id) {
         return await prisma.recommended_store.delete({
             where: { id }
         });
+    }
+
+    async deleteStore(id) {
+        return this.delete(id);
     }
 
     async list(filters = {}) {

@@ -4,7 +4,17 @@ class ProductDAO {
     // --- Product Operations ---
     async createProduct(data) {
         return await prisma.products.create({
-            data
+            data,
+            include: {
+                variants: {
+                    include: {
+                        inventory: true,
+                        attributes: true
+                    }
+                },
+                media: true,
+                brands: { include: { brand: true } }
+            }
         });
     }
 
@@ -26,10 +36,12 @@ class ProductDAO {
                         brand: true
                     }
                 },
+                media: true,
                 reviews: {
                     take: 5,
                     orderBy: { created_at: 'desc' }
-                }
+                },
+                product_recommended_store: true // Include for Store ID mapping
             }
         });
     }
@@ -47,6 +59,29 @@ class ProductDAO {
     async deleteProduct(id) {
         return await prisma.products.delete({
             where: { id }
+        });
+    }
+
+    async updateProductMedia(productId, mediaItems) {
+        return await prisma.$transaction(async (tx) => {
+            // 1. Delete existing media for this product
+            await tx.product_media.deleteMany({
+                where: { product_id: productId }
+            });
+
+            // 2. Create new media entries
+            if (mediaItems && mediaItems.length > 0) {
+                await tx.product_media.createMany({
+                    data: mediaItems.map((item, index) => ({
+                        product_id: productId,
+                        media_type: item.media_type || 'image',
+                        url: item.url,
+                        is_primary: item.is_primary || (index === 0),
+                        sort_order: item.sort_order !== undefined ? item.sort_order : index
+                    }))
+                });
+            }
+            return true;
         });
     }
 
@@ -172,16 +207,102 @@ class ProductDAO {
 
             // Update variants if provided
             if (variantsData && Array.isArray(variantsData)) {
+                // 1. Identification: Determine which variants to keep/update and which to delete
+                const incomingIds = variantsData
+                    .filter(v => v.id)
+                    .map(v => v.id);
+
+                // Delete variants NOT in the incoming list (if list is provided)
+                // Note: Only if we are doing a full update (implied by non-empty list or explicit empty list)
+                // If variantsData is empty array, it means delete all? Or just no updates? 
+                // Usually empty array = delete all for strict Put.
+                await tx.product_variants.deleteMany({
+                    where: {
+                        product_id: id,
+                        id: { notIn: incomingIds }
+                    }
+                });
+
                 for (const variant of variantsData) {
                     if (variant.id) {
+                        // Update existing variant
+                        const { product_id, inventory, attributes, ...variantUpdateData } = variant;
+
                         await tx.product_variants.update({
                             where: { id: variant.id },
-                            data: variant
+                            data: variantUpdateData
                         });
+
+                        // Handle attributes separately if provided
+                        if (attributes && Array.isArray(attributes)) {
+                            // Delete existing attributes
+                            await tx.variant_attributes.deleteMany({
+                                where: { variant_id: variant.id }
+                            });
+
+                            // Create new attributes
+                            if (attributes.length > 0) {
+                                await tx.variant_attributes.createMany({
+                                    data: attributes.map(attr => ({
+                                        variant_id: variant.id,
+                                        attribute_name: attr.attribute_name,
+                                        attribute_value: attr.attribute_value
+                                    }))
+                                });
+                            }
+                        }
+
+                        // Handle inventory separately if provided
+                        if (inventory) {
+                            const existingInventory = await tx.inventory.findUnique({
+                                where: { variant_id: variant.id }
+                            });
+
+                            if (existingInventory) {
+                                await tx.inventory.update({
+                                    where: { variant_id: variant.id },
+                                    data: inventory
+                                });
+                            } else {
+                                await tx.inventory.create({
+                                    data: {
+                                        variant_id: variant.id,
+                                        ...inventory
+                                    }
+                                });
+                            }
+                        }
                     } else {
-                        await tx.product_variants.create({
-                            data: { ...variant, product_id: id }
+                        // Create new variant
+                        const { attributes, inventory, ...variantCreateData } = variant;
+
+                        const newVariant = await tx.product_variants.create({
+                            data: {
+                                ...variantCreateData,
+                                product_id: id
+                            }
                         });
+
+                        // Create attributes for new variant
+                        if (attributes && Array.isArray(attributes) && attributes.length > 0) {
+                            await tx.variant_attributes.createMany({
+                                data: attributes.map(attr => ({
+                                    variant_id: newVariant.id,
+                                    attribute_name: attr.attribute_name,
+                                    attribute_value: attr.attribute_value
+                                }))
+                            });
+                        }
+
+                        // Create inventory for new variant
+                        if (inventory) {
+                            await tx.inventory.create({
+                                data: {
+                                    variant_id: newVariant.id,
+                                    ...inventory
+                                }
+                            });
+                        }
                     }
                 }
             }
@@ -206,8 +327,6 @@ class ProductDAO {
     }
 
     async getEverydayEssentials(limit = 20) {
-        // Placeholder filter, assuming everyday_essential flag or similar
-        // For now using a general active filter as in the original controller
         return await prisma.products.findMany({
             where: {
                 active: true
@@ -242,7 +361,7 @@ class ProductDAO {
                 active: true,
                 OR: [
                     { category: { name: categoryName } },
-                    { category_name: categoryName } // fallback for some schemas
+                    { category_name: categoryName }
                 ]
             },
             include: {
@@ -329,6 +448,59 @@ class ProductDAO {
                 inventory: true,
                 attributes: true
             }
+        });
+    }
+
+    // --- Variant Attributes Operations ---
+    async createVariantAttribute(variantId, attributeData) {
+        return await prisma.variant_attributes.create({
+            data: {
+                variant_id: variantId,
+                ...attributeData
+            }
+        });
+    }
+
+    async updateVariantAttribute(id, attributeData) {
+        return await prisma.variant_attributes.update({
+            where: { id },
+            data: attributeData
+        });
+    }
+
+    async deleteVariantAttribute(id) {
+        return await prisma.variant_attributes.delete({
+            where: { id }
+        });
+    }
+
+    async getAttributesByVariantId(variantId) {
+        return await prisma.variant_attributes.findMany({
+            where: { variant_id: variantId }
+        });
+    }
+
+    async bulkUpdateVariantAttributes(variantId, attributes) {
+        return await prisma.$transaction(async (tx) => {
+            // Delete existing attributes
+            await tx.variant_attributes.deleteMany({
+                where: { variant_id: variantId }
+            });
+
+            // Create new attributes
+            if (attributes && attributes.length > 0) {
+                await tx.variant_attributes.createMany({
+                    data: attributes.map(attr => ({
+                        variant_id: variantId,
+                        attribute_name: attr.attribute_name,
+                        attribute_value: attr.attribute_value
+                    }))
+                });
+            }
+
+            return await tx.variant_attributes.findMany({
+                where: { variant_id: variantId }
+            });
         });
     }
 
