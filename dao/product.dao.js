@@ -343,16 +343,25 @@ class ProductDAO {
     async getTopProducts(limit = 20) {
         return await prisma.products.findMany({
             where: {
-                active: true,
-                top_sale: true
+                active: true
+                // top_sale field does not exist, using high rating as proxy
             },
             take: limit,
             include: {
                 category: true,
                 variants: { where: { active: true } }
             },
-            orderBy: { created_at: 'desc' }
+            orderBy: [
+                { rating: 'desc' },
+                { review_count: 'desc' }
+            ]
         });
+    }
+
+    // Check delivery feasibility (Stub implementation to fix crash)
+    async canDeliverToPincode(productId, pincode) {
+        // TODO: Implement actual logic based on Warehouse/Pincode mapping
+        return true;
     }
 
     async getProductsByCategoryName(categoryName) {
