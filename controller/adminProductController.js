@@ -1,4 +1,5 @@
 import ProductDAO from "../dao/product.dao.js";
+import prisma from '../config/prisma.js';
 
 // Create new product
 export const createProduct = async (req, res) => {
@@ -33,76 +34,19 @@ export const createProduct = async (req, res) => {
     }
 
     // Construct Product Data
-    // NOTE: Filtering out fields not present in 'products' schema (hsn_code, sac_code, gst_rate, rating)
     const productData = {
       name,
       description,
-      // hsn_code,  <-- Not in schema
-      // sac_code,  <-- Not in schema
-      // gst_rate: gst_rate ? parseFloat(gst_rate) : 0, <-- Not in schema
-      vertical: vertical || 'qwik', // Enum exists in schema
+      hsn_or_sac_code: hsn_code || sac_code,
+      gst_rate: gst_rate ? parseFloat(gst_rate) : 0,
+      cess_rate: req.body.cess_rate ? parseFloat(req.body.cess_rate) : 0,
+      vertical: vertical || 'qwik',
       category_id: category_id || null,
       subcategory_id: subcategory_id || null,
-      group_id: group_id || null,
-      store_id: store_id || null,
-      return_applicable: !!return_applicable,
-      return_days: return_days ? parseInt(return_days) : 0,
-      active: active !== undefined ? active : true,
-      has_variants: !!has_variants,
-    };
-
-    // If schema DOES have these fields (checked products.prisma), include them.
-    // products.prisma lines 23-27: hsn_code, sac_code, gst_rate, vertical ARE present.
-    // Wait, the error said "Unknown argument `hsn_code`".
-    // This implies the generate Client is out of sync or I read the file wrong?
-    // Let me re-read products.prisma carefully.
-    // Lines 23-25: 
-    //   hsn_code           String?            @db.VarChar
-    //   sac_code           String?            @db.VarChar
-    //   gst_rate           Decimal?           @default(0) @db.Decimal
-
-    // They ARE in the file I viewed (Step 16).
-    // WHY did Prisma error? "Unknown argument `hsn_code`".
-    // Maybe the Prisma Client wasn't regenerated after a schema change?
-    // OR the `prisma db push` didn't apply changes?
-    // user ran `npx prisma db push` 2h ago.
-
-    // I will try to regenerate the client in the next step.
-    // But for now, I will COMMENT OUT fields that caused error to get it working, 
-    // OR confirm if `hsn_code` is truly missing from the database.
-
-    // Actually, if I look closely at the error message:
-    // "Unknown argument `hsn_code`. Available options are marked with ?."
-    // and the list of available options DOES NOT include hsn_code.
-    // This confirms the PROPERTY DOES NOT EXIST on the generated client model.
-
-    // This implies the running code is using an OLD client.
-    // The user needs to run `npx prisma generate`.
-
-    // However, I can't force them to stop the server and gen.
-    // I will modify the code to omit them for now to unblock, and warn the user.
-    // Wait, `vertical` is also missing in the options list in the error log!
-    // But `vertical` IS in the schema I saw.
-
-    // This STRONGLY suggests the `node_modules/.prisma/client` is stale.
-
-    // I will remove the problematic fields to make it work with the CURRENT client state.
-
-    const safeProductData = {
-      name,
-      description,
-      // hsn_code, // Removed due to stale client
-      // sac_code, // Removed due to stale client
-      // gst_rate: gst_rate ? parseFloat(gst_rate) : 0, // Removed due to stale client
-      // vertical: vertical || 'qwik', // Removed/Commented if it causes error
-      category_id: category_id || null,
-      subcategory_id: subcategory_id || null,
-      group_id: group_id || null,
       group_id: group_id || null,
       store_id: null, // Default to null to prevent FK error with Recommended Store IDs
       return_applicable: !!return_applicable,
       return_days: return_days ? parseInt(return_days) : 0,
-      active: active !== undefined ? active : true,
       active: active !== undefined ? active : true,
       has_variants: !!has_variants,
     };
@@ -110,13 +54,10 @@ export const createProduct = async (req, res) => {
     // Populate helper 'image' field for list views (using first image)
     const imageUrls = images || (media && Array.isArray(media) ? media.map(m => m.url) : []);
     if (imageUrls && imageUrls.length > 0) {
-      safeProductData.image = typeof imageUrls[0] === 'string' ? imageUrls[0] : imageUrls[0].url;
+      productData.image = typeof imageUrls[0] === 'string' ? imageUrls[0] : imageUrls[0].url;
     } else if (req.body.image) {
-      safeProductData.image = req.body.image;
+      productData.image = req.body.image;
     }
-
-    // Re-assign to productData
-    Object.assign(productData, safeProductData);
 
     // If Brand ID passed as brand_name (frontend quirk mentioned in AddProduct.jsx)
     const brandId = brand_name;
@@ -124,7 +65,7 @@ export const createProduct = async (req, res) => {
     // Prepare Nested Writes
     // 1. Media - Accept both 'images' array of URLs and 'media' array of objects
     const mediaArray = media && Array.isArray(media) ? media : (images && Array.isArray(images) ? images : []);
-    
+
     if (mediaArray && mediaArray.length > 0) {
       productData.media = {
         create: mediaArray.map((item, index) => {
@@ -160,8 +101,18 @@ export const createProduct = async (req, res) => {
             discount_percentage: v.discount_percentage ? parseInt(v.discount_percentage) : 0,
             is_default: !!v.is_default,
             active: true,
-            shipping_amount: v.shipping_amount ? parseFloat(v.shipping_amount) : 0
+            shipping_amount: v.shipping_amount ? parseFloat(v.shipping_amount) : 0,
+
+            // Bulk Pricing
+            is_bulk_enabled: v.is_bulk_enabled !== undefined ? !!v.is_bulk_enabled : false,
+            bulk_min_quantity: v.bulk_min_quantity ? parseInt(v.bulk_min_quantity) : 50,
+            bulk_discount_percentage: v.bulk_discount_percentage ? parseInt(v.bulk_discount_percentage) : 0,
+            bulk_price: v.bulk_price ? parseFloat(v.bulk_price) : 0
           };
+
+          // Handle Inventory (Nested Create)
+          // Default stock quantity if provided in variant data, else 0
+          // Inventory creation deferred to post-creation bulk insert for multi-warehouse support
 
           // Handle Attributes (if array provided)
           if (v.attributes && Array.isArray(v.attributes) && v.attributes.length > 0) {
@@ -198,6 +149,48 @@ export const createProduct = async (req, res) => {
         console.error("Error linking recommended store:", storeError.message);
       }
     }
+
+    // --- AUTOMATIC INVENTORY CREATION ---
+    // Automatically create inventory records for this product (and variants) in ONLY ACTIVE warehouses
+    try {
+      // 1. Fetch all active warehouses
+      const warehouses = await prisma.warehouses.findMany({
+        where: { is_active: true },
+        select: { id: true }
+      });
+
+      if (warehouses.length > 0) {
+        const inventoryRecords = [];
+
+        // 3. Prepare inventory records for VARIANTS (if any)
+        if (newProduct.variants && newProduct.variants.length > 0) {
+          newProduct.variants.forEach(variant => {
+            warehouses.forEach(wh => {
+              inventoryRecords.push({
+                variant_id: variant.id,
+                warehouse_id: wh.id,
+                stock_qty: 0,
+                reserved_qty: 0,
+                bulk_stock_threshold: variant.bulk_min_quantity || 0,
+                // bulk_reserved_qty: 0 // Default
+              });
+            });
+          });
+        }
+
+        // 4. Bulk Insert
+        if (inventoryRecords.length > 0) {
+          await prisma.inventory.createMany({
+            data: inventoryRecords,
+            skipDuplicates: true
+          });
+          console.log(`Initialized ${inventoryRecords.length} inventory records for product ${newProduct.name}`);
+        }
+      }
+    } catch (invError) {
+      console.error("Failed to initialize inventory for new product:", invError);
+    }
+    // ------------------------------------
 
     res.status(201).json({
       success: true,
@@ -476,13 +469,13 @@ export const updateProduct = async (req, res) => {
       }
     });
 
-    // Handle HSN Code - pass directly if present (schema seems to have hsn_code now)
-    // if (updateData.hsn_code) fieldsToUpdate.hsn_or_sac_code = updateData.hsn_code; 
-    // ^ Remove old mapping, allow 'hsn_code' via validFields or direct passing if not in validFields.
-    // We should add hsn_code to validFields or just let it pass if logic allows.
-    // Let's add explicit check:
-    if (updateData.hsn_code !== undefined) fieldsToUpdate.hsn_code = updateData.hsn_code;
-    if (updateData.sac_code !== undefined) fieldsToUpdate.sac_code = updateData.sac_code;
+    // Handle HSN Code - map to hsn_or_sac_code
+    if (updateData.hsn_code !== undefined) {
+      fieldsToUpdate.hsn_or_sac_code = updateData.hsn_code;
+    } else if (updateData.sac_code !== undefined) {
+      // Fallback or alternative if hsn is not provided
+      fieldsToUpdate.hsn_or_sac_code = updateData.sac_code;
+    }
 
 
     // Handle Relations via Connect/Disconnect (since scalar ID updates are failing)
@@ -583,6 +576,12 @@ export const updateProduct = async (req, res) => {
             active: v.active !== undefined ? !!v.active : true,
             shipping_amount: (v.shipping_amount) ? parseFloat(v.shipping_amount) : 0,
             inventory: undefined, // Strip relation
+
+            // Bulk Pricing
+            is_bulk_enabled: v.is_bulk_enabled !== undefined ? !!v.is_bulk_enabled : false,
+            bulk_min_quantity: v.bulk_min_quantity ? parseInt(v.bulk_min_quantity) : 50,
+            bulk_discount_percentage: v.bulk_discount_percentage ? parseInt(v.bulk_discount_percentage) : 0,
+            bulk_price: v.bulk_price ? parseFloat(v.bulk_price) : 0
           };
 
           // Include attributes if provided - proper handling for update
