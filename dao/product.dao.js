@@ -536,8 +536,16 @@ class ProductDAO {
 
     // --- Recommended Store Relationships ---
     async addRecommendedStore(productId, storeId) {
-        return await prisma.product_recommended_store.create({
-            data: {
+        // Use upsert to avoid unique constraint errors if already linked
+        return await prisma.product_recommended_store.upsert({
+            where: {
+                product_id_recommended_store_id: {
+                    product_id: productId,
+                    recommended_store_id: storeId
+                }
+            },
+            update: {}, // No changes if already exists
+            create: {
                 product_id: productId,
                 recommended_store_id: storeId
             }

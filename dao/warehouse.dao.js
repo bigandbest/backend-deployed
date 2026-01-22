@@ -1,13 +1,37 @@
 import prisma from '../config/prisma.js';
 
+// Helper to safely convert warehouse ID - tries numeric first, then string name
+function normalizeWarehouseId(id) {
+    if (!id) return null;
+    const numericId = parseInt(id, 10);
+    return !isNaN(numericId) ? numericId : id; // Return either the number or the original string (name)
+}
+
 class WarehouseDAO {
     async create(data) {
         return await prisma.warehouses.create({ data });
     }
 
     async getById(id) {
+        const numericId = parseInt(id, 10);
+        // If it's a valid numeric ID, search by ID
+        if (!isNaN(numericId)) {
+            const warehouse = await prisma.warehouses.findUnique({
+                where: { id: numericId },
+                include: {
+                    parent_warehouse: true,
+                    child_warehouses: true,
+                    warehouse_zones: { include: { zone: true } },
+                    warehouse_pincodes: true,
+                    scheduling_configs: { include: { slot: true } }
+                }
+            });
+            if (warehouse) return warehouse;
+        }
+
+        // If ID is not numeric or not found, try searching by name
         return await prisma.warehouses.findUnique({
-            where: { id },
+            where: { name: id },
             include: {
                 parent_warehouse: true,
                 child_warehouses: true,
@@ -49,8 +73,14 @@ class WarehouseDAO {
     }
 
     async update(id, data) {
+        const warehouseId = normalizeWarehouseId(id);
+        // Build where clause that works with both numeric ID and string name
+        const where = typeof warehouseId === 'number'
+            ? { id: warehouseId }
+            : { name: warehouseId };
+
         return await prisma.warehouses.update({
-            where: { id },
+            where,
             data: {
                 ...data,
                 updated_at: new Date()
@@ -88,19 +118,23 @@ class WarehouseDAO {
     }
 
     async updateWithRelations(id, data, relations) {
+        const numericId = parseInt(id, 10);
+        if (isNaN(numericId)) {
+            throw new Error('Invalid warehouse ID');
+        }
         const { zone_ids, pincode_assignments } = relations;
         return await prisma.$transaction(async (tx) => {
             const warehouse = await tx.warehouses.update({
-                where: { id },
+                where: { id: numericId },
                 data: { ...data, updated_at: new Date() }
             });
 
             if (data.type === 'zonal' && zone_ids) { // Only update if provided
-                await tx.warehouse_zones.deleteMany({ where: { warehouse_id: id } });
+                await tx.warehouse_zones.deleteMany({ where: { warehouse_id: numericId } });
                 if (zone_ids.length > 0) {
                     await tx.warehouse_zones.createMany({
                         data: zone_ids.map(zid => ({
-                            warehouse_id: id,
+                            warehouse_id: numericId,
                             zone_id: Number(zid),
                             priority: 1,
                             is_active: true
@@ -108,11 +142,11 @@ class WarehouseDAO {
                     });
                 }
             } else if (data.type === 'division' && pincode_assignments) {
-                await tx.warehouse_pincodes.deleteMany({ where: { warehouse_id: id } });
+                await tx.warehouse_pincodes.deleteMany({ where: { warehouse_id: numericId } });
                 if (pincode_assignments.length > 0) {
                     await tx.warehouse_pincodes.createMany({
                         data: pincode_assignments.map(pa => ({
-                            warehouse_id: id,
+                            warehouse_id: numericId,
                             pincode: pa.pincode,
                             city: pa.city,
                             state: pa.state,
@@ -126,14 +160,24 @@ class WarehouseDAO {
     }
 
     async delete(id) {
+        const warehouseId = normalizeWarehouseId(id);
+        // Build where clause that works with both numeric ID and string name
+        const where = typeof warehouseId === 'number'
+            ? { id: warehouseId }
+            : { name: warehouseId };
+
         return await prisma.warehouses.delete({
-            where: { id }
+            where
         });
     }
 
     async getProductStock(warehouseId, productId, variantId = null) {
+        const numericId = parseInt(warehouseId, 10);
+        if (isNaN(numericId)) {
+            throw new Error('Invalid warehouse ID');
+        }
         const where = {
-            warehouse_id: warehouseId,
+            warehouse_id: numericId,
             product_id: productId
         };
         if (variantId) where.variant_id = variantId;
@@ -149,10 +193,14 @@ class WarehouseDAO {
     }
 
     async updateProductStock(warehouseId, productId, variantId, data) {
+        const numericId = parseInt(warehouseId, 10);
+        if (isNaN(numericId)) {
+            throw new Error('Invalid warehouse ID');
+        }
         // Upsert logic
         const where = {
-            warehouse_id_product_id_variant_id: { // Correct composite unique constraint per standard naming or need to verify
-                warehouse_id: warehouseId,
+            warehouse_id_product_id_variant_id: {
+                warehouse_id: numericId,
                 product_id: productId,
                 variant_id: variantId || 0 // Assuming 0 or specific value for no variant if constraint requires? 
                 // Actually relying on findFirst unique check is safer if schema is unknown.
@@ -160,7 +208,7 @@ class WarehouseDAO {
         };
 
         // Revised upsert using findFirst for safety
-        const existing = await this.getProductStock(warehouseId, productId, variantId);
+        const existing = await this.getProductStock(numericId, productId, variantId);
 
         if (existing) {
             return await prisma.product_warehouse_stock.update({
@@ -184,10 +232,14 @@ class WarehouseDAO {
     }
 
     async deleteProductStock(warehouseId, productId) {
+        const numericId = parseInt(warehouseId, 10);
+        if (isNaN(numericId)) {
+            throw new Error('Invalid warehouse ID');
+        }
         // Delete all stock records for this product in this warehouse (base + variants)
         return await prisma.product_warehouse_stock.deleteMany({
             where: {
-                warehouse_id: warehouseId,
+                warehouse_id: numericId,
                 product_id: productId
             }
         });
@@ -202,9 +254,13 @@ class WarehouseDAO {
     }
 
     async addPincodes(warehouseId, pincodeDataList) {
+        const numericId = parseInt(warehouseId, 10);
+        if (isNaN(numericId)) {
+            throw new Error('Invalid warehouse ID');
+        }
         return await prisma.warehouse_pincodes.createMany({
             data: pincodeDataList.map(p => ({
-                warehouse_id: warehouseId,
+                warehouse_id: numericId,
                 ...p,
                 is_active: true
             })),
@@ -213,24 +269,54 @@ class WarehouseDAO {
     }
 
     async removePincode(warehouseId, pincode) {
+        const numericId = parseInt(warehouseId, 10);
+        if (isNaN(numericId)) {
+            throw new Error('Invalid warehouse ID');
+        }
         return await prisma.warehouse_pincodes.deleteMany({
             where: {
-                warehouse_id: warehouseId,
+                warehouse_id: numericId,
                 pincode: pincode
             }
         });
     }
 
+    async updatePincode(warehouseId, pincode, data) {
+        const numericId = parseInt(warehouseId, 10);
+        if (isNaN(numericId)) {
+            throw new Error('Invalid warehouse ID');
+        }
+        // updateMany used because pincode is not unique ID, but combination with warehouse_id makes it unique
+        return await prisma.warehouse_pincodes.updateMany({
+            where: {
+                warehouse_id: numericId,
+                pincode: pincode
+            },
+            data: {
+                ...data,
+                updated_at: new Date()
+            }
+        });
+    }
+
     async getPincodes(warehouseId) {
+        const numericId = parseInt(warehouseId, 10);
+        if (isNaN(numericId)) {
+            throw new Error('Invalid warehouse ID');
+        }
         return await prisma.warehouse_pincodes.findMany({
-            where: { warehouse_id: warehouseId, is_active: true },
+            where: { warehouse_id: numericId, is_active: true },
             orderBy: { pincode: 'asc' }
         });
     }
 
     async listStocks(warehouseId) {
+        const numericId = parseInt(warehouseId, 10);
+        if (isNaN(numericId)) {
+            throw new Error('Invalid warehouse ID');
+        }
         return await prisma.product_warehouse_stock.findMany({
-            where: { warehouse_id: warehouseId, is_active: true },
+            where: { warehouse_id: numericId, is_active: true },
             include: {
                 products: true,
                 product_variants: true
@@ -239,9 +325,13 @@ class WarehouseDAO {
     }
 
     async upsertSchedulingConfig(warehouseId, data) {
+        const numericId = parseInt(warehouseId, 10);
+        if (isNaN(numericId)) {
+            throw new Error('Invalid warehouse ID');
+        }
         // Check existence
         const existing = await prisma.warehouse_scheduling_config.findFirst({
-            where: { warehouse_id: warehouseId }
+            where: { warehouse_id: numericId }
         });
 
         if (existing) {
@@ -257,8 +347,12 @@ class WarehouseDAO {
     }
 
     async getSchedulingConfig(warehouseId) {
+        const numericId = parseInt(warehouseId, 10);
+        if (isNaN(numericId)) {
+            throw new Error('Invalid warehouse ID');
+        }
         return await prisma.warehouse_scheduling_config.findFirst({
-            where: { warehouse_id: warehouseId },
+            where: { warehouse_id: numericId },
             include: { slot: true }
         });
     }

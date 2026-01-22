@@ -56,41 +56,23 @@ const transformProduct = (product, assignments = []) => {
 
 export const getAllProducts = async (req, res) => {
   try {
-    const { items: products } = await productDao.listProducts({ active: true }, { limit: 1000 });
-
-    const productIds = products.map((p) => p.id);
-    const assignmentsByProduct = new Map();
-
-    if (productIds.length > 0) {
-      const assignmentRows = await productWarehouseStockDao.listByProducts(productIds);
-      assignmentRows?.forEach((row) => {
-        const assignments = assignmentsByProduct.get(row.product_id) || [];
-        assignments.push({
-          warehouse_id: row.warehouse_id,
-          warehouse_name: row.warehouses?.name,
-          warehouse_type: row.warehouses?.type,
-          parent_warehouse_id: row.warehouses?.parent_warehouse_id,
-          stock_quantity: row.stock_quantity,
-          reserved_quantity: row.reserved_quantity || 0,
-          available_quantity: Math.max(row.stock_quantity - (row.reserved_quantity || 0), 0),
-          warehouse_pincode: row.warehouses?.location || null,
-        });
-        assignmentsByProduct.set(row.product_id, assignments);
-      });
-    }
-
-    const transformedProducts = products.map(product =>
-      transformProduct(product, assignmentsByProduct.get(product.id) || [])
+    // Use Prisma through ProductDAO instead of Supabase
+    const products = await productDao.listProducts(
+      { active: true },
+      { limit: 1000, page: 1 },
     );
 
     res.status(200).json({
       success: true,
-      products: transformedProducts,
-      total: transformedProducts.length,
+      products: products.items || [],
+      total: products.total || 0,
     });
-  } catch (error) {
-    console.error("Server error:", error);
-    res.status(500).json({ error: "Internal server error" });
+  } catch (err) {
+    console.error("Error fetching products:", err);
+    res.status(500).json({
+      success: false,
+      error: "An unexpected error occurred. Please try again.",
+    });
   }
 };
 

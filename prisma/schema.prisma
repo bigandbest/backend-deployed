@@ -133,6 +133,7 @@ model charge_settings {
   id              Int      @id @default(1)
   handling_charge Decimal  @default(0) @db.Decimal
   surge_charge    Decimal  @default(0) @db.Decimal
+  discount_charge Decimal  @default(0) @db.Decimal
   platform_charge Decimal  @default(0) @db.Decimal
   updated_at      DateTime? @default(now()) @db.Timestamptz
 }
@@ -720,7 +721,7 @@ model product_variants {
 
   // Optional GST override per variant
   gst_rate_override   Decimal? @db.Decimal
-
+cess_rate_override   Decimal? @db.Decimal
   features            String?
   is_default          Boolean? @default(false)
   active              Boolean? @default(true)
@@ -737,10 +738,42 @@ model product_variants {
   cart_items          cart_items[]
   order_items         order_items[]
   service_bookings    service_bookings[]
+  warehouse_stock     product_warehouse_stock[]
 
   @@index([product_id])
   @@index([sku])
   @@index([active])
+}
+
+
+// --- Model: product_warehouse_stock.prisma ---
+// --- Model: product_warehouse_stock.prisma ---
+model product_warehouse_stock {
+  id                  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id          String             @db.Uuid
+  variant_id          String?            @db.Uuid
+  warehouse_id        Int
+
+  stock_quantity      Int                @default(0)
+  reserved_quantity   Int                @default(0)
+  
+  cost_per_unit       Decimal?           @db.Decimal
+  minimum_threshold   Int?               @default(0)
+  reorder_point       Int?               @default(0)
+  
+  is_active           Boolean?           @default(true)
+  created_at          DateTime?          @default(now()) @db.Timestamptz
+  updated_at          DateTime?          @default(now()) @db.Timestamptz
+  last_restocked_at   DateTime?          @db.Timestamptz
+
+  // Relations
+  products         products          @relation(fields: [product_id], references: [id])
+  warehouses       warehouses        @relation(fields: [warehouse_id], references: [id])
+  product_variants product_variants? @relation(fields: [variant_id], references: [id])
+
+  @@index([product_id])
+  @@index([warehouse_id])
+  @@index([variant_id])
 }
 
 
@@ -767,10 +800,9 @@ model products {
   description        String?
 
   // Tax & Compliance
-  hsn_code           String?            @db.VarChar
-  sac_code           String?            @db.VarChar
+  hsn_or_sac_code           String?            @db.VarChar
   gst_rate           Decimal?           @default(0) @db.Decimal
-
+cess_rate          Decimal?           @default(0) @db.Decimal
   vertical           Vertical           @default(qwik)
 
   category_id        String?            @db.Uuid
@@ -808,6 +840,7 @@ model products {
   you_may_like              you_may_like[]
   store_section_mappings    store_section_mappings[]
   daily_deals_products      daily_deals_product[]
+  warehouse_stock           product_warehouse_stock[]
 
   @@index([vertical])
   @@index([category_id])
@@ -1215,8 +1248,6 @@ model user_notifications {
   related_id   String?   @db.Uuid
   related_type String?   @db.VarChar
   is_read      Boolean?  @default(false)
-  image_url    String?
-  expiry_date  DateTime? @db.Timestamptz
   created_at   DateTime? @default(now()) @db.Timestamp
   read_at      DateTime? @db.Timestamp
 
@@ -1307,6 +1338,7 @@ model warehouse_pincodes {
   pincode      String     @db.VarChar
   city         String?    @db.VarChar
   state        String?    @db.VarChar
+  delivery_days Int?      @default(3)
   is_active    Boolean?   @default(true)
   created_at   DateTime?  @default(now()) @db.Timestamptz
   updated_at   DateTime?  @default(now()) @db.Timestamptz
@@ -1381,6 +1413,7 @@ model warehouses {
   scheduled_orders    scheduled_orders[]
   warehouse_pincodes  warehouse_pincodes[]
   inventory           inventory[]
+  warehouse_stock     product_warehouse_stock[]
 }
 
 

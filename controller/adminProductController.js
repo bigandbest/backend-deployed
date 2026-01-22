@@ -20,6 +20,7 @@ export const createProduct = async (req, res) => {
       has_variants,
       product_variants,
       images,
+      media, // Accept both 'images' and 'media' from frontend
       brand_name, // Typically brand_id from frontend
       ...otherFields
     } = req.body;
@@ -107,8 +108,9 @@ export const createProduct = async (req, res) => {
     };
 
     // Populate helper 'image' field for list views (using first image)
-    if (images && Array.isArray(images) && images.length > 0) {
-      safeProductData.image = images[0];
+    const imageUrls = images || (media && Array.isArray(media) ? media.map(m => m.url) : []);
+    if (imageUrls && imageUrls.length > 0) {
+      safeProductData.image = typeof imageUrls[0] === 'string' ? imageUrls[0] : imageUrls[0].url;
     } else if (req.body.image) {
       safeProductData.image = req.body.image;
     }
@@ -120,15 +122,29 @@ export const createProduct = async (req, res) => {
     const brandId = brand_name;
 
     // Prepare Nested Writes
-    // 1. Media
-    if (images && Array.isArray(images) && images.length > 0) {
+    // 1. Media - Accept both 'images' array of URLs and 'media' array of objects
+    const mediaArray = media && Array.isArray(media) ? media : (images && Array.isArray(images) ? images : []);
+    
+    if (mediaArray && mediaArray.length > 0) {
       productData.media = {
-        create: images.map((url, index) => ({
-          media_type: 'image',
-          url: url,
-          is_primary: index === 0,
-          sort_order: index
-        }))
+        create: mediaArray.map((item, index) => {
+          // Handle both formats: object with {url, media_type, etc.} or string URL
+          if (typeof item === 'string') {
+            return {
+              media_type: 'image',
+              url: item,
+              is_primary: index === 0,
+              sort_order: index
+            };
+          } else {
+            return {
+              media_type: item.media_type || 'image',
+              url: item.url,
+              is_primary: item.is_primary !== undefined ? item.is_primary : index === 0,
+              sort_order: item.sort_order !== undefined ? item.sort_order : index
+            };
+          }
+        })
       };
     }
 
@@ -556,7 +572,7 @@ export const updateProduct = async (req, res) => {
           // If 'variant_name' exists, it's likely from frontend form mapping. 
           // If 'title' exists, it might be raw DB object.
           // flexible mapping:
-          return {
+          const variantData = {
             id: v.id, // Important for UPDATE
             title: v.variant_name || v.title,
             sku: v.sku || (v.id ? undefined : `${(fieldsToUpdate.name || 'VAR').substring(0, 3).toUpperCase()}-${Date.now()}-${Math.floor(Math.random() * 1000)}`), // Generate SKU only for new
@@ -567,10 +583,17 @@ export const updateProduct = async (req, res) => {
             active: v.active !== undefined ? !!v.active : true,
             shipping_amount: (v.shipping_amount) ? parseFloat(v.shipping_amount) : 0,
             inventory: undefined, // Strip relation
-            attributes: undefined // Strip relation (handled below if we want strict update)
           };
+
+          // Include attributes if provided - proper handling for update
+          if (v.attributes && Array.isArray(v.attributes) && v.attributes.length > 0) {
+            variantData.attributes = v.attributes.filter(attr => attr && (attr.attribute_name || attr.attribute_value));
+          }
+
+          return variantData;
         });
 
+        console.log("Mapping variants with attributes:", mappedVariants);
         await ProductDAO.updateProductWithVariants(productId, {}, mappedVariants);
         console.log("Product variants updated with new data");
       } catch (variantError) {
