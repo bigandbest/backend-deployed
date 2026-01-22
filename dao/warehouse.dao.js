@@ -176,20 +176,31 @@ class WarehouseDAO {
         if (isNaN(numericId)) {
             throw new Error('Invalid warehouse ID');
         }
-        const where = {
-            warehouse_id: numericId,
-            product_id: productId
-        };
-        if (variantId) where.variant_id = variantId;
-        else where.variant_id = null; // Explicitly check for null variant_id for base products
 
-        return await prisma.product_warehouse_stock.findFirst({
-            where,
-            include: {
-                products: true,
-                product_variants: true
-            }
-        });
+        // If variantId is provided, query by it directly
+        if (variantId) {
+            return await prisma.inventory.findUnique({
+                where: {
+                    variant_id_warehouse_id: {
+                        variant_id: variantId,
+                        warehouse_id: numericId
+                    }
+                },
+                include: {
+                    variant: {
+                        include: {
+                            product: true
+                        }
+                    }
+                }
+            });
+        }
+
+        // If only productId, we might need to find specific stock? 
+        // But inventory is variant-centric. 
+        // Logic needing product-level stock usually implies aggregating variants or finding base variant.
+        // Returning null or emulating old behavior if necessary.
+        return null;
     }
 
     async updateProductStock(warehouseId, productId, variantId, data) {
@@ -197,38 +208,31 @@ class WarehouseDAO {
         if (isNaN(numericId)) {
             throw new Error('Invalid warehouse ID');
         }
-        // Upsert logic
-        const where = {
-            warehouse_id_product_id_variant_id: {
-                warehouse_id: numericId,
-                product_id: productId,
-                variant_id: variantId || 0 // Assuming 0 or specific value for no variant if constraint requires? 
-                // Actually relying on findFirst unique check is safer if schema is unknown.
-            }
-        };
 
-        // Revised upsert using findFirst for safety
-        const existing = await this.getProductStock(numericId, productId, variantId);
-
-        if (existing) {
-            return await prisma.product_warehouse_stock.update({
-                where: { id: existing.id },
-                data: {
-                    ...data,
-                    last_restocked_at: new Date()
-                }
-            });
-        } else {
-            return await prisma.product_warehouse_stock.create({
-                data: {
-                    warehouse_id: warehouseId,
-                    product_id: productId,
-                    variant_id: variantId,
-                    ...data,
-                    last_restocked_at: new Date()
-                }
-            });
+        if (!variantId) {
+            throw new Error('Variant ID is required for inventory updates');
         }
+
+        return await prisma.inventory.upsert({
+            where: {
+                variant_id_warehouse_id: {
+                    variant_id: variantId,
+                    warehouse_id: numericId
+                }
+            },
+            update: {
+                stock_qty: data.stock_quantity,
+                // reserved_qty: data.reserved_quantity, // preserved if needed?
+                updated_at: new Date()
+            },
+            create: {
+                variant_id: variantId,
+                warehouse_id: numericId,
+                stock_qty: data.stock_quantity || 0,
+                reserved_qty: 0,
+                bulk_stock_threshold: data.minimum_threshold || 0
+            }
+        });
     }
 
     async deleteProductStock(warehouseId, productId) {
@@ -236,13 +240,29 @@ class WarehouseDAO {
         if (isNaN(numericId)) {
             throw new Error('Invalid warehouse ID');
         }
-        // Delete all stock records for this product in this warehouse (base + variants)
-        return await prisma.product_warehouse_stock.deleteMany({
-            where: {
-                warehouse_id: numericId,
-                product_id: productId
-            }
+
+        // Must find all variants for this product to delete their inventory?
+        // Or we rely on cascading delete if product is deleted?
+        // The previous logic deleted generic stock record.
+        // With inventory linked to variant, we need to delete inventory logic.
+        // This function might be deprecated or need to find variants first.
+
+        // For now, let's find variants of the product and delete their inventory for this warehouse
+        const variants = await prisma.product_variants.findMany({
+            where: { product_id: productId },
+            select: { id: true }
         });
+
+        if (variants.length > 0) {
+            const variantIds = variants.map(v => v.id);
+            return await prisma.inventory.deleteMany({
+                where: {
+                    warehouse_id: numericId,
+                    variant_id: { in: variantIds }
+                }
+            });
+        }
+        return { count: 0 };
     }
 
     async findForOrder(pincode, productType, preferredWarehouseId) {
@@ -315,11 +335,14 @@ class WarehouseDAO {
         if (isNaN(numericId)) {
             throw new Error('Invalid warehouse ID');
         }
-        return await prisma.product_warehouse_stock.findMany({
-            where: { warehouse_id: numericId, is_active: true },
+        return await prisma.inventory.findMany({
+            where: { warehouse_id: numericId },
             include: {
-                products: true,
-                product_variants: true
+                variant: {
+                    include: {
+                        product: true
+                    }
+                }
             }
         });
     }

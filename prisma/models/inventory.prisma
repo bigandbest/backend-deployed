@@ -1,16 +1,19 @@
 model inventory {
   id           Int               @id @default(autoincrement())
-  variant_id   String            @unique @db.Uuid
+  variant_id   String            @db.Uuid
   stock_qty    Int               @default(0)
   reserved_qty Int               @default(0)
-  warehouse_id Int?
+  bulk_stock_threshold Int?      @default(0) // Minimum stock required to allow bulk orders
+  bulk_reserved_qty    Int?      @default(0)
+  warehouse_id Int
   updated_at   DateTime          @updatedAt @db.Timestamptz
   created_at   DateTime          @default(now()) @db.Timestamptz
 
   // Relations
   variant      product_variants  @relation(fields: [variant_id], references: [id], onDelete: Cascade)
-  warehouse    warehouses?       @relation(fields: [warehouse_id], references: [id])
+  warehouse    warehouses        @relation(fields: [warehouse_id], references: [id])
 
   @@index([warehouse_id])
   @@index([stock_qty])
+  @@unique([variant_id, warehouse_id])
 }

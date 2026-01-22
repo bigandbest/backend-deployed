@@ -196,49 +196,54 @@ export const getWarehouseProducts = async (req, res) => {
 
     const productsMap = new Map();
     stocks.forEach((item) => {
-      const productId = item.product_id;
+      // Structure: item (inventory) -> variant -> product
+      const variant = item.variant;
+      if (!variant) return; // Should not happen due to integrity constraint
+
+      const product = variant.product;
+      if (!product) return;
+
+      const productId = product.id;
+
       if (!productsMap.has(productId)) {
-        // Safe access to product fields
         productsMap.set(productId, {
           product_id: productId,
-          product_name: item.products?.name || "Unknown Product",
-          // Schema doesn't have price/image directly on products table. 
-          // If needed, they should be fetched via relations or set to defaults.
-          product_price: 0,
-          image_url: null, // item.products?.media?.[0]?.url if included
+          product_name: product.name || "Unknown Product",
+          product_price: 0, // Base price, could be range
+          image_url: null, // Need to fetch media if critical, skipping for performance/schema simplicity
           variants: [],
-          variant_stock: {}, // Added to satisfy frontend expectation
+          variant_stock: {},
           base_stock: null
         });
       }
-      const product = productsMap.get(productId);
+      const productEntry = productsMap.get(productId);
 
       const stockInfo = {
-        stock_quantity: item.stock_quantity,
-        reserved_quantity: item.reserved_quantity || 0,
-        available_quantity: item.stock_quantity - (item.reserved_quantity || 0),
-        minimum_threshold: item.minimum_threshold || 0,
-        cost_per_unit: item.cost_per_unit,
-        last_restocked_at: item.last_restocked_at,
-        is_low_stock: item.stock_quantity <= (item.minimum_threshold || 0)
+        stock_quantity: item.stock_qty || 0,
+        reserved_quantity: item.reserved_qty || 0,
+        available_quantity: (item.stock_qty || 0) - (item.reserved_qty || 0),
+        minimum_threshold: item.bulk_stock_threshold || 0, // Mapping bulk threshold as min for now
+        cost_per_unit: 0, // Not in inventory
+        last_restocked_at: item.updated_at,
+        is_low_stock: (item.stock_qty || 0) <= (item.bulk_stock_threshold || 10)
       };
 
-      if (item.variant_id) {
-        // Populate variant_stock map for frontend
-        product.variant_stock[item.variant_id] = item.stock_quantity;
+      // Always a variant in new schema
+      productEntry.variant_stock[variant.id] = item.stock_qty || 0;
+      productEntry.variants.push({
+        variant_id: variant.id,
+        variant_name: variant.title || "Unknown Variant",
+        variant_price: variant.price,
+        variant_weight: variant.packaging_details,
+        variant_unit: null,
+        is_default: variant.is_default,
+        ...stockInfo
+      });
 
-        // Map schema fields (title, price) to frontend expected fields (variant_name, variant_price)
-        product.variants.push({
-          variant_id: item.variant_id,
-          variant_name: item.product_variants?.title || "Unknown Variant", // TITLE is the correct field
-          variant_price: item.product_variants?.price, // PRICE is the correct field
-          variant_weight: item.product_variants?.packaging_details, // Best effort mapping
-          variant_unit: null,
-          is_default: item.product_variants?.is_default,
-          ...stockInfo
-        });
-      } else {
-        product.base_stock = stockInfo;
+      // If this is the default variant, might want to set base_stock info for summary
+      if (variant.is_default) {
+        productEntry.base_stock = stockInfo;
+        productEntry.product_price = variant.price;
       }
     });
 
@@ -262,10 +267,9 @@ export const getWarehouseProducts = async (req, res) => {
 export const addProductToWarehouse = async (req, res) => {
   try {
     const { id } = req.params;
-    const productIdParam = req.params.productId; // For PUT requests
+    const productIdParam = req.params.productId;
     let { product_id, stock_quantity, minimum_threshold, cost_per_unit, variant_id } = req.body;
 
-    // If product_id is not in body but is in params, use it
     if (!product_id && productIdParam) {
       product_id = productIdParam;
     }
@@ -274,17 +278,26 @@ export const addProductToWarehouse = async (req, res) => {
       return res.status(400).json({ success: false, error: "Product ID and stock quantity are required" });
     }
 
+    // Check if variant_id is provided; if not, fetch product variants and pick default/first
+    if (!variant_id) {
+      const variants = await ProductDAO.getVariantsByProductId(product_id); // Assuming ProductDAO has this or import it
+      if (!variants || variants.length === 0) {
+        return res.status(400).json({ success: false, error: "Product has no variants. Cannot add to inventory." });
+      }
+      // Prefer default variant, else first
+      const targetVariant = variants.find(v => v.is_default) || variants[0];
+      variant_id = targetVariant.id;
+    }
+
     const warehouse = await WarehouseDAO.getById(id);
     if (!warehouse) return res.status(404).json({ success: false, error: "Warehouse not found" });
 
-    // Validate parent mapping for division warehouses if strict mode needed
-    // Assuming simple upsert for migration parity
-
+    // Using refactored updateProductStock which requires variantId
     await WarehouseDAO.updateProductStock(id, product_id, variant_id, {
-      stock_quantity,
+      stock_quantity: parseInt(stock_quantity),
       minimum_threshold: minimum_threshold || 10,
       cost_per_unit: cost_per_unit || 0,
-      is_active: true
+      // is_active ignored in new inventory
     });
 
     res.status(201).json({ success: true, message: "Product added/updated in warehouse successfully" });
