@@ -68,6 +68,7 @@ import bulkWholesaleRoutes from "../routes/bulkWholesaleRoutes.js";
 import codOrderRoutes from "../routes/codOrderRoutes.js";
 import zoneRoutes from "../routes/zoneRoutes.js";
 import adminAuthRoutes from "../routes/adminAuthRoutes.js";
+import inventoryManagementRoutes from "../routes/inventoryManagementRoutes.js";
 
 const app = express();
 
@@ -214,6 +215,7 @@ app.use("/api/store-section-mappings", subStoreRoutes);
 app.use("/api/bulk-wholesale", bulkWholesaleRoutes);
 app.use("/api/cod-orders", codOrderRoutes);
 app.use("/api/admin-auth", adminAuthRoutes);
+app.use("/api/inventory", inventoryManagementRoutes);
 
 // Add CORS middleware specifically for zones route
 app.use("/api/zones", (req, res, next) => {

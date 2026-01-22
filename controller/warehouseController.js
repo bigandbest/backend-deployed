@@ -198,13 +198,16 @@ export const getWarehouseProducts = async (req, res) => {
     stocks.forEach((item) => {
       const productId = item.product_id;
       if (!productsMap.has(productId)) {
+        // Safe access to product fields
         productsMap.set(productId, {
           product_id: productId,
           product_name: item.products?.name || "Unknown Product",
-          product_price: item.products?.price,
-          delivery_type: item.products?.delivery_type,
-          image_url: item.products?.image,
+          // Schema doesn't have price/image directly on products table. 
+          // If needed, they should be fetched via relations or set to defaults.
+          product_price: 0,
+          image_url: null, // item.products?.media?.[0]?.url if included
           variants: [],
+          variant_stock: {}, // Added to satisfy frontend expectation
           base_stock: null
         });
       }
@@ -221,12 +224,16 @@ export const getWarehouseProducts = async (req, res) => {
       };
 
       if (item.variant_id) {
+        // Populate variant_stock map for frontend
+        product.variant_stock[item.variant_id] = item.stock_quantity;
+
+        // Map schema fields (title, price) to frontend expected fields (variant_name, variant_price)
         product.variants.push({
           variant_id: item.variant_id,
-          variant_name: item.product_variants?.variant_name,
-          variant_price: item.product_variants?.variant_price,
-          variant_weight: item.product_variants?.variant_weight,
-          variant_unit: item.product_variants?.variant_unit,
+          variant_name: item.product_variants?.title || "Unknown Variant", // TITLE is the correct field
+          variant_price: item.product_variants?.price, // PRICE is the correct field
+          variant_weight: item.product_variants?.packaging_details, // Best effort mapping
+          variant_unit: null,
           is_default: item.product_variants?.is_default,
           ...stockInfo
         });
@@ -244,7 +251,8 @@ export const getWarehouseProducts = async (req, res) => {
       count: transformedProducts.length,
     });
   } catch (error) {
-    res.status(500).json({ success: false, error: "Internal server error" });
+    console.error("Error in getWarehouseProducts:", error);
+    res.status(500).json({ success: false, error: "Internal server error: " + error.message });
   }
 };
 
@@ -254,7 +262,13 @@ export const getWarehouseProducts = async (req, res) => {
 export const addProductToWarehouse = async (req, res) => {
   try {
     const { id } = req.params;
-    const { product_id, stock_quantity, minimum_threshold, cost_per_unit, variant_id } = req.body;
+    const productIdParam = req.params.productId; // For PUT requests
+    let { product_id, stock_quantity, minimum_threshold, cost_per_unit, variant_id } = req.body;
+
+    // If product_id is not in body but is in params, use it
+    if (!product_id && productIdParam) {
+      product_id = productIdParam;
+    }
 
     if (!product_id || stock_quantity === undefined) {
       return res.status(400).json({ success: false, error: "Product ID and stock quantity are required" });
@@ -397,6 +411,24 @@ export const removeWarehousePincode = async (req, res) => {
     const { warehouseId, pincode } = req.params;
     await WarehouseDAO.removePincode(warehouseId, pincode);
     res.status(200).json({ success: true, message: "Pincode removed" });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+};
+
+/**
+ * Update Warehouse Pincode
+ */
+export const updateWarehousePincode = async (req, res) => {
+  try {
+    const { warehouseId, pincode } = req.params;
+    const updateData = req.body;
+
+    // Safety check: ensure pincode in params matches or is handled if body differs (usually params is source of truth for record to find)
+    // Data can contain new delivery_days, is_active, etc.
+
+    await WarehouseDAO.updatePincode(warehouseId, pincode, updateData);
+    res.status(200).json({ success: true, message: "Pincode updated successfully" });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }

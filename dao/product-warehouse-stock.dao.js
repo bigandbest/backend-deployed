@@ -1,8 +1,12 @@
-import prisma from '../config/prisma.js';
+import prismaConfig from '../config/prisma.js';
 
 class ProductWarehouseStockDAO {
+    constructor(db) {
+        this.db = db;
+    }
+
     async getZonalStock(productId, zoneId, quantity = 1) {
-        return await prisma.product_warehouse_stock.findFirst({
+        return await this.db.product_warehouse_stock.findFirst({
             where: {
                 product_id: productId,
                 is_active: true,
@@ -29,7 +33,7 @@ class ProductWarehouseStockDAO {
     }
 
     async getCentralStock(productId, quantity = 1) {
-        return await prisma.product_warehouse_stock.findFirst({
+        return await this.db.product_warehouse_stock.findFirst({
             where: {
                 product_id: productId,
                 is_active: true,
@@ -51,7 +55,7 @@ class ProductWarehouseStockDAO {
     }
 
     async reserveStock(productId, warehouseId, quantity, orderId) {
-        return await prisma.$executeRaw`
+        return await this.db.$executeRaw`
             SELECT update_stock_with_movement(
                 ${productId}::uuid,
                 ${warehouseId}::integer,
@@ -65,7 +69,7 @@ class ProductWarehouseStockDAO {
     }
 
     async confirmStockDeduction(productId, warehouseId, quantity, orderId) {
-        return await prisma.$transaction(async (tx) => {
+        return await this.db.$transaction(async (tx) => {
             // First release the reservation
             await tx.$executeRaw`
                 SELECT update_stock_with_movement(
@@ -95,7 +99,7 @@ class ProductWarehouseStockDAO {
     }
 
     async getByProductAndWarehouse(productId, warehouseId) {
-        return await prisma.product_warehouse_stock.findFirst({
+        return await this.db.product_warehouse_stock.findFirst({
             where: {
                 product_id: productId,
                 warehouse_id: warehouseId,
@@ -125,13 +129,8 @@ class ProductWarehouseStockDAO {
                 }
             });
         } else {
-            return await prisma.product_warehouse_stock.create({
-                data: {
-                    product_id: productId,
-                    warehouse_id: warehouseId,
-                    ...stockData
-                }
-            });
+            // UPDATE-ONLY: Do not create new records, only update existing ones
+            throw new Error(`No existing stock record found for product ${productId} in warehouse ${warehouseId}. Stock records must be created before updating.`);
         }
     }
 
@@ -161,14 +160,8 @@ class ProductWarehouseStockDAO {
                 }
             });
         } else {
-            return await prisma.product_warehouse_stock.create({
-                data: {
-                    product_id: productId,
-                    variant_id: variantId,
-                    warehouse_id: warehouseId,
-                    ...stockData
-                }
-            });
+            // UPDATE-ONLY: Do not create new records, only update existing ones
+            throw new Error(`No existing stock record found for variant ${variantId} in warehouse ${warehouseId}. Stock records must be created before updating.`);
         }
     }
 
@@ -205,7 +198,7 @@ class ProductWarehouseStockDAO {
     }
 
     async getByProductAndWarehouseWithDetails(productId, warehouseId) {
-        return await prisma.product_warehouse_stock.findFirst({
+        return await this.db.product_warehouse_stock.findFirst({
             where: {
                 product_id: productId,
                 warehouse_id: warehouseId,
@@ -218,7 +211,7 @@ class ProductWarehouseStockDAO {
     }
 
     async updateStock(id, data) {
-        return await prisma.product_warehouse_stock.update({
+        return await this.db.product_warehouse_stock.update({
             where: { id },
             data: {
                 ...data,
@@ -227,7 +220,7 @@ class ProductWarehouseStockDAO {
         });
     }
     async listProductsInWarehouse(warehouseId) {
-        return await prisma.product_warehouse_stock.findMany({
+        return await this.db.product_warehouse_stock.findMany({
             where: {
                 warehouse_id: parseInt(warehouseId),
                 is_active: true
@@ -250,6 +243,34 @@ class ProductWarehouseStockDAO {
             }
         });
     }
+
+    async listByProducts(productIds) {
+        // Get all warehouse stock assignments for given product IDs
+        return await this.db.product_warehouse_stock.findMany({
+            where: {
+                product_id: {
+                    in: productIds
+                },
+                is_active: true
+            },
+            include: {
+                warehouses: {
+                    select: {
+                        id: true,
+                        name: true,
+                        type: true
+                    }
+                },
+                product_variants: {
+                    select: {
+                        id: true,
+                        title: true,
+                        sku: true
+                    }
+                }
+            }
+        });
+    }
 }
 
-export default new ProductWarehouseStockDAO();
+export default new ProductWarehouseStockDAO(prismaConfig);

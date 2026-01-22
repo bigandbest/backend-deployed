@@ -60,6 +60,7 @@ cess_rate          Decimal?           @default(0) @db.Decimal
   you_may_like              you_may_like[]
   store_section_mappings    store_section_mappings[]
   daily_deals_products      daily_deals_product[]
+  warehouse_stock           product_warehouse_stock[]
 
   @@index([vertical])
   @@index([category_id])

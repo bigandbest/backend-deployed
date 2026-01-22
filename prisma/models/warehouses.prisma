@@ -29,4 +29,5 @@ model warehouses {
   scheduled_orders    scheduled_orders[]
   warehouse_pincodes  warehouse_pincodes[]
   inventory           inventory[]
+  warehouse_stock     product_warehouse_stock[]
 }

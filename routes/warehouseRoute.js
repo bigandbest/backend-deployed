@@ -15,6 +15,7 @@ import {
   getWarehousePincodes,
   addWarehousePincodes,
   removeWarehousePincode,
+  updateWarehousePincode,
   getZonalWarehousePincodes,
   findWarehouseForOrder,
   getAvailableProductsForWarehouse,
@@ -37,6 +38,7 @@ router.delete("/:id", deleteWarehouse);
 // Pincode management routes
 router.get("/:warehouseId/pincodes", getWarehousePincodes);
 router.post("/:warehouseId/pincodes", addWarehousePincodes);
+router.put("/:warehouseId/pincodes/:pincode", updateWarehousePincode);
 router.delete("/:warehouseId/pincodes/:pincode", removeWarehousePincode);
 router.get("/:warehouseId/available-pincodes", getZonalWarehousePincodes);
 
