@@ -569,6 +569,7 @@ model product_sections {
 }
 
 model product_variants {
+<<<<<<< HEAD
   id                       String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   product_id               String                    @db.Uuid
   sku                      String                    @unique @db.VarChar
@@ -597,6 +598,47 @@ model product_variants {
   warehouse_stock          product_warehouse_stock[]
   service_bookings         service_bookings[]
   attributes               variant_attributes[]
+=======
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id          String   @db.Uuid
+
+  sku                 String   @unique @db.VarChar
+  title               String   @db.VarChar // "1kg Pack", "60min Service", "Half Plate"
+  price               Decimal  @db.Decimal
+  old_price           Decimal? @db.Decimal
+  discount_percentage Int?     @default(0)
+
+  // Short human-readable packaging info
+  packaging_details   String?  // e.g. "Sealed plastic pouch", "Glass bottle with outer box"
+
+  // Optional GST override per variant
+  gst_rate_override   Decimal? @db.Decimal
+cess_rate_override   Decimal? @db.Decimal
+  features            String?
+  is_default          Boolean? @default(false)
+  active              Boolean? @default(true)
+  shipping_amount     Decimal? @default(0) @db.Decimal
+
+  // Bulk Order Settings (Per Variant)
+  is_bulk_enabled     Boolean? @default(false)
+  bulk_price          Decimal? @db.Decimal
+  bulk_min_quantity   Int?
+  bulk_discount_percentage Int? @default(0)
+
+  created_at          DateTime @default(now()) @db.Timestamptz
+  updated_at          DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  product             products          @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  media               product_media[]
+  attributes          variant_attributes[]
+  inventory           inventory[]
+  cart_items          cart_items[]
+  order_items         order_items[]
+  service_bookings    service_bookings[]
+  warehouse_stock     product_warehouse_stock[]
+  stock_movements     stock_movements[]
+>>>>>>> 338884cb38eefd19d072dc88c29b0df91d682ef0
 
   @@index([product_id])
   @@index([sku])
@@ -665,6 +707,14 @@ model products {
   wishlist_items            wishlist_items[]
   you_may_like              you_may_like[]
 
+<<<<<<< HEAD
+=======
+  store_section_mappings    store_section_mappings[]
+  daily_deals_products      daily_deals_product[]
+  warehouse_stock           product_warehouse_stock[]
+  stock_movements           stock_movements[]
+
+>>>>>>> 338884cb38eefd19d072dc88c29b0df91d682ef0
   @@index([vertical])
   @@index([category_id])
   @@index([active])
@@ -862,6 +912,9 @@ model stock_movements {
   notes          String?
   created_at     DateTime?  @default(now()) @db.Timestamptz(6)
   warehouse      warehouses @relation(fields: [warehouse_id], references: [id])
+  product        products   @relation(fields: [product_id], references: [id])
+  variant_id     String?    @db.Uuid
+  variant        product_variants? @relation(fields: [variant_id], references: [id])
 }
 
 model store_section_mappings {

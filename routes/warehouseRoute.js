@@ -19,11 +19,17 @@ import {
   getZonalWarehousePincodes,
   findWarehouseForOrder,
   getAvailableProductsForWarehouse,
+  getWarehouseSummary,
+  getGlobalLowStock,
+  getGlobalStockMovements,
 } from "../controller/warehouseController.js";
 
 // RESTful warehouse routes
 router.get("/", getAllWarehouses);
 router.post("/", createWarehouse);
+router.get("/summary", getWarehouseSummary);
+router.get("/low-stock", getGlobalLowStock);
+router.get("/movements", getGlobalStockMovements);
 router.get("/hierarchy", getWarehouseHierarchy);
 router.get("/:id", getSingleWarehouse);
 router.get("/:id/children", getChildWarehouses);
