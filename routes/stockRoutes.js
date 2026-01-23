@@ -3,7 +3,9 @@ import {
   updateProductStock,
   getProductStock,
   bulkUpdateStock,
-  reduceStock
+  reduceStock,
+  adjustStock,
+  transferStock
 } from "../controller/stockController.js";
 
 const router = express.Router();
