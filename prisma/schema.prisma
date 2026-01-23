@@ -3,16 +3,11 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
-// --------------------------------------
-// THIS FILE IS AUTO-GENERATED. DO NOT EDIT.
-// --------------------------------------
-
-// --- Model: about_us_content.prisma ---
 model about_us_content {
   id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   banner_image_url String?
@@ -20,102 +15,79 @@ model about_us_content {
   subtitle         String?   @default("About Big&Best") @db.VarChar
   heading          String?   @default("Big&Best Mart") @db.VarChar
   content          String?
-  updated_at       DateTime? @default(now()) @db.Timestamptz
+  updated_at       DateTime? @default(now()) @db.Timestamptz(6)
 }
 
-
-// --- Model: add_banner.prisma ---
 model add_banner {
-  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name               String
-  image_url          String?
-  banner_type        String?
-  description        String?             @db.VarChar
-  link               String?
-  active             Boolean?            @default(true)
-  position           String?
-  is_mobile          Boolean?            @default(false)
-  updated_at         DateTime?           @default(now()) @db.Timestamptz
-
-  // Relations
-  daily_deals        daily_deals[]
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  image_url   String?
+  banner_type String?
+  description String?       @db.VarChar
+  link        String?
+  active      Boolean?      @default(true)
+  position    String?
+  is_mobile   Boolean?      @default(false)
+  updated_at  DateTime?     @default(now()) @db.Timestamptz(6)
+  daily_deals daily_deals[]
 }
 
-
-// --- Model: banners.prisma ---
 model banners {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  title         String    @db.VarChar
-  subtitle      String?   @db.VarChar
-  description   String?   @db.VarChar
-  image_url     String?
-  link          String?   @db.VarChar
-  banner_type   String?   @db.VarChar // e.g., 'hero', 'promo', 'sidebar'
-  position      String?   @db.VarChar
-  bg_color      String?   @db.VarChar
-  button_text   String?   @db.VarChar
-  discount_text String?   @db.VarChar
-  active        Boolean?  @default(true)
-  is_mobile     Boolean?  @default(false)
-  display_order Int?      @default(0)
-  created_at    DateTime? @default(now()) @db.Timestamptz
-  updated_at    DateTime? @default(now()) @db.Timestamptz
-
-  // Relations
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title              String              @db.VarChar
+  subtitle           String?             @db.VarChar
+  description        String?             @db.VarChar
+  image_url          String?
+  link               String?             @db.VarChar
+  banner_type        String?             @db.VarChar
+  position           String?             @db.VarChar
+  bg_color           String?             @db.VarChar
+  button_text        String?             @db.VarChar
+  discount_text      String?             @db.VarChar
+  active             Boolean?            @default(true)
+  is_mobile          Boolean?            @default(false)
+  display_order      Int?                @default(0)
+  created_at         DateTime?           @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime?           @default(now()) @db.Timestamptz(6)
   recommended_stores recommended_store[]
 }
 
-
-// --- Model: brand.prisma ---
 model brand {
   id        String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name      String
   image_url String?
-
-  // Relations
   products  product_brand[]
 }
 
-
-// --- Model: cart_items.prisma ---
 model cart_items {
-  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id        String            @db.Uuid
-  variant_id     String            @db.Uuid
-  quantity       Int               @default(1)
-  added_at       DateTime          @default(now()) @db.Timestamptz
-  is_bid_product Boolean?          @default(false)
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id        String           @db.Uuid
+  variant_id     String           @db.Uuid
+  quantity       Int              @default(1)
+  added_at       DateTime         @default(now()) @db.Timestamptz(6)
+  is_bid_product Boolean?         @default(false)
   locked_bid_id  Int?
-  bid_unit_price Decimal?          @db.Decimal
-
-  // Relations
-  user           users             @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  variant        product_variants  @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+  bid_unit_price Decimal?         @db.Decimal
+  user           users            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  variant        product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
   @@index([variant_id])
 }
 
-
-// --- Model: categories.prisma ---
 model categories {
-  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name          String
-  description   String?
-  image_url     String?
-  featured      Boolean?        @default(false)
-  icon          String?
-  active        Boolean?        @default(true)
-  
-  // Relations
-  subcategories subcategories[]
-  
+  id                         String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                       String
+  description                String?
+  image_url                  String?
+  featured                   Boolean?                     @default(false)
+  icon                       String?
+  active                     Boolean?                     @default(true)
   product_section_categories product_section_categories[]
-  products      products[]
+  products                   products[]
+  subcategories              subcategories[]
 }
 
-
-// --- Model: certifications.prisma ---
 model certifications {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name        String    @db.VarChar
@@ -123,23 +95,19 @@ model certifications {
   description String?
   active      Boolean?  @default(true)
   sort_order  Int?      @default(0)
-  created_at  DateTime? @default(now()) @db.Timestamptz
-  updated_at  DateTime? @default(now()) @db.Timestamptz
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime? @default(now()) @db.Timestamptz(6)
 }
 
-
-// --- Model: charge_settings.prisma ---
 model charge_settings {
-  id              Int      @id @default(1)
-  handling_charge Decimal  @default(0) @db.Decimal
-  surge_charge    Decimal  @default(0) @db.Decimal
-  discount_charge Decimal  @default(0) @db.Decimal
-  platform_charge Decimal  @default(0) @db.Decimal
-  updated_at      DateTime? @default(now()) @db.Timestamptz
+  id              Int       @id @default(1)
+  handling_charge Decimal   @default(0) @db.Decimal
+  surge_charge    Decimal   @default(0) @db.Decimal
+  discount_charge Decimal   @default(0) @db.Decimal
+  platform_charge Decimal   @default(0) @db.Decimal
+  updated_at      DateTime? @default(now()) @db.Timestamptz(6)
 }
 
-
-// --- Model: contact_queries.prisma ---
 model contact_queries {
   id         Int       @id @default(autoincrement())
   name       String    @db.VarChar
@@ -148,13 +116,11 @@ model contact_queries {
   subject    String?   @db.VarChar
   message    String
   status     String?   @default("Pending") @db.VarChar
-  created_at DateTime? @default(now()) @db.Timestamptz
-  updated_at DateTime? @default(now()) @db.Timestamptz
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
   quantity   String?
 }
 
-
-// --- Model: coupon_usage.prisma ---
 model coupon_usage {
   id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   coupon_id        String    @db.Uuid
@@ -165,22 +131,17 @@ model coupon_usage {
   final_amount     Decimal   @db.Decimal
   idempotency_key  String    @unique @db.VarChar
   status           String?   @default("APPLIED") @db.VarChar
-  reserved_at      DateTime? @db.Timestamptz
-  applied_at       DateTime? @default(now()) @db.Timestamptz
-  refunded_at      DateTime? @db.Timestamptz
-  cancelled_at     DateTime? @db.Timestamptz
-  created_at       DateTime? @default(now()) @db.Timestamptz
-  updated_at       DateTime? @default(now()) @db.Timestamptz
-
-  // Relations
+  reserved_at      DateTime? @db.Timestamptz(6)
+  applied_at       DateTime? @default(now()) @db.Timestamptz(6)
+  refunded_at      DateTime? @db.Timestamptz(6)
+  cancelled_at     DateTime? @db.Timestamptz(6)
+  created_at       DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime? @default(now()) @db.Timestamptz(6)
   coupon           coupons   @relation(fields: [coupon_id], references: [id])
-  user             users     @relation(fields: [user_id], references: [id])
-  // order relation defined in orders via back-relation or here if order exists
   order            orders    @relation(fields: [order_id], references: [id])
+  user             users     @relation(fields: [user_id], references: [id])
 }
 
-
-// --- Model: coupons.prisma ---
 model coupons {
   id                   String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   code                 String         @unique @db.VarChar
@@ -192,22 +153,18 @@ model coupons {
   new_user_only        Boolean?       @default(false)
   usage_limit_total    Int?
   usage_limit_per_user Int?           @default(1)
-  valid_from           DateTime       @db.Timestamptz
-  valid_to             DateTime       @db.Timestamptz
+  valid_from           DateTime       @db.Timestamptz(6)
+  valid_to             DateTime       @db.Timestamptz(6)
   timezone             String?        @default("UTC") @db.VarChar
   status               String?        @default("ACTIVE") @db.VarChar
   description          String?
   terms_conditions     String?
   created_by           String?        @db.Uuid
-  created_at           DateTime?      @default(now()) @db.Timestamptz
-  updated_at           DateTime?      @default(now()) @db.Timestamptz
-
-  // Relations
+  created_at           DateTime?      @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime?      @default(now()) @db.Timestamptz(6)
   usages               coupon_usage[]
 }
 
-
-// --- Model: customer_testimonials.prisma ---
 model customer_testimonials {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name       String    @db.VarChar
@@ -216,47 +173,34 @@ model customer_testimonials {
   comment    String
   active     Boolean?  @default(true)
   sort_order Int?      @default(0)
-  created_at DateTime? @default(now()) @db.Timestamptz
-  updated_at DateTime? @default(now()) @db.Timestamptz
-
-  // Note: Check constraints like "rating >= 1 AND rating <= 5" are not directly supported in Prisma schema DSL
-  // but will be enforced by the database if added via raw SQL migration.
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
 }
 
-
-// --- Model: daily_deals.prisma ---
 model daily_deals {
-  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  title       String?   @db.VarChar
-  image_url   String?
-  discount    String?   @db.VarChar
-  badge       String?   @db.VarChar
-  sort_order  Int?      @default(0)
-  active      Boolean?  @default(true)
-  banner_id   String?   @db.Uuid
-  created_at  DateTime? @default(now()) @db.Timestamptz
-  updated_at  DateTime? @default(now()) @db.Timestamptz
-
-  // Relations
-  banner      add_banner? @relation(fields: [banner_id], references: [id])
-  products    daily_deals_product[]
+  id         String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title      String?               @db.VarChar
+  image_url  String?
+  discount   String?               @db.VarChar
+  badge      String?               @db.VarChar
+  sort_order Int?                  @default(0)
+  active     Boolean?              @default(true)
+  banner_id  String?               @db.Uuid
+  created_at DateTime?             @default(now()) @db.Timestamptz(6)
+  updated_at DateTime?             @default(now()) @db.Timestamptz(6)
+  banner     add_banner?           @relation(fields: [banner_id], references: [id])
+  products   daily_deals_product[]
 }
 
-
-// --- Model: daily_deals_product.prisma ---
 model daily_deals_product {
-  daily_deal_id String @db.Uuid
-  product_id    String @db.Uuid
-
-  // Relations
+  daily_deal_id String      @db.Uuid
+  product_id    String      @db.Uuid
   daily_deal    daily_deals @relation(fields: [daily_deal_id], references: [id], onDelete: Cascade)
   product       products    @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   @@id([daily_deal_id, product_id])
 }
 
-
-// --- Model: delivery_charge_milestones.prisma ---
 model delivery_charge_milestones {
   id              Int       @id @default(autoincrement())
   min_order_value Decimal   @unique @db.Decimal
@@ -267,26 +211,20 @@ model delivery_charge_milestones {
   updated_at      DateTime? @default(now()) @db.Timestamptz(6)
 }
 
-
-// --- Model: delivery_zones.prisma ---
 model delivery_zones {
-  id            Int               @id @default(autoincrement())
-  name          String            @unique @db.VarChar
-  display_name  String?           @db.VarChar
-  is_nationwide Boolean?          @default(false)
-  is_active     Boolean?          @default(true)
-  description   String?
-  created_at    DateTime?         @default(now()) @db.Timestamptz
-  updated_at    DateTime?         @default(now()) @db.Timestamptz
-  created_by    Int?
-
-  // Relations
+  id              Int               @id @default(autoincrement())
+  name            String            @unique @db.VarChar
+  display_name    String?           @db.VarChar
+  is_nationwide   Boolean?          @default(false)
+  is_active       Boolean?          @default(true)
+  description     String?
+  created_at      DateTime?         @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime?         @default(now()) @db.Timestamptz(6)
+  created_by      Int?
   warehouse_zones warehouse_zones[]
   zone_pincodes   zone_pincodes[]
 }
 
-
-// --- Model: enquiries.prisma ---
 model enquiries {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id     String?   @db.Uuid
@@ -294,21 +232,17 @@ model enquiries {
   email       String?
   phone       String?
   message     String?
-  created_at  DateTime? @default(now()) @db.Timestamp
+  created_at  DateTime? @default(now()) @db.Timestamp(6)
   status      String?   @default("pending") @db.VarChar
   admin_reply Boolean?  @default(false)
   admin_notes String?
-  updated_at  DateTime? @default(now()) @db.Timestamp
+  updated_at  DateTime? @default(now()) @db.Timestamp(6)
   type        String?   @default("regular") @db.VarChar
   subject     String?   @db.VarChar
   quantity    String?   @db.VarChar
-
-  // Relations
   user        users?    @relation(fields: [user_id], references: [id])
 }
 
-
-// --- Model: enquiry_bids.prisma ---
 model enquiry_bids {
   id             Int               @id @default(autoincrement())
   enquiry_id     Int
@@ -316,19 +250,15 @@ model enquiry_bids {
   base_price     Decimal?          @db.Decimal
   quantity       Int?
   validity_hours Int?              @default(24)
-  created_at     DateTime?         @default(now()) @db.Timestamp
-  expires_at     DateTime?         @db.Timestamp
+  created_at     DateTime?         @default(now()) @db.Timestamp(6)
+  expires_at     DateTime?         @db.Timestamp(6)
   status         String?           @default("ACTIVE") @db.VarChar
   created_by     String?           @db.Uuid
   terms          String?
   notes          String?
-
-  // Relations
   enquiry        product_enquiries @relation(fields: [enquiry_id], references: [id])
 }
 
-
-// --- Model: enquiry_messages.prisma ---
 model enquiry_messages {
   id              Int               @id @default(autoincrement())
   enquiry_id      Int
@@ -337,16 +267,12 @@ model enquiry_messages {
   sender_name     String?           @db.VarChar
   message         String
   is_read         Boolean?          @default(false)
-  created_at      DateTime?         @default(now()) @db.Timestamp
+  created_at      DateTime?         @default(now()) @db.Timestamp(6)
   attachment_url  String?
   attachment_type String?           @db.VarChar
-
-  // Relations
   enquiry         product_enquiries @relation(fields: [enquiry_id], references: [id])
 }
 
-
-// --- Model: event_elevate.prisma ---
 model event_elevate {
   id            Int       @id @default(autoincrement())
   title         String    @db.VarChar
@@ -359,114 +285,92 @@ model event_elevate {
   position      String?   @default("grid") @db.VarChar
   display_order Int?      @default(0)
   active        Boolean?  @default(true)
-  created_at    DateTime? @default(now()) @db.Timestamp
-  updated_at    DateTime? @default(now()) @db.Timestamp
+  created_at    DateTime? @default(now()) @db.Timestamp(6)
+  updated_at    DateTime? @default(now()) @db.Timestamp(6)
 }
 
-
-// --- Model: groups.prisma ---
 model groups {
-  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name           String        @db.VarChar
-  description    String?
-  icon           String?       @db.VarChar
-  image_url      String?
-  subcategory_id String        @db.Uuid
-  featured       Boolean?      @default(false)
-  active         Boolean?      @default(true)
-  sort_order     Int?          @default(0)
-  created_at     DateTime?     @default(now()) @db.Timestamptz
-  updated_at     DateTime?     @default(now()) @db.Timestamptz
-
-  // Relations
-  subcategory    subcategories @relation(fields: [subcategory_id], references: [id])
-  products       products[]
+  id                     String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                   String                   @db.VarChar
+  description            String?
+  icon                   String?                  @db.VarChar
+  image_url              String?
+  subcategory_id         String                   @db.Uuid
+  featured               Boolean?                 @default(false)
+  active                 Boolean?                 @default(true)
+  sort_order             Int?                     @default(0)
+  created_at             DateTime?                @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime?                @default(now()) @db.Timestamptz(6)
+  subcategory            subcategories            @relation(fields: [subcategory_id], references: [id])
   product_section_groups product_section_groups[]
+  products               products[]
 }
 
-
-// --- Model: inventory.prisma ---
 model inventory {
-  id           Int               @id @default(autoincrement())
-  variant_id   String            @db.Uuid
-  stock_qty    Int               @default(0)
-  reserved_qty Int               @default(0)
-  bulk_stock_threshold Int?      @default(0) // Minimum stock required to allow bulk orders
-  bulk_reserved_qty    Int?      @default(0)
-  warehouse_id Int
-  updated_at   DateTime          @updatedAt @db.Timestamptz
-  created_at   DateTime          @default(now()) @db.Timestamptz
+  id                   Int              @id @default(autoincrement())
+  variant_id           String           @db.Uuid
+  stock_qty            Int              @default(0)
+  reserved_qty         Int              @default(0)
+  bulk_stock_threshold Int?             @default(0)
+  bulk_reserved_qty    Int?             @default(0)
+  warehouse_id         Int
+  updated_at           DateTime         @updatedAt @db.Timestamptz(6)
+  created_at           DateTime         @default(now()) @db.Timestamptz(6)
+  variant              product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+  warehouse            warehouses       @relation(fields: [warehouse_id], references: [id])
 
-  // Relations
-  variant      product_variants  @relation(fields: [variant_id], references: [id], onDelete: Cascade)
-  warehouse    warehouses        @relation(fields: [warehouse_id], references: [id])
-
+  @@unique([variant_id, warehouse_id])
   @@index([warehouse_id])
   @@index([stock_qty])
-  @@unique([variant_id, warehouse_id])
 }
 
-
-// --- Model: order_execution_logs.prisma ---
 model order_execution_logs {
-  id                     String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  scheduled_order_id     String            @db.Uuid
+  id                     String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scheduled_order_id     String               @db.Uuid
   attempt_number         Int
-  executed_at            DateTime?         @default(now()) @db.Timestamptz
-  status                 String            @db.VarChar
-  inventory_check_passed Boolean?          @default(false)
-  payment_check_passed   Boolean?          @default(false)
+  executed_at            DateTime?            @default(now()) @db.Timestamptz(6)
+  status                 String               @db.VarChar
+  inventory_check_passed Boolean?             @default(false)
+  payment_check_passed   Boolean?             @default(false)
   error_message          String?
-  error_code             String?           @db.VarChar
+  error_code             String?              @db.VarChar
   execution_duration_ms  Int?
-  worker_id              String?           @db.VarChar
-  metadata               Json?             @default("{}")
-
-  // Relations
-  scheduled_order        scheduled_orders  @relation(fields: [scheduled_order_id], references: [id])
+  worker_id              String?              @db.VarChar
+  metadata               Json?                @default("{}")
+  scheduled_order        scheduled_orders     @relation(fields: [scheduled_order_id], references: [id])
   payment_retry_logs     payment_retry_logs[]
 }
 
-
-// --- Model: order_items.prisma ---
 model order_items {
-  id                    String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  order_id              String                 @db.Uuid
-  variant_id            String                 @db.Uuid
+  id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  order_id              String            @db.Uuid
+  variant_id            String            @db.Uuid
   quantity              Int
-  price                 Decimal                @db.Decimal
-  is_bulk_order         Boolean?               @default(false)
-  bulk_range            String?                @db.VarChar
-  original_price        Decimal?               @db.Decimal
+  price                 Decimal           @db.Decimal
+  is_bulk_order         Boolean?          @default(false)
+  bulk_range            String?           @db.VarChar
+  original_price        Decimal?          @db.Decimal
   assigned_warehouse_id Int?
-  warehouse_name        String?                @db.VarChar
-
-  // Relations
-  order                 orders                 @relation(fields: [order_id], references: [id], onDelete: Cascade)
-  variant               product_variants       @relation(fields: [variant_id], references: [id])
-  warehouse             warehouses?            @relation(fields: [assigned_warehouse_id], references: [id])
+  warehouse_name        String?           @db.VarChar
+  warehouse             warehouses?       @relation(fields: [assigned_warehouse_id], references: [id])
+  order                 orders            @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  variant               product_variants  @relation(fields: [variant_id], references: [id])
   service_booking       service_bookings?
 
   @@index([order_id])
   @@index([variant_id])
 }
 
-
-// --- Model: order_tracking.prisma ---
 model order_tracking {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   order_id    String?   @db.Uuid
   status      String    @db.VarChar
   location    String?   @db.VarChar
   description String?
-  timestamp   DateTime? @default(now()) @db.Timestamp
-
-  // Relations
+  timestamp   DateTime? @default(now()) @db.Timestamp(6)
   order       orders?   @relation(fields: [order_id], references: [id])
 }
 
-
-// --- Model: orders.prisma ---
 model orders {
   id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id             String?          @db.Uuid
@@ -476,388 +380,296 @@ model orders {
   address             String?
   payment_method      String?          @default("prepaid")
   status              String?          @default("Pending")
-  created_at          DateTime?        @default(now()) @db.Timestamp
-  updated_at          DateTime?        @db.Timestamptz
+  created_at          DateTime?        @default(now()) @db.Timestamp(6)
+  updated_at          DateTime?        @db.Timestamptz(6)
   razorpay_order_id   String?          @db.VarChar
   razorpay_payment_id String?          @db.VarChar
   tracking_number     String?          @db.VarChar
-  estimated_delivery  DateTime?        @db.Timestamp
+  estimated_delivery  DateTime?        @db.Timestamp(6)
   is_bulk_order       Boolean?         @default(false)
   company_name        String?          @db.VarChar
   gst_number          String?          @db.VarChar
   is_deleted          Boolean?         @default(false)
-
-  // Relations
-  user                users?           @relation(fields: [user_id], references: [id])
+  coupon_usage        coupon_usage?
   order_items         order_items[]
   tracking            order_tracking[]
-  coupon_usage        coupon_usage?
+  user                users?           @relation(fields: [user_id], references: [id])
 }
 
-
-// --- Model: partners.prisma ---
 model partners {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name       String    @db.VarChar
   image_url  String
   active     Boolean?  @default(true)
   sort_order Int?      @default(0)
-  created_at DateTime? @default(now()) @db.Timestamptz
-  updated_at DateTime? @default(now()) @db.Timestamptz
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
 }
 
-
-// --- Model: payment_retry_logs.prisma ---
 model payment_retry_logs {
   id                 String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   scheduled_order_id String                @db.Uuid
   execution_log_id   String?               @db.Uuid
   retry_number       Int
-  attempted_at       DateTime?             @default(now()) @db.Timestamptz
+  attempted_at       DateTime?             @default(now()) @db.Timestamptz(6)
   payment_method     String?               @db.VarChar
   amount             Decimal?              @db.Decimal
   status             String?               @db.VarChar
   error_code         String?               @db.VarChar
   error_message      String?
-  next_retry_at      DateTime?             @db.Timestamptz
-
-  // Relations
-  scheduled_order    scheduled_orders      @relation(fields: [scheduled_order_id], references: [id])
+  next_retry_at      DateTime?             @db.Timestamptz(6)
   execution_log      order_execution_logs? @relation(fields: [execution_log_id], references: [id])
+  scheduled_order    scheduled_orders      @relation(fields: [scheduled_order_id], references: [id])
 }
 
-
-// --- Model: pincode_locations.prisma ---
 model pincode_locations {
-  created_at DateTime @default(now()) @db.Timestamptz
+  created_at DateTime @default(now()) @db.Timestamptz(6)
   pincode    String   @id @db.VarChar
-  latitude   Float?   @db.DoublePrecision
-  longitude  Float?   @db.DoublePrecision
+  latitude   Float?
+  longitude  Float?
 }
 
-
-// --- Model: post.prisma ---
 model Post {
   id        Int     @id @default(autoincrement())
   title     String
   content   String?
   published Boolean @default(false)
-  author    users?  @relation(fields: [authorId], references: [id])
   authorId  String? @db.Uuid
+  author    users?  @relation(fields: [authorId], references: [id])
 }
 
-
-// --- Model: product_brand.prisma ---
 model product_brand {
-  product_id String @db.Uuid
-  brand_id   String @db.Uuid
-
-  // Relations
-  product    products @relation(fields: [product_id], references: [id])
+  product_id String   @db.Uuid
+  brand_id   String   @db.Uuid
   brand      brand    @relation(fields: [brand_id], references: [id])
+  product    products @relation(fields: [product_id], references: [id])
 
   @@id([product_id, brand_id])
 }
 
-
-// --- Model: product_enquiries.prisma ---
 model product_enquiries {
-  id             Int       @id @default(autoincrement())
-  user_id        String    @db.Uuid // References auth.users(id)
-  product_id     String    @db.Uuid
-  variant_id     String?   @db.Uuid
-  quantity       Int
-  message        String?
-  expected_price Decimal?  @db.Decimal
-  status         String?   @default("OPEN") @db.VarChar
-  admin_notes    String?
-  created_at     DateTime? @default(now()) @db.Timestamp
-  updated_at     DateTime? @default(now()) @db.Timestamp
-  expires_at        DateTime? @default(dbgenerated("CURRENT_TIMESTAMP + interval '7 days'")) @db.Timestamp
-  closed_reason     String?   @db.VarChar
-  closed_by         String?   @db.VarChar
-  company_name      String?   @db.VarChar
-  gst_number        String?   @db.VarChar
-  phone             String?   @db.VarChar
-  delivery_timeline String?   @db.VarChar
-
-  // Relations
-  product        products  @relation(fields: [product_id], references: [id])
-  bids           enquiry_bids[]
-  messages       enquiry_messages[]
+  id                Int                @id @default(autoincrement())
+  user_id           String             @db.Uuid
+  product_id        String             @db.Uuid
+  variant_id        String?            @db.Uuid
+  quantity          Int
+  message           String?
+  expected_price    Decimal?           @db.Decimal
+  status            String?            @default("OPEN") @db.VarChar
+  admin_notes       String?
+  created_at        DateTime?          @default(now()) @db.Timestamp(6)
+  updated_at        DateTime?          @default(now()) @db.Timestamp(6)
+  expires_at        DateTime?          @default(dbgenerated("(CURRENT_TIMESTAMP + '7 days'::interval)")) @db.Timestamp(6)
+  closed_reason     String?            @db.VarChar
+  closed_by         String?            @db.VarChar
+  company_name      String?            @db.VarChar
+  gst_number        String?            @db.VarChar
+  phone             String?            @db.VarChar
+  delivery_timeline String?            @db.VarChar
+  bids              enquiry_bids[]
+  messages          enquiry_messages[]
+  product           products           @relation(fields: [product_id], references: [id])
 }
 
-
-// --- Model: product_media.prisma ---
 model product_media {
-  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  product_id  String    @db.Uuid
-  variant_id  String?   @db.Uuid
-
-  media_type  MediaType
-  url         String
-  thumbnail   String?
-  is_primary  Boolean   @default(false)
-  sort_order  Int       @default(0)
-
-  created_at  DateTime  @default(now()) @db.Timestamptz
-
-  product     products          @relation(fields: [product_id], references: [id], onDelete: Cascade)
-  variant     product_variants? @relation(fields: [variant_id], references: [id])
+  id         String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id String            @db.Uuid
+  variant_id String?           @db.Uuid
+  media_type MediaType
+  url        String
+  thumbnail  String?
+  is_primary Boolean           @default(false)
+  sort_order Int               @default(0)
+  created_at DateTime          @default(now()) @db.Timestamptz(6)
+  product    products          @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  variant    product_variants? @relation(fields: [variant_id], references: [id])
 
   @@index([product_id])
   @@index([variant_id])
 }
 
-// --- Model: product_recommended_store.prisma ---
 model product_recommended_store {
-  product_id            String            @db.Uuid
-  recommended_store_id  String            @db.Uuid
-
-  // Relations
-  product               products          @relation(fields: [product_id], references: [id])
-  recommended_store     recommended_store @relation(fields: [recommended_store_id], references: [id])
+  product_id           String            @db.Uuid
+  recommended_store_id String            @db.Uuid
+  product              products          @relation(fields: [product_id], references: [id])
+  recommended_store    recommended_store @relation(fields: [recommended_store_id], references: [id])
 
   @@id([product_id, recommended_store_id])
 }
 
-
-// --- Model: product_reviews.prisma ---
 model product_reviews {
   id                   Int       @id @default(autoincrement())
   product_id           String    @db.Uuid
-  user_id              String?   @db.Uuid // References auth.users(id)
+  user_id              String?   @db.Uuid
   user_name            String    @db.VarChar
   user_email           String?   @db.VarChar
   rating               Int
   comment              String
   is_verified_purchase Boolean?  @default(false)
   helpful_count        Int?      @default(0)
-  created_at           DateTime? @default(now()) @db.Timestamptz
-  updated_at           DateTime? @default(now()) @db.Timestamptz
-
-  // Relations
+  created_at           DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime? @default(now()) @db.Timestamptz(6)
   product              products  @relation(fields: [product_id], references: [id])
 }
 
-
-// --- Model: product_section_categories.prisma ---
 model product_section_categories {
-  id          Int       @id @default(autoincrement())
-  section_id  Int
-  category_id String    @db.Uuid
-  created_at  DateTime? @default(now()) @db.Timestamptz(6)
-  
-  // Relations
-  product_sections product_sections @relation(fields: [section_id], references: [id], onDelete: Cascade)
+  id               Int              @id @default(autoincrement())
+  section_id       Int
+  category_id      String           @db.Uuid
+  created_at       DateTime?        @default(now()) @db.Timestamptz(6)
   categories       categories       @relation(fields: [category_id], references: [id], onDelete: Cascade)
+  product_sections product_sections @relation(fields: [section_id], references: [id], onDelete: Cascade)
 
   @@unique([section_id, category_id])
 }
 
-
-// --- Model: product_section_groups.prisma ---
 model product_section_groups {
-  id          Int       @id @default(autoincrement())
-  section_id  Int
-  group_id    String    @db.Uuid
-  is_active   Boolean?  @default(true)
-  created_at  DateTime? @default(now()) @db.Timestamptz(6)
-  
-  // Relations
-  product_sections product_sections @relation(fields: [section_id], references: [id], onDelete: Cascade)
+  id               Int              @id @default(autoincrement())
+  section_id       Int
+  group_id         String           @db.Uuid
+  is_active        Boolean?         @default(true)
+  created_at       DateTime?        @default(now()) @db.Timestamptz(6)
   groups           groups           @relation(fields: [group_id], references: [id], onDelete: Cascade)
+  product_sections product_sections @relation(fields: [section_id], references: [id], onDelete: Cascade)
 
   @@unique([section_id, group_id])
 }
 
-
-// --- Model: product_section_products.prisma ---
 model product_section_products {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  product_id    String    @db.Uuid
+  id            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id    String           @db.Uuid
   section_id    Int
-  display_order Int?      @default(0)
-  created_at    DateTime? @default(now()) @db.Timestamptz
-  updated_at    DateTime? @default(now()) @db.Timestamptz
-
-  // Relations
+  display_order Int?             @default(0)
+  created_at    DateTime?        @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime?        @default(now()) @db.Timestamptz(6)
   product       products         @relation(fields: [product_id], references: [id])
   section       product_sections @relation(fields: [section_id], references: [id])
 }
 
-
-// --- Model: product_sections.prisma ---
 model product_sections {
-  id             Int       @id @default(autoincrement())
-  section_key    String    @unique @db.VarChar
-  section_name   String    @db.VarChar
-  is_active      Boolean?  @default(true)
-  display_order  Int?      @default(0)
-  component_name String    @db.VarChar
-  description    String?
-  created_at     DateTime? @default(now()) @db.Timestamp
-  updated_at     DateTime? @default(now()) @db.Timestamp
-
-  // Relations
-  section_products     product_section_products[]
-  subcategory_mappings section_subcategory_mappings[]
+  id                         Int                            @id @default(autoincrement())
+  section_key                String                         @unique @db.VarChar
+  section_name               String                         @db.VarChar
+  is_active                  Boolean?                       @default(true)
+  display_order              Int?                           @default(0)
+  component_name             String                         @db.VarChar
+  description                String?
+  created_at                 DateTime?                      @default(now()) @db.Timestamp(6)
+  updated_at                 DateTime?                      @default(now()) @db.Timestamp(6)
   product_section_categories product_section_categories[]
   product_section_groups     product_section_groups[]
+  section_products           product_section_products[]
+  subcategory_mappings       section_subcategory_mappings[]
   store_section_mappings     store_section_mappings[]
+
+  @@index([is_active, display_order], map: "idx_product_sections_active_order")
+  @@index([display_order], map: "idx_product_sections_display_order")
+  @@index([is_active], map: "idx_product_sections_is_active")
+  @@index([section_key], map: "idx_product_sections_section_key")
 }
 
-
-// --- Model: product_variants.prisma ---
 model product_variants {
-  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  product_id          String   @db.Uuid
-
-  sku                 String   @unique @db.VarChar
-  title               String   @db.VarChar // "1kg Pack", "60min Service", "Half Plate"
-  price               Decimal  @db.Decimal
-  old_price           Decimal? @db.Decimal
-  discount_percentage Int?     @default(0)
-
-  // Short human-readable packaging info
-  packaging_details   String?  // e.g. "Sealed plastic pouch", "Glass bottle with outer box"
-
-  // Optional GST override per variant
-  gst_rate_override   Decimal? @db.Decimal
-cess_rate_override   Decimal? @db.Decimal
-  features            String?
-  is_default          Boolean? @default(false)
-  active              Boolean? @default(true)
-  shipping_amount     Decimal? @default(0) @db.Decimal
-
-  // Bulk Order Settings (Per Variant)
-  is_bulk_enabled     Boolean? @default(false)
-  bulk_price          Decimal? @db.Decimal
-  bulk_min_quantity   Int?
-  bulk_discount_percentage Int? @default(0)
-
-  created_at          DateTime @default(now()) @db.Timestamptz
-  updated_at          DateTime @updatedAt @db.Timestamptz
-
-  // Relations
-  product             products          @relation(fields: [product_id], references: [id], onDelete: Cascade)
-  media               product_media[]
-  attributes          variant_attributes[]
-  inventory           inventory[]
-  cart_items          cart_items[]
-  order_items         order_items[]
-  service_bookings    service_bookings[]
-  warehouse_stock     product_warehouse_stock[]
+  id                       String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id               String                    @db.Uuid
+  sku                      String                    @unique @db.VarChar
+  title                    String                    @db.VarChar
+  price                    Decimal                   @db.Decimal
+  old_price                Decimal?                  @db.Decimal
+  discount_percentage      Int?                      @default(0)
+  packaging_details        String?
+  gst_rate_override        Decimal?                  @db.Decimal
+  cess_rate_override       Decimal?                  @db.Decimal
+  features                 String?
+  is_default               Boolean?                  @default(false)
+  active                   Boolean?                  @default(true)
+  shipping_amount          Decimal?                  @default(0) @db.Decimal
+  is_bulk_enabled          Boolean?                  @default(false)
+  bulk_price               Decimal?                  @db.Decimal
+  bulk_min_quantity        Int?
+  bulk_discount_percentage Int?                      @default(0)
+  created_at               DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                  @updatedAt @db.Timestamptz(6)
+  cart_items               cart_items[]
+  inventory                inventory[]
+  order_items              order_items[]
+  media                    product_media[]
+  product                  products                  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  warehouse_stock          product_warehouse_stock[]
+  service_bookings         service_bookings[]
+  attributes               variant_attributes[]
 
   @@index([product_id])
   @@index([sku])
   @@index([active])
 }
 
-
-// --- Model: product_warehouse_stock.prisma ---
-// --- Model: product_warehouse_stock.prisma ---
 model product_warehouse_stock {
-  id                  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  product_id          String             @db.Uuid
-  variant_id          String?            @db.Uuid
-  warehouse_id        Int
-
-  stock_quantity      Int                @default(0)
-  reserved_quantity   Int                @default(0)
-  
-  cost_per_unit       Decimal?           @db.Decimal
-  minimum_threshold   Int?               @default(0)
-  reorder_point       Int?               @default(0)
-  
-  is_active           Boolean?           @default(true)
-  created_at          DateTime?          @default(now()) @db.Timestamptz
-  updated_at          DateTime?          @default(now()) @db.Timestamptz
-  last_restocked_at   DateTime?          @db.Timestamptz
-
-  // Relations
-  products         products          @relation(fields: [product_id], references: [id])
-  warehouses       warehouses        @relation(fields: [warehouse_id], references: [id])
-  product_variants product_variants? @relation(fields: [variant_id], references: [id])
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id        String            @db.Uuid
+  variant_id        String?           @db.Uuid
+  warehouse_id      Int
+  stock_quantity    Int               @default(0)
+  reserved_quantity Int               @default(0)
+  cost_per_unit     Decimal?          @db.Decimal
+  minimum_threshold Int?              @default(0)
+  reorder_point     Int?              @default(0)
+  is_active         Boolean?          @default(true)
+  created_at        DateTime?         @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime?         @default(now()) @db.Timestamptz(6)
+  last_restocked_at DateTime?         @db.Timestamptz(6)
+  products          products          @relation(fields: [product_id], references: [id])
+  product_variants  product_variants? @relation(fields: [variant_id], references: [id])
+  warehouses        warehouses        @relation(fields: [warehouse_id], references: [id])
 
   @@index([product_id])
   @@index([warehouse_id])
   @@index([variant_id])
 }
 
-
-// --- Model: products.prisma ---
-enum Vertical {
-  // zepto like
-  qwik
-  // zomato
-  eato
-  // india mart / meesho / flipkart
-  bazar 
-  // urban clap
-  star
-}
-
-enum MediaType {
-  image
-  video
-}
-
 model products {
-  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name               String
-  description        String?
-
-  // Tax & Compliance
-  hsn_or_sac_code           String?            @db.VarChar
-  gst_rate           Decimal?           @default(0) @db.Decimal
-cess_rate          Decimal?           @default(0) @db.Decimal
-  vertical           Vertical           @default(qwik)
-
-  category_id        String?            @db.Uuid
-  subcategory_id     String?            @db.Uuid
-  group_id           String?            @db.Uuid
-  store_id           String?            @db.Uuid
-
-  rating             Decimal?           @default(0) @db.Decimal
-  review_count       Int?               @default(0)
-
-  return_applicable  Boolean?           @default(false)
-  return_days        Int?               @default(0)
-
-  active             Boolean?           @default(true)
-  has_variants       Boolean?           @default(false)
-
-  created_at         DateTime?          @default(now()) @db.Timestamptz
-  updated_at         DateTime?          @updatedAt @db.Timestamptz
-
-  // Relations
-  category           categories?        @relation(fields: [category_id], references: [id])
-  subcategory        subcategories?     @relation(fields: [subcategory_id], references: [id])
-  group              groups?            @relation(fields: [group_id], references: [id])
-  store              stores?            @relation(fields: [store_id], references: [id])
-
-  media              product_media[]
-  variants           product_variants[]
-  brands             product_brand[]
-  reviews            product_reviews[]
-  product_enquiries  product_enquiries[]
+  id                        String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                      String
+  description               String?
+  hsn_or_sac_code           String?                     @db.VarChar
+  gst_rate                  Decimal?                    @default(0) @db.Decimal
+  cess_rate                 Decimal?                    @default(0) @db.Decimal
+  vertical                  Vertical                    @default(qwik)
+  category_id               String?                     @db.Uuid
+  subcategory_id            String?                     @db.Uuid
+  group_id                  String?                     @db.Uuid
+  store_id                  String?                     @db.Uuid
+  rating                    Decimal?                    @default(0) @db.Decimal
+  review_count              Int?                        @default(0)
+  return_applicable         Boolean?                    @default(false)
+  return_days               Int?                        @default(0)
+  active                    Boolean?                    @default(true)
+  has_variants              Boolean?                    @default(false)
+  faq                       Json?
+  created_at                DateTime?                   @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime?                   @updatedAt @db.Timestamptz(6)
+  daily_deals_products      daily_deals_product[]
+  brands                    product_brand[]
+  product_enquiries         product_enquiries[]
+  media                     product_media[]
   product_recommended_store product_recommended_store[]
+  reviews                   product_reviews[]
   product_section_products  product_section_products[]
+  variants                  product_variants[]
+  warehouse_stock           product_warehouse_stock[]
+  category                  categories?                 @relation(fields: [category_id], references: [id])
+  group                     groups?                     @relation(fields: [group_id], references: [id])
+  store                     stores?                     @relation(fields: [store_id], references: [id])
+  subcategory               subcategories?              @relation(fields: [subcategory_id], references: [id])
   quickpick_group_product   quickpick_group_product[]
+  store_section_mappings    store_section_mappings[]
   wishlist_items            wishlist_items[]
   you_may_like              you_may_like[]
-
-  store_section_mappings    store_section_mappings[]
-  daily_deals_products      daily_deals_product[]
-  warehouse_stock           product_warehouse_stock[]
 
   @@index([vertical])
   @@index([category_id])
   @@index([active])
 }
 
-// --- Model: promo_banners.prisma ---
 model promo_banners {
   id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   title         String    @db.VarChar
@@ -872,194 +684,148 @@ model promo_banners {
   link          String?   @db.VarChar
   active        Boolean?  @default(true)
   display_order Int?      @default(0)
-  created_at    DateTime? @default(now()) @db.Timestamp
-  updated_at    DateTime? @default(now()) @db.Timestamp
+  created_at    DateTime? @default(now()) @db.Timestamp(6)
+  updated_at    DateTime? @default(now()) @db.Timestamp(6)
 }
 
-
-// --- Model: promotional_media.prisma ---
 model promotional_media {
   id              Int       @id @default(autoincrement())
-  media_type      String    @db.VarChar // 'image' or 'video'
+  media_type      String    @db.VarChar
   title           String?   @db.VarChar
   description     String?
   image_url       String?
   video_url       String?
   thumbnail_url   String?
   link            String?
-  link_type       String?   @default("external") // 'external', 'category', 'product'
+  link_type       String?   @default("external")
   resource_id     String?
   sub_resource_id String?
   position        Int?      @default(0)
   active          Boolean?  @default(true)
-  created_at      DateTime? @default(now()) @db.Timestamptz
-  updated_at      DateTime? @default(now()) @db.Timestamptz
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime? @default(now()) @db.Timestamptz(6)
 }
 
-
-// --- Model: quick_pick.prisma ---
 model quick_pick {
-  id         String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name       String
-  image_url  String?
-
-  // Relations
-  groups     quick_pick_group[]
+  id        String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  image_url String?
+  groups    quick_pick_group[]
 }
 
-
-// --- Model: quick_pick_group.prisma ---
 model quick_pick_group {
-  id             String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name           String?
-  image_url      String?
-  quick_pick_id  String?                   @db.Uuid
-
-  // Relations
-  quick_pick     quick_pick?               @relation(fields: [quick_pick_id], references: [id])
-  products       quickpick_group_product[]
+  id            String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String?
+  image_url     String?
+  quick_pick_id String?                   @db.Uuid
+  quick_pick    quick_pick?               @relation(fields: [quick_pick_id], references: [id])
+  products      quickpick_group_product[]
 }
 
-
-// --- Model: quickpick_group_product.prisma ---
 model quickpick_group_product {
   id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   quick_pick_group_id String           @db.Uuid
   product_id          String           @db.Uuid
-
-  // Relations
-  group               quick_pick_group @relation(fields: [quick_pick_group_id], references: [id])
   product             products         @relation(fields: [product_id], references: [id])
+  group               quick_pick_group @relation(fields: [quick_pick_group_id], references: [id])
 }
 
-
-// --- Model: recommended_store.prisma ---
 model recommended_store {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String?
-  image_url   String?
-  description String?
-  is_active   Boolean? @default(false)
-  banner_id   String?  @db.Uuid
-
-  // Relations
-  banner      banners?                       @relation(fields: [banner_id], references: [id])
-  products    product_recommended_store[]
+  id                     String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                   String?
+  image_url              String?
+  description            String?
+  is_active              Boolean?                    @default(false)
+  banner_id              String?                     @db.Uuid
+  products               product_recommended_store[]
+  banner                 banners?                    @relation(fields: [banner_id], references: [id])
   store_section_mappings store_section_mappings[]
 }
 
-
-// --- Model: scheduled_order_slots.prisma ---
 model scheduled_order_slots {
   id             Int                   @id @default(autoincrement())
   warehouse_id   Int
   slot_id        Int
   scheduled_date DateTime              @db.Date
   current_count  Int?                  @default(0)
-  created_at     DateTime?             @default(now()) @db.Timestamptz
-  updated_at     DateTime?             @default(now()) @db.Timestamptz
-
-  // Relations
-  warehouse      warehouses            @relation(fields: [warehouse_id], references: [id])
+  created_at     DateTime?             @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime?             @default(now()) @db.Timestamptz(6)
   slot           scheduling_time_slots @relation(fields: [slot_id], references: [id])
+  warehouse      warehouses            @relation(fields: [warehouse_id], references: [id])
 }
 
-
-// --- Model: scheduled_orders.prisma ---
 model scheduled_orders {
-  id                     String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id                String                  @db.Uuid
+  id                     String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                String                 @db.Uuid
   cart_items             Json
-  address_id             String?                 @db.Uuid
-  scheduled_at           DateTime                @db.Timestamptz
-  timezone               String                  @default("UTC") @db.VarChar
-  created_at             DateTime?               @default(now()) @db.Timestamptz
-  updated_at             DateTime?               @default(now()) @db.Timestamptz
-  status                 String                  @default("SCHEDULED") @db.VarChar
-  payment_method         String                  @db.VarChar
-  payment_intent_id      String?                 @db.VarChar
-  payment_status         String?                 @default("PENDING") @db.VarChar
-  total_amount           Decimal                 @db.Decimal
-  execution_attempts     Int?                    @default(0)
-  last_execution_attempt DateTime?               @db.Timestamptz
-  idempotency_key        String                  @unique @db.VarChar
-  lock_token             String?                 @db.VarChar
-  lock_expires_at        DateTime?               @db.Timestamptz
-  placed_order_id        String?                 @db.Uuid
+  address_id             String?                @db.Uuid
+  scheduled_at           DateTime               @db.Timestamptz(6)
+  timezone               String                 @default("UTC") @db.VarChar
+  created_at             DateTime?              @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime?              @default(now()) @db.Timestamptz(6)
+  status                 String                 @default("SCHEDULED") @db.VarChar
+  payment_method         String                 @db.VarChar
+  payment_intent_id      String?                @db.VarChar
+  payment_status         String?                @default("PENDING") @db.VarChar
+  total_amount           Decimal                @db.Decimal
+  execution_attempts     Int?                   @default(0)
+  last_execution_attempt DateTime?              @db.Timestamptz(6)
+  idempotency_key        String                 @unique @db.VarChar
+  lock_token             String?                @db.VarChar
+  lock_expires_at        DateTime?              @db.Timestamptz(6)
+  placed_order_id        String?                @db.Uuid
   failure_reason         String?
-  metadata               Json?                   @default("{}")
+  metadata               Json?                  @default("{}")
   warehouse_id           Int?
   slot_id                Int?
-  scheduled_date         DateTime?               @db.Date
-
-  // Relations
-  warehouse              warehouses?             @relation(fields: [warehouse_id], references: [id])
-  slot                   scheduling_time_slots?  @relation(fields: [slot_id], references: [id])
+  scheduled_date         DateTime?              @db.Date
   execution_logs         order_execution_logs[]
   payment_retry_logs     payment_retry_logs[]
+  slot                   scheduling_time_slots? @relation(fields: [slot_id], references: [id])
+  warehouse              warehouses?            @relation(fields: [warehouse_id], references: [id])
 }
 
-
-// --- Model: scheduling_time_slots.prisma ---
 model scheduling_time_slots {
-  id           Int       @id @default(autoincrement())
-  start_time   DateTime  @db.Time
-  end_time     DateTime  @db.Time
-  display_name String    @db.VarChar
-  is_active    Boolean?  @default(true)
-  created_at   DateTime? @default(now()) @db.Timestamptz
-  updated_at   DateTime? @default(now()) @db.Timestamptz
-
-  // Relations
-  warehouse_configs warehouse_scheduling_config[]
+  id                Int                           @id @default(autoincrement())
+  start_time        DateTime                      @db.Time(6)
+  end_time          DateTime                      @db.Time(6)
+  display_name      String                        @db.VarChar
+  is_active         Boolean?                      @default(true)
+  created_at        DateTime?                     @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime?                     @default(now()) @db.Timestamptz(6)
   order_slots       scheduled_order_slots[]
   scheduled_orders  scheduled_orders[]
+  warehouse_configs warehouse_scheduling_config[]
 }
 
-
-// --- Model: section_subcategory_mappings.prisma ---
 model section_subcategory_mappings {
   id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   section_id     Int
   subcategory_id String           @db.Uuid
   display_order  Int?             @default(0)
   is_active      Boolean?         @default(true)
-  created_at     DateTime?        @default(now()) @db.Timestamptz
-  updated_at     DateTime?        @default(now()) @db.Timestamptz
-
-  // Relations
+  created_at     DateTime?        @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime?        @default(now()) @db.Timestamptz(6)
   section        product_sections @relation(fields: [section_id], references: [id])
   subcategory    subcategories    @relation(fields: [subcategory_id], references: [id])
 }
 
-
-// --- Model: service_bookings.prisma ---
-enum ServiceStatus {
-  pending
-  assigned
-  in_progress
-  completed
-  cancelled
-}
-
 model service_bookings {
-  id            String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  order_item_id String?           @unique @db.Uuid
-  variant_id    String            @db.Uuid
-  user_id       String            @db.Uuid
-  scheduled_at  DateTime          @db.Timestamptz
-  address_id    String?           @db.Uuid
-  provider_id   String?           @db.Uuid
-  status        ServiceStatus     @default(pending)
+  id            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  order_item_id String?          @unique @db.Uuid
+  variant_id    String           @db.Uuid
+  user_id       String           @db.Uuid
+  scheduled_at  DateTime         @db.Timestamptz(6)
+  address_id    String?          @db.Uuid
+  provider_id   String?          @db.Uuid
+  status        ServiceStatus    @default(pending)
   notes         String?
-  created_at    DateTime          @default(now()) @db.Timestamptz
-  updated_at    DateTime          @updatedAt @db.Timestamptz
-
-  // Relations
-  variant       product_variants  @relation(fields: [variant_id], references: [id])
-  user          users             @relation(fields: [user_id], references: [id])
-  address       user_addresses?   @relation(fields: [address_id], references: [id])
-  order_item    order_items?      @relation(fields: [order_item_id], references: [id])
+  created_at    DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime         @updatedAt @db.Timestamptz(6)
+  address       user_addresses?  @relation(fields: [address_id], references: [id])
+  order_item    order_items?     @relation(fields: [order_item_id], references: [id])
+  user          users            @relation(fields: [user_id], references: [id])
+  variant       product_variants @relation(fields: [variant_id], references: [id])
 
   @@index([user_id])
   @@index([provider_id])
@@ -1067,188 +833,154 @@ model service_bookings {
   @@index([status])
 }
 
-
-// --- Model: small_promo_cards.prisma ---
 model small_promo_cards {
   id              Int       @id @default(autoincrement())
   image_url       String
   link            String?
   display_order   Int?      @default(0)
   is_active       Boolean?  @default(true)
-  created_at      DateTime? @default(now()) @db.Timestamptz
-  updated_at      DateTime? @default(now()) @db.Timestamptz
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime? @default(now()) @db.Timestamptz(6)
   link_type       String?   @default("external")
   resource_id     String?
   sub_resource_id String?
 }
 
-
-// --- Model: stock_movements.prisma ---
 model stock_movements {
-  id             Int       @id @default(autoincrement())
-  product_id     String    @db.Uuid
+  id             Int        @id @default(autoincrement())
+  product_id     String     @db.Uuid
   warehouse_id   Int
-  movement_type  String    @db.VarChar
+  movement_type  String     @db.VarChar
   quantity       Int
   previous_stock Int
   new_stock      Int
-  reference_type String?   @db.VarChar
+  reference_type String?    @db.VarChar
   reference_id   Int?
-  reason         String?   @db.VarChar
+  reason         String?    @db.VarChar
   performed_by   Int?
-  performed_at   DateTime? @default(now()) @db.Timestamptz
+  performed_at   DateTime?  @default(now()) @db.Timestamptz(6)
   notes          String?
-  created_at     DateTime? @default(now()) @db.Timestamptz
-
-  // Relations
+  created_at     DateTime?  @default(now()) @db.Timestamptz(6)
   warehouse      warehouses @relation(fields: [warehouse_id], references: [id])
 }
 
-
-// --- Model: store_section_mappings.prisma ---
 model store_section_mappings {
-  id           Int       @id @default(autoincrement())
-  store_id     String?   @db.Uuid
-  section_id   Int?
-  product_id   String?   @db.Uuid
-  mapping_type String?   @db.VarChar
-  is_active    Boolean?  @default(true)
-  created_at   DateTime? @default(now()) @db.Timestamp
-
-  // Relations
-  recommended_store recommended_store? @relation(fields: [store_id], references: [id])
-  product_sections  product_sections?  @relation(fields: [section_id], references: [id])
+  id                Int                @id @default(autoincrement())
+  store_id          String?            @db.Uuid
+  section_id        Int?
+  product_id        String?            @db.Uuid
+  mapping_type      String?            @db.VarChar
+  is_active         Boolean?           @default(true)
+  created_at        DateTime?          @default(now()) @db.Timestamp(6)
   products          products?          @relation(fields: [product_id], references: [id])
+  product_sections  product_sections?  @relation(fields: [section_id], references: [id])
+  recommended_store recommended_store? @relation(fields: [store_id], references: [id])
 }
 
-
-// --- Model: stores.prisma ---
 model stores {
-  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name       String?
   link       String?
   image      String?
-  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  created_at DateTime?  @default(now()) @db.Timestamptz(6)
   products   products[]
 }
 
-
-// --- Model: subcategories.prisma ---
 model subcategories {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String   @db.VarChar
-  description String?
-  icon        String?  @db.VarChar
-  image_url   String?
-  category_id String   @db.Uuid
-  featured    Boolean? @default(false)
-  active      Boolean? @default(true)
-  sort_order  Int?     @default(0)
-  created_at  DateTime? @default(now()) @db.Timestamptz
-  updated_at  DateTime? @default(now()) @db.Timestamptz
-
-  // Relations
-  category    categories @relation(fields: [category_id], references: [id])
-  groups      groups[]
-  products    products[]
+  id               String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String                         @db.VarChar
+  description      String?
+  icon             String?                        @db.VarChar
+  image_url        String?
+  category_id      String                         @db.Uuid
+  featured         Boolean?                       @default(false)
+  active           Boolean?                       @default(true)
+  sort_order       Int?                           @default(0)
+  created_at       DateTime?                      @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime?                      @default(now()) @db.Timestamptz(6)
+  groups           groups[]
+  products         products[]
   section_mappings section_subcategory_mappings[]
+  category         categories                     @relation(fields: [category_id], references: [id])
 }
 
-
-// --- Model: team_members.prisma ---
 model team_members {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name        String    @db.VarChar
   designation String    @db.VarChar
   image_url   String?
-  created_at  DateTime? @default(now()) @db.Timestamptz
-  updated_at  DateTime? @default(now()) @db.Timestamptz
-}
-
-
-// --- Model: user.prisma ---
-enum UserRole {
-  USER
-  ADMIN
-  SELLER
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime? @default(now()) @db.Timestamptz(6)
 }
 
 model users {
-  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email            String               @unique
-  photo_url        String?
-  role             UserRole             @default(USER)
-  password         String?
-  password_reset_token String?
-  password_reset_expires DateTime?      @db.Timestamptz
-  created_at       DateTime?            @default(now()) @db.Timestamptz
-  last_login       DateTime?            @db.Timestamptz
-  is_active        Boolean?             @default(true)
-  phone            String?
-  avatar           String?
-  name             String?
-  account_type     String?
-  company_name     String?
-  street_address   String?              @db.VarChar
-  suite_unit_floor String?              @db.VarChar
-  house_number     String?              @db.VarChar
-  locality         String?              @db.VarChar
-  city             String?              @db.VarChar
-  state            String?              @db.VarChar
-  postal_code      String?              @db.VarChar
-  country          String?              @default("India") @db.VarChar
-  landmark         String?              @db.VarChar
-  gstin            String?              @unique @db.VarChar
-  pan              String?              @unique @db.VarChar
-  adhaar_no        String?              @unique @db.VarChar
-  first_name       String?
-  last_name        String?
-  business_type    String?
-  user_image       String?
-  
-  // Relations
-  notifications    user_notifications[]
-  posts            Post[]
-  cart_items       cart_items[]
-  wishlist_items   wishlist_items[]
-  orders           orders[]
-  enquiries        enquiries[]
-  coupon_usages    coupon_usage[]
-  wallet           wallets?         @relation("UserWallet")
-  frozen_wallets   wallets[]        @relation("WalletFreezer")
-  wallet_txs       wallet_transactions[] @relation("UserTransactions")
-  created_txs      wallet_transactions[] @relation("TransactionCreator")
-  service_bookings service_bookings[]
-  addresses        user_addresses[]
+  id                     String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email                  String                @unique
+  photo_url              String?
+  role                   UserRole              @default(USER)
+  password               String?
+  password_reset_token   String?
+  password_reset_expires DateTime?             @db.Timestamptz(6)
+  created_at             DateTime?             @default(now()) @db.Timestamptz(6)
+  last_login             DateTime?             @db.Timestamptz(6)
+  is_active              Boolean?              @default(true)
+  phone                  String?
+  avatar                 String?
+  name                   String?
+  account_type           String?
+  company_name           String?
+  street_address         String?               @db.VarChar
+  suite_unit_floor       String?               @db.VarChar
+  house_number           String?               @db.VarChar
+  locality               String?               @db.VarChar
+  city                   String?               @db.VarChar
+  state                  String?               @db.VarChar
+  postal_code            String?               @db.VarChar
+  country                String?               @default("India") @db.VarChar
+  landmark               String?               @db.VarChar
+  gstin                  String?               @unique @db.VarChar
+  pan                    String?               @unique @db.VarChar
+  adhaar_no              String?               @unique @db.VarChar
+  first_name             String?
+  last_name              String?
+  business_type          String?
+  user_image             String?
+  posts                  Post[]
+  cart_items             cart_items[]
+  coupon_usages          coupon_usage[]
+  enquiries              enquiries[]
+  orders                 orders[]
+  service_bookings       service_bookings[]
+  addresses              user_addresses[]
+  notifications          user_notifications[]
+  created_txs            wallet_transactions[] @relation("TransactionCreator")
+  wallet_txs             wallet_transactions[] @relation("UserTransactions")
+  frozen_wallets         wallets[]             @relation("WalletFreezer")
+  wallet                 wallets?              @relation("UserWallet")
+  wishlist_items         wishlist_items[]
 }
 
-
-// --- Model: user_addresses.prisma ---
 model user_addresses {
-  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id          String               @db.Uuid
-  address_name     String               @db.VarChar
-  is_default       Boolean?             @default(false)
-  street_address   String               @db.VarChar
-  suite_unit_floor String?              @db.VarChar
-  house_number     String?              @db.VarChar
-  locality         String?              @db.VarChar
-  city             String               @db.VarChar
-  state            String               @db.VarChar
-  postal_code      String               @db.VarChar
-  country          String?              @default("India") @db.VarChar
-  landmark         String?              @db.VarChar
-  gstin            String?              @db.VarChar
-  created_at       DateTime?            @default(now()) @db.Timestamptz
-  updated_at       DateTime?            @default(now()) @db.Timestamptz
-
-  // Relations
-  user             users                @relation(fields: [user_id], references: [id])
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id          String             @db.Uuid
+  address_name     String             @db.VarChar
+  is_default       Boolean?           @default(false)
+  street_address   String             @db.VarChar
+  suite_unit_floor String?            @db.VarChar
+  house_number     String?            @db.VarChar
+  locality         String?            @db.VarChar
+  city             String             @db.VarChar
+  state            String             @db.VarChar
+  postal_code      String             @db.VarChar
+  country          String?            @default("India") @db.VarChar
+  landmark         String?            @db.VarChar
+  gstin            String?            @db.VarChar
+  created_at       DateTime?          @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime?          @default(now()) @db.Timestamptz(6)
   service_bookings service_bookings[]
+  user             users              @relation(fields: [user_id], references: [id])
 }
 
-
-// --- Model: user_notifications.prisma ---
 model user_notifications {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id      String?   @db.Uuid
@@ -1258,29 +990,22 @@ model user_notifications {
   related_id   String?   @db.Uuid
   related_type String?   @db.VarChar
   is_read      Boolean?  @default(false)
-  created_at   DateTime? @default(now()) @db.Timestamp
-  read_at      DateTime? @db.Timestamp
-
-  // Relations
+  created_at   DateTime? @default(now()) @db.Timestamp(6)
+  read_at      DateTime? @db.Timestamp(6)
   user         users?    @relation(fields: [user_id], references: [id])
 }
 
-
-// --- Model: variant_attributes.prisma ---
 model variant_attributes {
-  id              String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  variant_id      String @db.Uuid
-
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  variant_id      String           @db.Uuid
   attribute_name  String
   attribute_value String
-
-  variant product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+  variant         product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
 
   @@index([variant_id])
   @@index([attribute_name])
 }
 
-// --- Model: video_cards.prisma ---
 model video_cards {
   id            Int       @id @default(autoincrement())
   title         String
@@ -1289,12 +1014,10 @@ model video_cards {
   thumbnail_url String?
   active        Boolean?  @default(true)
   position      Int?      @default(0)
-  created_at    DateTime? @default(now()) @db.Timestamptz
-  updated_at    DateTime? @default(now()) @db.Timestamptz
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime? @default(now()) @db.Timestamptz(6)
 }
 
-
-// --- Model: wallet_transactions.prisma ---
 model wallet_transactions {
   id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   wallet_id           String    @db.Uuid
@@ -1312,53 +1035,41 @@ model wallet_transactions {
   status              String?   @default("COMPLETED") @db.VarChar
   idempotency_key     String?   @unique @db.VarChar
   created_by          String?   @db.Uuid
-  created_at          DateTime? @default(now()) @db.Timestamptz
-
-  // Relations
-  wallet              wallets   @relation(fields: [wallet_id], references: [id])
-  user                users     @relation("UserTransactions", fields: [user_id], references: [id])
+  created_at          DateTime? @default(now()) @db.Timestamptz(6)
   creator             users?    @relation("TransactionCreator", fields: [created_by], references: [id])
+  user                users     @relation("UserTransactions", fields: [user_id], references: [id])
+  wallet              wallets   @relation(fields: [wallet_id], references: [id])
 }
 
-
-// --- Model: wallets.prisma ---
 model wallets {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id       String    @unique @db.Uuid
-  balance       Decimal   @default(0.00) @db.Decimal
-  is_frozen     Boolean?  @default(false)
-  frozen_reason String?
-  frozen_by     String?   @db.Uuid
-  frozen_at     DateTime? @db.Timestamptz
-  created_at    DateTime? @default(now()) @db.Timestamptz
-  updated_at    DateTime? @default(now()) @db.Timestamptz
-  version       Int?      @default(1)
-
-  // Relations
-  user          users     @relation("UserWallet", fields: [user_id], references: [id])
-  transactions  wallet_transactions[]
-  admin_frozen_by users?  @relation("WalletFreezer", fields: [frozen_by], references: [id])
+  id              String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id         String                @unique @db.Uuid
+  balance         Decimal               @default(0.00) @db.Decimal
+  is_frozen       Boolean?              @default(false)
+  frozen_reason   String?
+  frozen_by       String?               @db.Uuid
+  frozen_at       DateTime?             @db.Timestamptz(6)
+  created_at      DateTime?             @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime?             @default(now()) @db.Timestamptz(6)
+  version         Int?                  @default(1)
+  transactions    wallet_transactions[]
+  admin_frozen_by users?                @relation("WalletFreezer", fields: [frozen_by], references: [id])
+  user            users                 @relation("UserWallet", fields: [user_id], references: [id])
 }
 
-
-// --- Model: warehouse_pincodes.prisma ---
 model warehouse_pincodes {
-  id           Int        @id @default(autoincrement())
-  warehouse_id Int
-  pincode      String     @db.VarChar
-  city         String?    @db.VarChar
-  state        String?    @db.VarChar
-  delivery_days Int?      @default(3)
-  is_active    Boolean?   @default(true)
-  created_at   DateTime?  @default(now()) @db.Timestamptz
-  updated_at   DateTime?  @default(now()) @db.Timestamptz
-
-  // Relations
-  warehouse    warehouses @relation(fields: [warehouse_id], references: [id])
+  id            Int        @id @default(autoincrement())
+  warehouse_id  Int
+  pincode       String     @db.VarChar
+  city          String?    @db.VarChar
+  state         String?    @db.VarChar
+  delivery_days Int?       @default(3)
+  is_active     Boolean?   @default(true)
+  created_at    DateTime?  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime?  @default(now()) @db.Timestamptz(6)
+  warehouse     warehouses @relation(fields: [warehouse_id], references: [id])
 }
 
-
-// --- Model: warehouse_scheduling_config.prisma ---
 model warehouse_scheduling_config {
   id                      Int                   @id @default(autoincrement())
   warehouse_id            Int
@@ -1366,110 +1077,112 @@ model warehouse_scheduling_config {
   max_capacity            Int                   @default(20)
   scheduling_window_hours Int                   @default(24)
   is_active               Boolean?              @default(true)
-  days_of_week            Json?                 @default("[\"monday\",\"tuesday\",\"wednesday\",\"thursday\",\"friday\",\"saturday\",\"sunday\"]")
-  created_at              DateTime?             @default(now()) @db.Timestamptz
-  updated_at              DateTime?             @default(now()) @db.Timestamptz
-
-  // Relations
-  warehouse               warehouses            @relation(fields: [warehouse_id], references: [id])
+  days_of_week            Json?                 @default("[\"monday\", \"tuesday\", \"wednesday\", \"thursday\", \"friday\", \"saturday\", \"sunday\"]")
+  created_at              DateTime?             @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime?             @default(now()) @db.Timestamptz(6)
   slot                    scheduling_time_slots @relation(fields: [slot_id], references: [id])
+  warehouse               warehouses            @relation(fields: [warehouse_id], references: [id])
 }
 
-
-// --- Model: warehouse_zones.prisma ---
 model warehouse_zones {
   id           Int            @id @default(autoincrement())
   warehouse_id Int
   zone_id      Int
   priority     Int?           @default(1)
   is_active    Boolean?       @default(true)
-  created_at   DateTime?      @default(now()) @db.Timestamptz
-
-  // Relations
+  created_at   DateTime?      @default(now()) @db.Timestamptz(6)
   warehouse    warehouses     @relation(fields: [warehouse_id], references: [id])
   zone         delivery_zones @relation(fields: [zone_id], references: [id])
 }
 
-
-// --- Model: warehouses.prisma ---
 model warehouses {
-  id                  Int               @id @default(autoincrement())
-  name                String            @unique @db.VarChar
-  type                String            @db.VarChar
-  location            String?           @db.VarChar
+  id                  Int                           @id @default(autoincrement())
+  name                String                        @unique @db.VarChar
+  type                String                        @db.VarChar
+  location            String?                       @db.VarChar
   address             String?
-  contact_person      String?           @db.VarChar
-  contact_phone       String?           @db.VarChar
-  contact_email       String?           @db.VarChar
-  is_active           Boolean?          @default(true)
+  contact_person      String?                       @db.VarChar
+  contact_phone       String?                       @db.VarChar
+  contact_email       String?                       @db.VarChar
+  is_active           Boolean?                      @default(true)
   capacity_limit      Int?
-  current_utilization Int?              @default(0)
-  operational_hours   Json?             @default("{}")
-  facilities          Json?             @default("{}")
-  created_at          DateTime?         @default(now()) @db.Timestamptz
-  updated_at          DateTime?         @default(now()) @db.Timestamptz
+  current_utilization Int?                          @default(0)
+  operational_hours   Json?                         @default("{}")
+  facilities          Json?                         @default("{}")
+  created_at          DateTime?                     @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime?                     @default(now()) @db.Timestamptz(6)
   created_by          Int?
   parent_warehouse_id Int?
-  hierarchy_level     Int?              @default(0)
-
-  // Relations
-  parent_warehouse    warehouses?       @relation("WarehouseHierarchy", fields: [parent_warehouse_id], references: [id])
-  child_warehouses    warehouses[]      @relation("WarehouseHierarchy")
-  movements           stock_movements[]
-  warehouse_zones     warehouse_zones[]
+  hierarchy_level     Int?                          @default(0)
+  inventory           inventory[]
   order_items         order_items[]
-  scheduling_configs  warehouse_scheduling_config[]
+  warehouse_stock     product_warehouse_stock[]
   scheduled_slots     scheduled_order_slots[]
   scheduled_orders    scheduled_orders[]
+  movements           stock_movements[]
   warehouse_pincodes  warehouse_pincodes[]
-  inventory           inventory[]
-  warehouse_stock     product_warehouse_stock[]
+  scheduling_configs  warehouse_scheduling_config[]
+  warehouse_zones     warehouse_zones[]
+  parent_warehouse    warehouses?                   @relation("WarehouseHierarchy", fields: [parent_warehouse_id], references: [id])
+  child_warehouses    warehouses[]                  @relation("WarehouseHierarchy")
 }
 
-
-// --- Model: wishlist_items.prisma ---
 model wishlist_items {
-  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id    String    @db.Uuid
-  product_id String    @db.Uuid
-  added_at   DateTime  @default(now()) @db.Timestamptz
-
-  // Relations
-  user       users     @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  product    products  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String   @db.Uuid
+  product_id String   @db.Uuid
+  added_at   DateTime @default(now()) @db.Timestamptz(6)
+  product    products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  user       users    @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@unique([user_id, product_id])
   @@index([user_id])
   @@index([product_id])
 }
 
-
-// --- Model: you_may_like.prisma ---
 model you_may_like {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   product_id String?   @db.Uuid
-
-  // Relations
   product    products? @relation(fields: [product_id], references: [id])
 }
 
-
-// --- Model: zone_pincodes.prisma ---
 model zone_pincodes {
-  id            Int             @id @default(autoincrement())
+  id            Int            @id @default(autoincrement())
   zone_id       Int
-  pincode       String          @db.VarChar
-  city          String?         @db.VarChar
-  state         String?         @db.VarChar
-  is_active     Boolean?        @default(true)
-  created_at    DateTime?       @default(now()) @db.Timestamptz
-  district      String?         @db.VarChar
-  location_name String?         @db.VarChar
-  village       String?         @db.VarChar
+  pincode       String         @db.VarChar
+  city          String?        @db.VarChar
+  state         String?        @db.VarChar
+  is_active     Boolean?       @default(true)
+  created_at    DateTime?      @default(now()) @db.Timestamptz(6)
+  district      String?        @db.VarChar
+  location_name String?        @db.VarChar
+  village       String?        @db.VarChar
   others        String?
-
-  // Relations
-  zone          delivery_zones  @relation(fields: [zone_id], references: [id])
+  zone          delivery_zones @relation(fields: [zone_id], references: [id])
 }
 
+enum Vertical {
+  qwik
+  eato
+  bazar
+  star
+}
 
+enum MediaType {
+  image
+  video
+}
+
+enum ServiceStatus {
+  pending
+  assigned
+  in_progress
+  completed
+  cancelled
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  SELLER
+}

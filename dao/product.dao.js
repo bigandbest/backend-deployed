@@ -102,9 +102,25 @@ class ProductDAO {
                 include: {
                     variants: {
                         where: { is_default: true, active: true },
-                        take: 1
+                        take: 1,
+                        include: {
+                            inventory: true
+                        }
                     },
-                    category: { select: { name: true } }
+                    category: { select: { name: true } },
+                    subcategory: { select: { name: true } },
+                    group: { select: { name: true } },
+                    store: { select: { name: true } },
+                    brands: {
+                        include: {
+                            brand: {
+                                select: { id: true, name: true }
+                            }
+                        }
+                    },
+                    media: {
+                        orderBy: { sort_order: 'asc' }
+                    }
                 },
                 orderBy: { created_at: 'desc' }
             }),
