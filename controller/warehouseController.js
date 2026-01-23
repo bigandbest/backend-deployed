@@ -1,5 +1,6 @@
 import WarehouseDAO from "../dao/warehouse.dao.js";
-// import { supabase } from "../config/supabaseClient.js"; // Removed as all DB ops are via DAO
+import ProductDAO from "../dao/product.dao.js";
+import prisma from "../config/prisma.js";
 
 /**
  * Get all warehouses
@@ -61,7 +62,7 @@ export const getWarehouses = async (req, res) => {
 export const createWarehouse = async (req, res) => {
   try {
     const {
-      name, type, location, address, contact_person, contact_phone, contact_email,
+      name, type, location, pincode, address, contact_person, contact_phone, contact_email,
       zone_ids, parent_warehouse_id, pincode_assignments
     } = req.body;
 
@@ -88,8 +89,14 @@ export const createWarehouse = async (req, res) => {
     }
 
     const data = {
-      name, type, location, address, contact_person, contact_phone, contact_email,
-      parent_warehouse_id,
+      name,
+      type,
+      location: location || pincode,
+      address,
+      contact_person,
+      contact_phone,
+      contact_email,
+      parent_warehouse_id: parent_warehouse_id ? parseInt(parent_warehouse_id, 10) : null,
       hierarchy_level: type === "zonal" ? 0 : 1
     };
 
@@ -143,14 +150,21 @@ export const updateWarehouse = async (req, res) => {
   try {
     const { id } = req.params;
     const {
-      name, type, pincode, address, contact_person, contact_phone, contact_email,
-      zone_ids, pincode_assignments, ...otherUpdates
+      name, type, location, pincode, address, contact_person, contact_phone, contact_email,
+      parent_warehouse_id, zone_ids, pincode_assignments, ...otherUpdates
     } = req.body;
 
     if (!name || !type) return res.status(400).json({ success: false, error: "Name and type required" });
 
     const warehouseUpdates = {
-      name, type, location: pincode, address, contact_person, contact_phone, contact_email,
+      name,
+      type,
+      location: location || pincode,
+      address,
+      contact_person,
+      contact_phone,
+      contact_email,
+      parent_warehouse_id: parent_warehouse_id ? parseInt(parent_warehouse_id, 10) : null,
       ...otherUpdates
     };
 
@@ -294,9 +308,9 @@ export const addProductToWarehouse = async (req, res) => {
 
     // Using refactored updateProductStock which requires variantId
     await WarehouseDAO.updateProductStock(id, product_id, variant_id, {
-      stock_quantity: parseInt(stock_quantity),
-      minimum_threshold: minimum_threshold || 10,
-      cost_per_unit: cost_per_unit || 0,
+      stock_quantity: parseInt(stock_quantity) || 0,
+      minimum_threshold: parseInt(minimum_threshold) || 0,
+      cost_per_unit: parseFloat(cost_per_unit) || 0,
       // is_active ignored in new inventory
     });
 
@@ -497,13 +511,158 @@ export const getZonalWarehousePincodes = async (req, res) => {
 
     // Extract pincodes from zones
     // Since getById includes warehouse_zones -> zone -> zone_pincodes
-    const pincodes = new Set();
+    const pincodeMap = new Map();
     warehouse.warehouse_zones?.forEach(wz => {
-      wz.zone?.zone_pincodes?.forEach(zp => pincodes.add(zp.pincode));
+      wz.zone?.zone_pincodes?.forEach(zp => {
+        if (!pincodeMap.has(zp.pincode)) {
+          pincodeMap.set(zp.pincode, {
+            pincode: zp.pincode,
+            city: zp.city,
+            state: zp.state,
+            is_available: true
+          });
+        }
+      });
     });
 
-    res.status(200).json({ success: true, data: Array.from(pincodes).map(p => ({ pincode: p, is_available: true })) });
+    res.status(200).json({ success: true, data: Array.from(pincodeMap.values()) });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
+  }
+};
+
+/**
+ * Get overall summary of stock across all warehouses
+ */
+export const getWarehouseSummary = async (req, res) => {
+  try {
+    const inventory = await prisma.inventory.findMany({
+      include: {
+        variant: {
+          include: {
+            product: true
+          }
+        },
+        warehouse: true
+      }
+    });
+
+    const productsMap = new Map();
+
+    inventory.forEach((item) => {
+      const variant = item.variant;
+      if (!variant) return;
+      const product = variant.product;
+      if (!product) return;
+
+      const productId = product.id;
+      if (!productsMap.has(productId)) {
+        productsMap.set(productId, {
+          product_id: productId,
+          product_name: product.name,
+          product_price: variant.price || 0,
+          total_stock: 0,
+          warehouses: []
+        });
+      }
+
+      const productEntry = productsMap.get(productId);
+      productEntry.total_stock += (item.stock_qty || 0);
+
+      const whEntry = productEntry.warehouses.find(w => w.warehouse_id === item.warehouse_id);
+      if (whEntry) {
+        whEntry.stock_quantity += (item.stock_qty || 0);
+      } else {
+        productEntry.warehouses.push({
+          warehouse_id: item.warehouse_id,
+          warehouse_name: item.warehouse?.name || "Unknown",
+          stock_quantity: item.stock_qty || 0
+        });
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      data: Array.from(productsMap.values())
+    });
+  } catch (error) {
+    console.error("Error in getWarehouseSummary:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * Get global low-stock items across all warehouses
+ */
+export const getGlobalLowStock = async (req, res) => {
+  try {
+    const allInventory = await prisma.inventory.findMany({
+      include: {
+        variant: {
+          include: {
+            product: true
+          }
+        },
+        warehouse: true
+      }
+    });
+
+    const lowStockItems = allInventory.filter(item =>
+      item.stock_qty <= (item.bulk_stock_threshold || 0)
+    );
+
+    const transformed = lowStockItems.map(item => ({
+      product_id: item.variant?.product?.id,
+      product_name: item.variant?.product?.name,
+      product_price: item.variant?.price || 0,
+      stock_quantity: item.stock_qty,
+      minimum_threshold: item.bulk_stock_threshold,
+      warehouse_name: item.warehouse?.name,
+      warehouse_type: item.warehouse?.type
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: transformed
+    });
+  } catch (error) {
+    console.error("Error in getGlobalLowStock:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * Get global stock movements
+ */
+export const getGlobalStockMovements = async (req, res) => {
+  try {
+    const movements = await prisma.stock_movements.findMany({
+      take: 50,
+      orderBy: {
+        created_at: 'desc'
+      },
+      include: {
+        product: true,
+        warehouse: true
+      }
+    });
+
+    const transformed = movements.map(m => ({
+      id: m.id,
+      product_name: m.product?.name || "Unknown",
+      warehouse_name: m.warehouse?.name || "Unknown",
+      movement_type: m.movement_type,
+      quantity: m.quantity,
+      reason: m.reason,
+      created_at: m.created_at
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: transformed
+    });
+  } catch (error) {
+    console.error("Error in getGlobalStockMovements:", error);
+    res.status(500).json({ success: false, error: error.message });
   }
 };
