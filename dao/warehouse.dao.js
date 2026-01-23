@@ -20,8 +20,16 @@ class WarehouseDAO {
                 where: { id: numericId },
                 include: {
                     parent_warehouse: true,
-                    child_warehouses: true,
-                    warehouse_zones: { include: { zone: true } },
+                    child_warehouses: { include: { warehouse_pincodes: true } },
+                    warehouse_zones: {
+                        include: {
+                            zone: {
+                                include: {
+                                    zone_pincodes: true
+                                }
+                            }
+                        }
+                    },
                     warehouse_pincodes: true,
                     scheduling_configs: { include: { slot: true } }
                 }
@@ -34,8 +42,16 @@ class WarehouseDAO {
             where: { name: id },
             include: {
                 parent_warehouse: true,
-                child_warehouses: true,
-                warehouse_zones: { include: { zone: true } },
+                child_warehouses: { include: { warehouse_pincodes: true } },
+                warehouse_zones: {
+                    include: {
+                        zone: {
+                            include: {
+                                zone_pincodes: true
+                            }
+                        }
+                    }
+                },
                 warehouse_pincodes: true,
                 scheduling_configs: { include: { slot: true } }
             }
@@ -221,16 +237,16 @@ class WarehouseDAO {
                 }
             },
             update: {
-                stock_qty: data.stock_quantity,
-                // reserved_qty: data.reserved_quantity, // preserved if needed?
+                stock_qty: parseInt(data.stock_quantity) || 0,
+                bulk_stock_threshold: parseInt(data.minimum_threshold) || 0,
                 updated_at: new Date()
             },
             create: {
                 variant_id: variantId,
                 warehouse_id: numericId,
-                stock_qty: data.stock_quantity || 0,
+                stock_qty: parseInt(data.stock_quantity) || 0,
                 reserved_qty: 0,
-                bulk_stock_threshold: data.minimum_threshold || 0
+                bulk_stock_threshold: parseInt(data.minimum_threshold) || 0
             }
         });
     }
@@ -324,10 +340,41 @@ class WarehouseDAO {
         if (isNaN(numericId)) {
             throw new Error('Invalid warehouse ID');
         }
-        return await prisma.warehouse_pincodes.findMany({
-            where: { warehouse_id: numericId, is_active: true },
-            orderBy: { pincode: 'asc' }
+
+        const warehouse = await this.getById(numericId);
+        if (!warehouse) return [];
+
+        const directPincodes = warehouse.warehouse_pincodes || [];
+
+        if (warehouse.type !== 'zonal') {
+            return directPincodes;
+        }
+
+        // Aggregate pincodes from zones for zonal warehouses
+        const pincodeMap = new Map();
+
+        // Add direct pincodes first
+        directPincodes.forEach(p => {
+            pincodeMap.set(p.pincode, p);
         });
+
+        // Add pincodes from assigned zones
+        warehouse.warehouse_zones?.forEach(wz => {
+            wz.zone?.zone_pincodes?.forEach(zp => {
+                if (!pincodeMap.has(zp.pincode)) {
+                    pincodeMap.set(zp.pincode, {
+                        pincode: zp.pincode,
+                        city: zp.city,
+                        state: zp.state,
+                        delivery_days: 3, // Default for zonal
+                        is_active: zp.is_active,
+                        is_zonal: true
+                    });
+                }
+            });
+        });
+
+        return Array.from(pincodeMap.values()).sort((a, b) => a.pincode.localeCompare(b.pincode));
     }
 
     async listStocks(warehouseId) {

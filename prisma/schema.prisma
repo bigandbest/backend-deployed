@@ -748,6 +748,7 @@ cess_rate_override   Decimal? @db.Decimal
   order_items         order_items[]
   service_bookings    service_bookings[]
   warehouse_stock     product_warehouse_stock[]
+  stock_movements     stock_movements[]
 
   @@index([product_id])
   @@index([sku])
@@ -851,6 +852,7 @@ cess_rate          Decimal?           @default(0) @db.Decimal
   store_section_mappings    store_section_mappings[]
   daily_deals_products      daily_deals_product[]
   warehouse_stock           product_warehouse_stock[]
+  stock_movements           stock_movements[]
 
   @@index([vertical])
   @@index([category_id])
@@ -1102,6 +1104,9 @@ model stock_movements {
 
   // Relations
   warehouse      warehouses @relation(fields: [warehouse_id], references: [id])
+  product        products   @relation(fields: [product_id], references: [id])
+  variant_id     String?    @db.Uuid
+  variant        product_variants? @relation(fields: [variant_id], references: [id])
 }
 
 
