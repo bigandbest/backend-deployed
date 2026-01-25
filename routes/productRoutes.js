@@ -20,6 +20,7 @@ import {
   getEverydayEssentials,
   getTopProducts,
   getRelatedProducts,
+  getRelatedProductsBySubcategory, // NEW: For single product page
   // Variant routes
   addProductVariant,
   updateProductVariant,
@@ -73,6 +74,9 @@ router.get("/:productId/bulk-settings", getProductBulkSettings);
 // Delivery-related routes
 router.post("/check-delivery", checkProductsDelivery);
 router.put("/:id/delivery", updateProductDelivery);
+
+// Related products by product ID (must come before /:id route)
+router.get("/related/:productId", getRelatedProductsBySubcategory);
 
 router.get("/:id", getProductById);
 

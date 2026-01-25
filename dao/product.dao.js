@@ -330,13 +330,13 @@ class ProductDAO {
     async getFeaturedProducts(limit = 20) {
         return await prisma.products.findMany({
             where: {
-                active: true,
-                featured: true
+                active: true
             },
             take: limit,
             include: {
                 category: true,
-                variants: { where: { active: true } }
+                variants: { where: { active: true } },
+                media: { orderBy: { sort_order: 'asc' } }
             },
             orderBy: { created_at: 'desc' }
         });
@@ -350,7 +350,8 @@ class ProductDAO {
             take: limit,
             include: {
                 category: true,
-                variants: { where: { active: true } }
+                variants: { where: { active: true } },
+                media: { orderBy: { sort_order: 'asc' } }
             },
             orderBy: { created_at: 'desc' }
         });
@@ -576,6 +577,78 @@ class ProductDAO {
                     recommended_store_id: storeId
                 }
             }
+        });
+    }
+
+    /**
+     * Enrich products with inventory stock information
+     * @param {Array} products - Array of products with variants
+     * @param {number} warehouseId - Optional warehouse filter
+     * @returns {Array} Products enriched with stock_info
+     */
+    async enrichProductsWithInventory(products, warehouseId = null) {
+        if (!products || products.length === 0) {
+            return products;
+        }
+
+        // Import inventory DAO
+        const inventoryDAO = (await import('./inventory.dao.js')).default;
+
+        // Collect all variant IDs from all products
+        const variantIds = [];
+        products.forEach(product => {
+            if (product.variants && product.variants.length > 0) {
+                product.variants.forEach(variant => {
+                    if (variant.id) {
+                        variantIds.push(variant.id);
+                    }
+                });
+            }
+        });
+
+        // Batch fetch inventory for all variants
+        const stockMap = await inventoryDAO.getStockByVariantIds(variantIds, warehouseId);
+
+        // Enrich each product
+        return products.map(product => {
+            const enrichedProduct = { ...product };
+
+            if (product.variants && product.variants.length > 0) {
+                enrichedProduct.variants = product.variants.map(variant => {
+                    const stockInfo = stockMap.get(variant.id) || {
+                        available_stock: 0,
+                        in_stock: false,
+                        low_stock: false,
+                        warehouses: []
+                    };
+
+                    return {
+                        ...variant,
+                        stock_info: {
+                            available_stock: stockInfo.available_stock,
+                            in_stock: stockInfo.in_stock,
+                            low_stock: stockInfo.low_stock,
+                            warehouse_count: stockInfo.warehouses?.length || 0
+                        }
+                    };
+                });
+
+                // Set product-level stock info based on default variant or first variant
+                const defaultVariant = enrichedProduct.variants.find(v => v.is_default) || enrichedProduct.variants[0];
+                if (defaultVariant && defaultVariant.stock_info) {
+                    enrichedProduct.stock_info = defaultVariant.stock_info;
+                }
+            } else {
+                // Product without variants - set as out of stock
+                enrichedProduct.stock_info = {
+                    available_stock: 0,
+                    in_stock: false,
+                    low_stock: false,
+                    warehouse_count: 0
+                };
+            }
+
+            return enrichedProduct;
         });
     }
 }

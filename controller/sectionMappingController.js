@@ -350,8 +350,14 @@ export const getCategoriesForSection = async (req, res) => {
       resolvedSectionId = section.id;
     }
 
-    // Fetch subcategories mappings with active status
-    const mappings = await prisma.section_subcategory_mappings.findMany({
+    // 1. Fetch direct category mappings
+    const categoryMappings = await prisma.product_section_categories.findMany({
+      where: { section_id: resolvedSectionId },
+      select: { category_id: true },
+    });
+
+    // 2. Fetch subcategory mappings (to find parent categories)
+    const subcategoryMappings = await prisma.section_subcategory_mappings.findMany({
       where: {
         section_id: resolvedSectionId,
         is_active: true,
@@ -359,49 +365,49 @@ export const getCategoriesForSection = async (req, res) => {
       select: { subcategory_id: true },
     });
 
-    if (!mappings || mappings.length === 0) {
+    const categoryIdsSet = new Set();
+
+    // Add direct categories
+    if (categoryMappings) {
+      categoryMappings.forEach(m => categoryIdsSet.add(m.category_id));
+    }
+
+    // Add parent categories from subcategories
+    if (subcategoryMappings.length > 0) {
+      const subIds = subcategoryMappings.map(m => m.subcategory_id);
+      const subcategories = await prisma.subcategories.findMany({
+        where: { id: { in: subIds } },
+        select: { category_id: true }
+      });
+      subcategories.forEach(s => categoryIdsSet.add(s.category_id));
+    }
+
+    if (categoryIdsSet.size === 0) {
       return res.status(200).json({
         success: true,
-        data: [],
+        categories: [],
         count: 0,
       });
     }
 
-    // Extract IDs
-    const subcategoryIds = mappings.map((m) => m.subcategory_id);
-
-    // Fetch subcategories and their parent categories
-    const subcategories = await prisma.subcategories.findMany({
-      where: { id: { in: subcategoryIds } },
-      include: {
-        category: {
-          select: {
-            id: true,
-            name: true,
-            image_url: true,
-            // image field not found in previous check but 'image_url' confirmed in other usages or inferred.
-            // Wait, schema says `image_url` for `categories`.
-            // Original code queried `image`. Let's use `image_url`.
-          },
-        },
+    // Fetch full category details
+    const categories = await prisma.categories.findMany({
+      where: {
+        id: { in: Array.from(categoryIdsSet) },
+        active: true
       },
+      select: {
+        id: true,
+        name: true,
+        image_url: true,
+        icon: true
+      },
+      orderBy: { name: 'asc' }
     });
-
-    // Extract unique categories
-    const categoriesMap = new Map();
-
-    subcategories.forEach((item) => {
-      const category = item.category;
-      if (category && !categoriesMap.has(category.id)) {
-        categoriesMap.set(category.id, category);
-      }
-    });
-
-    const categories = Array.from(categoriesMap.values());
 
     res.status(200).json({
       success: true,
-      data: categories,
+      categories: categories, // Key fixed to match frontend expectation
       count: categories.length,
     });
   } catch (error) {

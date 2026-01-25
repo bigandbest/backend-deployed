@@ -3,6 +3,7 @@
  */
 import { supabase } from '../config/supabaseClient.js';
 import couponValidator from '../services/couponValidator.js';
+import prisma from '../config/prisma.js';
 
 /**
  * Validate coupon code
@@ -155,23 +156,24 @@ export const getAvailableCoupons = async (req, res) => {
         const userId = req.user?.id;
         const { cart_value } = req.query;
 
-        // Get active coupons
-        let query = supabase
-            .from("coupons")
-            .select("*")
-            .eq("status", "ACTIVE")
-            .lte("valid_from", new Date().toISOString())
-            .gte("valid_to", new Date().toISOString())
-            .order("discount_value", { ascending: false });
+        // Use Prisma to fetch active coupons (Bypasses RLS)
+        const now = new Date();
 
-        // Filter by minimum order value if cart value provided
+        // Build where clause
+        const whereClause = {
+            status: "ACTIVE",
+            valid_from: { lte: now },
+            valid_to: { gte: now }
+        };
+
         if (cart_value) {
-            query = query.lte("min_order_value", parseFloat(cart_value));
+            whereClause.min_order_value = { lte: parseFloat(cart_value) };
         }
 
-        const { data: coupons, error } = await query;
-
-        if (error) throw error;
+        const coupons = await prisma.coupons.findMany({
+            where: whereClause,
+            orderBy: { discount_value: 'desc' }
+        });
 
         // Filter out coupons user has already used (if per-user limit)
         const availableCoupons = [];
@@ -179,28 +181,29 @@ export const getAvailableCoupons = async (req, res) => {
         for (const coupon of coupons) {
             // Check if new user only
             if (coupon.new_user_only) {
-                const { data: orders } = await supabase
-                    .from("orders")
-                    .select("id")
-                    .eq("user_id", userId)
-                    .in("status", ["DELIVERED", "COMPLETED"])
-                    .limit(1);
+                const orderCount = await prisma.orders.count({
+                    where: {
+                        user_id: userId,
+                        status: { in: ["DELIVERED", "COMPLETED"] }
+                    }
+                });
 
-                if (orders && orders.length > 0) {
+                if (orderCount > 0) {
                     continue; // Skip this coupon
                 }
             }
 
             // Check usage limit
             if (coupon.usage_limit_per_user) {
-                const { count } = await supabase
-                    .from("coupon_usage")
-                    .select("*", { count: "exact", head: true })
-                    .eq("coupon_id", coupon.id)
-                    .eq("user_id", userId)
-                    .eq("status", "APPLIED");
+                const usageCount = await prisma.coupon_usage.count({
+                    where: {
+                        coupon_id: coupon.id,
+                        user_id: userId,
+                        status: "APPLIED"
+                    }
+                });
 
-                if (count >= coupon.usage_limit_per_user) {
+                if (usageCount >= coupon.usage_limit_per_user) {
                     continue; // Skip this coupon
                 }
             }

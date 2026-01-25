@@ -11,7 +11,7 @@ import {
     getAllMappings,
     updateMappingStatus,
     deleteMapping,
-    getProductsBySection,
+    getProductsBySection, // OPTIMIZED VERSION (consolidated)
     createSectionGroupMapping
 } from "../controller/subStoreController.js";
 
@@ -33,7 +33,7 @@ router.get("/list", getAllMappings);
 router.put("/:id/status", updateMappingStatus);
 router.delete("/:id", deleteMapping);
 
-// Frontend route for getting products by section
+// Frontend route for getting products by section - OPTIMIZED FOR INFINITE SCROLL
 router.get("/section/:section_key/products", getProductsBySection);
 
 export default router;

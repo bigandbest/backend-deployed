@@ -165,9 +165,11 @@ const createApp = () => {
   // app.use("/api/bnb", bnbRoutes);
   // app.use("/api/b&b-group", bnbGroupRoutes);
   // app.use("/api/b&b-group-product", bnbGroupProductRoutes);
+
   app.use("/api/daily-deals", dailyDealsRoutes);
   app.use("/api/daily-deals-product", dailyDealsProductRoutes);
   app.use("/api/brands", brandRoutes);
+
   app.use("/api/product-brand", brandProductsRoutes);
   app.use("/api/recommended-stores", recommendedStoreRoutes);
   app.use("/api/product-recommended-stores", recommendedStoreRoutes);
