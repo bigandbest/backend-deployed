@@ -318,7 +318,7 @@ export const getProductById = async (req, res) => {
           orderBy: { is_primary: 'desc' },
           select: {
             id: true,
-            url: true,
+            media_url: true,
             media_type: true,
             is_primary: true
           }
@@ -391,8 +391,8 @@ export const getProductById = async (req, res) => {
         ...enrichedProduct,
         price: computedPrice,
         old_price: computedOldPrice,
-        image: enrichedProduct.media?.[0]?.url || '/prod1.png',
-        images: enrichedProduct.media?.map(m => m.url) || [],
+        image: enrichedProduct.media?.[0]?.media_url || '/prod1.png',
+        images: enrichedProduct.media?.map(m => m.media_url) || [],
         delivery_info: deliveryInfo,
         store_name: enrichedProduct.store?.name || null,
         brand: enrichedProduct.brands?.[0]?.brand?.name || null,
@@ -1651,7 +1651,7 @@ export const monitorAndAutoTransfer = async (req, res) => {
 };
 
 // Get related products by subcategory
-export const getRelatedProductsBySubcategory = async (req, res) => {
+export const getRelatedProducts = async (req, res) => {
   try {
     const { productId } = req.params;
     const { limit = 12, warehouse_id } = req.query;
@@ -1702,7 +1702,7 @@ export const getRelatedProductsBySubcategory = async (req, res) => {
           take: 1,
           select: {
             id: true,
-            url: true,
+            media_url: true,
             media_type: true
           }
         },
@@ -1735,7 +1735,7 @@ export const getRelatedProductsBySubcategory = async (req, res) => {
         ...p,
         price: defaultVariant?.price || 0,
         old_price: defaultVariant?.old_price || (defaultVariant?.price * 1.2) || 0,
-        image: p.media?.[0]?.url || '/prod1.png',
+        image: p.media?.[0]?.media_url || '/prod1.png',
         brand: p.brands?.[0]?.brand?.name || null
       };
     });

@@ -332,20 +332,172 @@ export async function deleteMapping(req, res) {
 }
 
 // Get products by section for frontend
-// OPTIMIZED: Get products by section for infinite scroll
-// Uses SELECT for minimal payload, DB-level pagination, and efficient queries
 export async function getProductsBySection(req, res) {
     try {
         const { section_key } = req.params;
         const { page = 1, limit = 25, warehouse_id } = req.query;
 
+        console.log("🔍 Getting products for section:", section_key, `Page: ${page}, Limit: ${limit}`);
+
+        // Get section info
+        const sectionData = await ProductSectionDAO.getByKey(section_key);
+
+        if (!sectionData) {
+            console.log("⚠️ Section not found:", section_key);
+            return res
+                .status(404)
+                .json({ success: false, error: `Section '${section_key}' not found or inactive` });
+        }
+
+        if (!sectionData.is_active) {
+            return res.status(404).json({ success: false, error: `Section '${section_key}' is inactive` });
+        }
+
+        console.log("✅ Found section (DAO):", sectionData.section_name);
+
+        let allProducts = [];
+        let directCount = 0;
+        let groupCount = 0;
+        let storeCount = 0;
+
+        // 1. Get direct section-product mappings
+        const directMappings = await StoreSectionMappingDAO.getProductsBySection(sectionData.id);
+        if (directMappings && directMappings.length > 0) {
+            const products = directMappings.map(m => m.products).filter(Boolean);
+            allProducts = [...allProducts, ...products];
+            directCount = products.length;
+        }
+
+        // 2. Get section-group mappings from NEW TABLE
+        const groupMappingsNew = await ProductSectionGroupDAO.listBySection(sectionData.id);
+
+        if (groupMappingsNew && groupMappingsNew.length > 0) {
+            const groupIds = groupMappingsNew.map((m) => m.group_id);
+            console.log("✅ Found group mappings (New DAO):", groupIds);
+
+            // Fetch products for these groups via subcategory_id
+            const groupsData = await prisma.groups.findMany({
+                where: { id: { in: groupIds } },
+                select: { subcategory_id: true }
+            });
+
+            if (groupsData.length > 0) {
+                const subcategoryIds = groupsData.map((g) => g.subcategory_id).filter(Boolean);
+
+                const groupProducts = await prisma.products.findMany({
+                    where: {
+                        subcategory_id: { in: subcategoryIds },
+                        active: true
+                    },
+                    include: {
+                        variants: {
+                            where: { active: true },
+                            orderBy: { is_default: 'desc' }
+                        },
+                        media: { where: { is_primary: true }, take: 1 },
+                        brands: { include: { brand: true } }
+                    },
+                    orderBy: { created_at: 'desc' },
+                    take: 100 // Fetch more for better variety
+                });
+
+                allProducts = [...allProducts, ...groupProducts];
+                groupCount = groupProducts.length;
+                console.log("✅ Found group products (DAO):", groupProducts.length);
+            }
+        }
+
+        // 3. Get products from stores mapped to this section
+        const storeMappings = await StoreSectionMappingDAO.getStoresBySection(sectionData.id);
+
+        if (storeMappings && storeMappings.length > 0) {
+            const storeIds = storeMappings.map(m => m.store_id).filter(Boolean);
+
+            const storeProducts = await prisma.products.findMany({
+                where: {
+                    store_id: { in: storeIds },
+                    active: true
+                },
+                include: {
+                    variants: {
+                        where: { active: true },
+                        orderBy: { is_default: 'desc' }
+                    },
+                    media: { where: { is_primary: true }, take: 1 },
+                    brands: { include: { brand: true } }
+                },
+                orderBy: { created_at: 'desc' },
+                take: 50
+            });
+
+            allProducts = [...allProducts, ...storeProducts];
+            storeCount = storeProducts.length;
+        }
+
+        // Remove duplicates based on product id
+        const uniqueProducts = allProducts.filter(
+            (product, index, self) =>
+                index === self.findIndex((p) => p.id === product.id)
+        );
+
+        const totalProducts = uniqueProducts.length;
+        console.log("✅ Total unique products (DAO):", totalProducts);
+
+        // PAGINATION: Apply pagination to unique products
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+        const startIndex = (pageNum - 1) * limitNum;
+        const endIndex = startIndex + limitNum;
+        const paginatedProducts = uniqueProducts.slice(startIndex, endIndex);
+
+        // CRITICAL: Enrich products with inventory data
+        const enrichedProducts = await ProductDAO.enrichProductsWithInventory(
+            paginatedProducts,
+            warehouse_id ? parseInt(warehouse_id) : null
+        );
+
+        const totalPages = Math.ceil(totalProducts / limitNum);
+        const hasNextPage = pageNum < totalPages;
+        const hasPrevPage = pageNum > 1;
+
+        res.json({
+            success: true,
+            section: sectionData,
+            products: enrichedProducts,
+            pagination: {
+                page: pageNum,
+                limit: limitNum,
+                total: totalProducts,
+                totalPages: totalPages,
+                hasNextPage: hasNextPage,
+                hasPrevPage: hasPrevPage,
+                showing: enrichedProducts.length
+            },
+            mapping_types: {
+                direct_products: directCount,
+                group_products: groupCount,
+                store_products: storeCount,
+                total_unique_products: totalProducts,
+            },
+        });
+    } catch (err) {
+        console.error("💥 Get products by section error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+}
+// OPTIMIZED VERSION - Get products by section for infinite scroll
+export async function getProductsBySectionV2(req, res) {
+    try {
+        const { section_key } = req.params;
+        const { page = 1, limit = 25, warehouse_id } = req.query;
+        
         const pageNum = parseInt(page);
         const limitNum = parseInt(limit);
         const skip = (pageNum - 1) * limitNum;
 
         const sectionData = await ProductSectionDAO.getByKey(section_key);
         if (!sectionData || !sectionData.is_active) {
-            return res.status(404).json({ success: false, error: 'Section not found' });
+            return res.status(404).json({ success: false, error: `Section not found` });
         }
 
         // Parallel fetch all mapping IDs
@@ -376,99 +528,35 @@ export async function getProductsBySection(req, res) {
         if (storeIds.length) whereConditions.push({ store_id: { in: storeIds } });
 
         if (!whereConditions.length) {
-            return res.json({
-                success: true,
-                section: sectionData,
-                products: [],
-                pagination: { page: pageNum, limit: limitNum, total: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false, showing: 0 }
-            });
+            return res.json({ success: true, section: sectionData, products: [], pagination: { page: pageNum, limit: limitNum, total: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false, showing: 0 } });
         }
 
-        // OPTIMIZATION: Use SELECT instead of INCLUDE for 80% payload reduction
+        // Single query with DB pagination
         const [products, totalCount] = await Promise.all([
             prisma.products.findMany({
                 where: { OR: whereConditions, active: true },
-                select: {
-                    id: true,
-                    name: true,
-                    description: true,
-                    rating: true,
-                    review_count: true,
-                    active: true,
-                    created_at: true,
-                    category_id: true,
-                    subcategory_id: true,
-                    group_id: true,
-                    store_id: true,
-                    return_applicable: true,
-                    return_days: true,
-                    has_variants: true,
-                    variants: {
-                        where: { active: true },
-                        orderBy: { is_default: 'desc' },
-                        take: 5,
-                        select: {
-                            id: true,
-                            title: true,
-                            price: true,
-                            old_price: true,
-                            is_default: true,
-                            active: true,
-                            sku: true
-                        }
-                    },
-                    media: {
-                        where: { is_primary: true },
-                        take: 1,
-                        select: {
-                            id: true,
-                            url: true,
-                            media_type: true
-                        }
-                    },
-                    brands: {
-                        take: 1,
-                        select: {
-                            brand: {
-                                select: {
-                                    id: true,
-                                    name: true
-                                }
-                            }
-                        }
-                    }
+                include: {
+                    variants: { where: { active: true }, orderBy: { is_default: 'desc' }, take: 5 },
+                    media: { where: { is_primary: true }, take: 1 },
+                    brands: { include: { brand: true }, take: 1 }
                 },
                 orderBy: { created_at: 'desc' },
-                skip,
-                take: limitNum,
-                distinct: ['id']
+                skip, take: limitNum, distinct: ['id']
             }),
             prisma.products.count({ where: { OR: whereConditions, active: true } })
         ]);
 
-        const enrichedProducts = await ProductDAO.enrichProductsWithInventory(
-            products,
-            warehouse_id ? parseInt(warehouse_id) : null
-        );
-
+        const enrichedProducts = await ProductDAO.enrichProductsWithInventory(products, warehouse_id ? parseInt(warehouse_id) : null);
         const totalPages = Math.ceil(totalCount / limitNum);
 
         res.json({
             success: true,
             section: sectionData,
             products: enrichedProducts,
-            pagination: {
-                page: pageNum,
-                limit: limitNum,
-                total: totalCount,
-                totalPages,
-                hasNextPage: pageNum < totalPages,
-                hasPrevPage: pageNum > 1,
-                showing: enrichedProducts.length
-            }
+            pagination: { page: pageNum, limit: limitNum, total: totalCount, totalPages, hasNextPage: pageNum < totalPages, hasPrevPage: pageNum > 1, showing: enrichedProducts.length }
         });
     } catch (err) {
-        console.error('Error:', err);
+        console.error("Error:", err);
         res.status(500).json({ success: false, error: err.message });
     }
 }

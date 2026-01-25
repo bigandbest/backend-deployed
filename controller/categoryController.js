@@ -645,14 +645,17 @@ export const getSubcategoriesForSection = async (req, res) => {
     }
 
     // Get subcategory mappings for this section with subcategory inclusion
+    // Get subcategory mappings for this section with subcategory inclusion
     const mappings = await prisma.section_subcategory_mappings.findMany({
       where: {
         section_id: section.id,
         is_active: true,
+        subcategory: {
+          active: true
+        }
       },
       include: {
         subcategory: {
-          where: { active: true },
           include: {
             category: {
               select: {

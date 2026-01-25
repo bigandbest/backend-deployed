@@ -175,10 +175,11 @@ export const removeProductFromSection = async (req, res) => {
 };
 
 // Get all products in a section
+// Get all products in a section
 export const getProductsInSection = async (req, res) => {
   try {
     const { id } = req.params;
-    const { page = 1, limit = 50 } = req.query;
+    const { page = 1, limit = 50, warehouse_id } = req.query;
 
     const mappedCategories = await productSectionCategoryDao.listBySection(parseInt(id));
     const data = await productSectionProductDao.listBySection(parseInt(id));
@@ -198,6 +199,13 @@ export const getProductsInSection = async (req, res) => {
         product.category_id && categoryIds.includes(product.category_id)
       );
     }
+
+    // PERFORMANCE OPTIMIZATION: Enrich with inventory data in batch
+    const productDAO = (await import('../dao/product.dao.js')).default;
+    products = await productDAO.enrichProductsWithInventory(
+      products,
+      warehouse_id ? parseInt(warehouse_id) : null
+    );
 
     // Manual pagination as the list is relatively small
     const offset = (parseInt(page) - 1) * parseInt(limit);
@@ -286,7 +294,7 @@ export const addCategoriesToSection = async (req, res) => {
 
     const mappings = category_ids.map((category_id) => ({
       section_id: parseInt(id),
-      category_id: parseInt(category_id),
+      category_id: category_id,
     }));
 
     const data = await productSectionCategoryDao.addMany(mappings);
@@ -306,7 +314,7 @@ export const addCategoriesToSection = async (req, res) => {
 export const removeCategoryFromSection = async (req, res) => {
   try {
     const { id, categoryId } = req.params;
-    await productSectionCategoryDao.remove(parseInt(id), parseInt(categoryId));
+    await productSectionCategoryDao.remove(parseInt(id), categoryId);
 
     res.status(200).json({
       success: true,
@@ -335,7 +343,7 @@ export const getCategoriesInSection = async (req, res) => {
 export const getSectionsForCategory = async (req, res) => {
   try {
     const { categoryId } = req.params;
-    const data = await productSectionCategoryDao.listByProductCategory(parseInt(categoryId));
+    const data = await productSectionCategoryDao.listByProductCategory(categoryId);
 
     res.status(200).json({ success: true, data });
   } catch (error) {

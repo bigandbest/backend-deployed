@@ -56,7 +56,16 @@ class StoreSectionMappingDAO {
                 is_active: true
             },
             include: {
-                products: true
+                products: {
+                    include: {
+                        variants: {
+                            where: { active: true },
+                            orderBy: { is_default: 'desc' }
+                        },
+                        media: { where: { is_primary: true }, take: 1 },
+                        brands: { include: { brand: true } }
+                    }
+                }
             }
         });
     }
