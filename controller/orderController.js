@@ -1,4 +1,5 @@
 import Razorpay from "razorpay";
+import crypto from "crypto";
 /*
 import {
   createOrderNotification,
@@ -436,22 +437,8 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       address: addressString,
       payment_method,
       status: razorpay_payment_id ? "confirmed" : "pending",
-      shipping_house_number: detailedAddress.houseNumber,
-      shipping_street_address: detailedAddress.streetAddress,
-      shipping_suite_unit_floor: detailedAddress.suiteUnitFloor,
-      shipping_locality: detailedAddress.locality,
-      shipping_area: detailedAddress.area,
-      shipping_city: detailedAddress.city,
-      shipping_state: detailedAddress.state,
-      shipping_postal_code: detailedAddress.postalCode,
-      shipping_country: detailedAddress.country || "India",
-      shipping_landmark: detailedAddress.landmark,
       razorpay_order_id,
       razorpay_payment_id,
-      razorpay_signature,
-      shipping_latitude: gpsLocation?.latitude || null,
-      shipping_longitude: gpsLocation?.longitude || null,
-      shipping_gps_address: gpsLocation?.formatted_address || null,
     };
 
     const order = await orderDao.create(orderData);
@@ -737,7 +724,7 @@ export const getOrderTracking = async (req, res) => {
       }
     }
 
-    return res.json({ success: true, orderId: order.id, tracking: deduped });
+    return res.json({ success: true, order: order, tracking: deduped });
   } catch (err) {
     console.error("getOrderTracking error:", err);
     return res

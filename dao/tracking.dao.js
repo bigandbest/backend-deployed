@@ -23,14 +23,14 @@ class TrackingDAO {
                 product: {
                   select: {
                     name: true,
-                    images: true,
+                    media: true,
                   },
                 },
               },
             },
           },
         },
-        order_tracking: {
+        tracking: {
           orderBy: {
             timestamp: "asc",
           },
@@ -55,14 +55,14 @@ class TrackingDAO {
                 product: {
                   select: {
                     name: true,
-                    images: true,
+                    media: true,
                   },
                 },
               },
             },
           },
         },
-        order_tracking: {
+        tracking: {
           orderBy: {
             timestamp: "asc",
           },
@@ -71,15 +71,7 @@ class TrackingDAO {
     });
   }
 
-  /**
-   * Add tracking update and update order status
-   * @param {Object} trackingData - Tracking update data
-   * @param {string} trackingData.order_id - Order ID
-   * @param {string} trackingData.status - Status
-   * @param {string} trackingData.location - Location
-   * @param {string} trackingData.description - Description
-   * @returns {Promise<Object>} Created tracking entry
-   */
+  
   async addTrackingUpdate(trackingData) {
     const { order_id, status, location, description } = trackingData;
 
@@ -115,11 +107,7 @@ class TrackingDAO {
     });
   }
 
-  /**
-   * Get tracking history for an order
-   * @param {string} orderId - Order ID
-   * @returns {Promise<Array>} Tracking history
-   */
+  
   async getTrackingHistory(orderId) {
     return await OrderTrackingDAO.getTrackingHistory(orderId);
   }

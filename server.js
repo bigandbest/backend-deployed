@@ -24,7 +24,7 @@ import locationRoute from "./routes/locationRoutes.js";
 import cartRoutes from "./routes/cartRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
 import checkCartAvailabilityRoute from "./routes/checkCartAvailabilityRoute.js";
-// import paymentRoutes from "./routes/paymentRoutes.js";
+import paymentRoutes from "./routes/paymentRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
 // import bnbRoutes from "./routes/b&bRoutes.js";
 // import bnbGroupRoutes from "./routes/b&bGroupRoutes.js";
@@ -64,7 +64,7 @@ import zoneRoutes from "./routes/zoneRoutes.js";
 import promoBannerRoutes from "./routes/promoBannerRoutes.js";
 import bulkWholesaleRoutes from "./routes/bulkWholesaleRoutes.js";
 // import codOrderRoutes from "./routes/codOrderRoutes.js";
-// import onlinePaymentOrderRoutes from "./routes/onlinePaymentOrderRoutes.js";
+import onlinePaymentOrderRoutes from "./routes/onlinePaymentOrderRoutes.js";
 import walletOrderRoutes from "./routes/walletOrderRoutes.js";
 import stockRoutes from "./routes/stockRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
@@ -160,7 +160,7 @@ const createApp = () => {
   app.use("/api/order", orderRoutes);
   app.use("/api/orderItems", orderRoutes); // Now pointing to the same merged file
   app.use("/api/check", checkCartAvailabilityRoute);
-  // app.use("/api/payment", paymentRoutes);
+  app.use("/api/payment", paymentRoutes);
   app.use("/api/notifications", notificationRoutes);
   // app.use("/api/bnb", bnbRoutes);
   // app.use("/api/b&b-group", bnbGroupRoutes);
@@ -222,7 +222,7 @@ const createApp = () => {
   */
 
   // Online Payment Orders (Razorpay, etc.) - No amount limit
-  // app.use("/api/online-payment-orders", onlinePaymentOrderRoutes);
+  app.use("/api/online-payment-orders", onlinePaymentOrderRoutes);
 
   // Wallet Orders (Prepaid via wallet balance)
   app.use("/api/wallet-orders", walletOrderRoutes);

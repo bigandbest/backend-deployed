@@ -2,24 +2,19 @@ import prisma from '../config/prisma.js';
 
 class CartDAO {
     async addToCart(userId, variantId, quantity = 1, options = {}) {
-        const { productId, isBidProduct = false, lockedBidId = null, bidUnitPrice = null } = options;
+        const { isBidProduct = false, bidUnitPrice = null } = options;
 
-        // Check if item already exists in cart for this user and variant (or product if no variant)
-        const whereClause = {
-            user_id: userId,
-            is_bid_product: isBidProduct,
-            // locked_bid_id: lockedBidId // removed due to missing relation
-        };
-
-        if (variantId) {
-            whereClause.variant_id = variantId;
-        } else if (productId) {
-            whereClause.product_id = productId;
-            whereClause.variant_id = null;
+        if (!variantId) {
+            throw new Error('variant_id is required for cart operations');
         }
 
+        // Check if item already exists in cart for this user and variant
         const existingItem = await prisma.cart_items.findFirst({
-            where: whereClause
+            where: {
+                user_id: userId,
+                variant_id: variantId,
+                is_bid_product: isBidProduct,
+            }
         });
 
         if (existingItem) {
@@ -34,11 +29,9 @@ class CartDAO {
         return await prisma.cart_items.create({
             data: {
                 user_id: userId,
-                product_id: productId,
                 variant_id: variantId,
                 quantity,
                 is_bid_product: isBidProduct,
-                // locked_bid_id: lockedBidId, // removed due to missing relation
                 bid_unit_price: bidUnitPrice
             }
         });
@@ -73,7 +66,15 @@ class CartDAO {
             include: {
                 variant: {
                     include: {
-                        product: true
+                        inventory: true,
+                        product: {
+                            include: {
+                                media: {
+                                    where: { is_primary: true },
+                                    take: 1
+                                }
+                            }
+                        }
                     }
                 }
             },
