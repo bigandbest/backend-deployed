@@ -253,9 +253,27 @@ export const getAllProductsForAdmin = async (req, res) => {
       { limit: 1000, page: 1 },
     );
 
+    // Flatten the response for frontend convenience (Brand & Store)
+    const flattenedProducts = (products.items || []).map((p) => {
+      const brandObj =
+        p.brands && p.brands.length > 0 ? p.brands[0].brand : null;
+      const storeObj =
+        p.product_recommended_store && p.product_recommended_store.length > 0
+          ? p.product_recommended_store[0].recommended_store
+          : null;
+
+      return {
+        ...p,
+        brand_id: brandObj ? brandObj.id : null,
+        brand_name: brandObj ? brandObj.name : null,
+        store_id: storeObj ? storeObj.id : null,
+        store_name: storeObj ? storeObj.name : null,
+      };
+    });
+
     res.status(200).json({
       success: true,
-      products: products.items || [],
+      products: flattenedProducts,
       total: products.total || 0,
     });
   } catch (err) {
@@ -413,9 +431,28 @@ export const getProductForAdmin = async (req, res) => {
       });
     }
 
+    // Flatten the single product response for frontend convenience
+    const brandObj =
+      product.brands && product.brands.length > 0
+        ? product.brands[0].brand
+        : null;
+    const storeObj =
+      product.product_recommended_store &&
+      product.product_recommended_store.length > 0
+        ? product.product_recommended_store[0].recommended_store
+        : null;
+
+    const flattenedProduct = {
+      ...product,
+      brand_id: brandObj ? brandObj.id : null,
+      brand_name: brandObj ? brandObj.name : null,
+      store_id: storeObj ? storeObj.id : null,
+      store_name: storeObj ? storeObj.name : null,
+    };
+
     res.status(200).json({
       success: true,
-      product,
+      product: flattenedProduct,
     });
   } catch (err) {
     console.error("Error fetching product:", err);
@@ -559,24 +596,31 @@ export const updateProduct = async (req, res) => {
     // Store - use connect/disconnect like other relations
     // NOTE: Frontend sends recommended_store IDs, but products.store_id references stores table
     // Skip store connection for now to avoid FK errors
+    // Store - Handle Recommended Store Linking (matches createProduct and frontend logic)
     if (updateData.store_id) {
       try {
-        // Verify store exists before connecting
-        const storeExists = await prisma.stores.findUnique({
-          where: { id: updateData.store_id }
+        // Remove existing recommended store relations first (assuming single store selection from UI)
+        await prisma.product_recommended_store.deleteMany({
+          where: { product_id: productId },
         });
-        
-        if (storeExists) {
-          fieldsToUpdate.store = { connect: { id: updateData.store_id } };
-        } else {
-          console.log("Store ID not found in stores table, skipping connection:", updateData.store_id);
-        }
-      } catch (err) {
-        console.error("Error checking store existence:", err.message);
+
+        // Add new recommended store relation
+        await ProductDAO.addRecommendedStore(productId, updateData.store_id);
+        console.log(
+          "Linked product to recommended store:",
+          updateData.store_id,
+        );
+      } catch (storeError) {
+        console.error("Error linking recommended store:", storeError.message);
       }
+      // Ensure we don't try to update the 'store' relation on products table directly
+      // as that points to 'stores' table, not 'recommended_store'
       delete fieldsToUpdate.store_id;
     } else if (updateData.store_id === "" || updateData.store_id === null) {
-      fieldsToUpdate.store = { disconnect: true };
+      // If expressly cleared, remove relations
+      await prisma.product_recommended_store.deleteMany({
+        where: { product_id: productId },
+      });
       delete fieldsToUpdate.store_id;
     }
 
@@ -711,17 +755,14 @@ export const updateProduct = async (req, res) => {
     if (brandId) {
       try {
         // Remove existing brand relations first
-        await prisma.product_brands.deleteMany({
-          where: { product_id: productId }
+        await prisma.product_brand.deleteMany({
+          where: { product_id: productId },
         });
         // Add new brand relation
         await ProductDAO.addBrandToProduct(productId, brandId);
         console.log("Linked product to brand:", brandId);
       } catch (brandError) {
-        console.error(
-          "Error linking brand:",
-          brandError.message,
-        );
+        console.error("Error linking brand:", brandError.message);
       }
     }
 
