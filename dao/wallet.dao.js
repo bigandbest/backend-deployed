@@ -89,6 +89,62 @@ class WalletDAO {
             }
         });
     }
+
+    async createPendingTransaction(data) {
+        return await prisma.wallet_transactions.create({
+            data: {
+                ...data,
+                status: 'PENDING',
+                balance_before: 0, // Placeholder, actual balance used at completion
+                balance_after: 0
+            }
+        });
+    }
+
+    async completeTopupTransaction(transactionId, razorpayPaymentId, razorpaySignature) {
+        return await prisma.$transaction(async (tx) => {
+            const transaction = await tx.wallet_transactions.findUnique({
+                where: { id: transactionId }
+            });
+
+            if (!transaction) throw new Error('Transaction not found');
+            if (transaction.status === 'COMPLETED') return { transaction, alreadyProcessed: true };
+
+            const wallet = await tx.wallets.findUnique({
+                where: { id: transaction.wallet_id }
+            });
+
+            const balanceBefore = wallet.balance;
+            const balanceAfter = balanceBefore.add(transaction.amount);
+
+            const [updatedWallet, updatedTransaction] = await Promise.all([
+                tx.wallets.update({
+                    where: { id: transaction.wallet_id },
+                    data: {
+                        balance: balanceAfter,
+                        updated_at: new Date(),
+                        version: { increment: 1 }
+                    }
+                }),
+                tx.wallet_transactions.update({
+                    where: { id: transactionId },
+                    data: {
+                        status: 'COMPLETED',
+                        balance_before: balanceBefore,
+                        balance_after: balanceAfter,
+                        razorpay_payment_id: razorpayPaymentId,
+                        metadata: {
+                            ...(transaction.metadata || {}),
+                            razorpay_signature: razorpaySignature,
+                            completion_time: new Date()
+                        }
+                    }
+                })
+            ]);
+
+            return { updatedWallet, updatedTransaction };
+        });
+    }
 }
 
 export default new WalletDAO();

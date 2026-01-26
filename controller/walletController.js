@@ -1,7 +1,7 @@
 // controllers/walletController.js
 import { supabase } from "../config/supabaseClient.js";
+import prisma from "../config/prisma.js";
 import WalletDAO from "../dao/wallet.dao.js";
-import OrderDAO from "../dao/order.dao.js";
 import crypto from "crypto";
 import Razorpay from "razorpay";
 // import { createNotificationHelper } from "./NotificationHelpers.js";
@@ -93,35 +93,33 @@ export const getUserWallet = async (req, res) => {
       return res.status(401).json({ success: false, error: "Unauthorized" });
     }
 
-    // Get or create wallet - select only necessary fields for better performance
-    let { data: wallet, error: walletError } = await supabase
-      .from("wallets")
-      .select(
-        "id, user_id, balance, is_frozen, frozen_reason, created_at, updated_at",
-      )
-      .eq("user_id", user.id)
-      .single();
+    // Get or create wallet using Prisma
+    let wallet = await prisma.wallets.findUnique({
+      where: { user_id: user.id },
+      select: {
+        id: true,
+        user_id: true,
+        balance: true,
+        is_frozen: true,
+        frozen_reason: true,
+        created_at: true,
+        updated_at: true,
+      },
+    });
 
-    if (walletError && walletError.code === "PGRST116") {
+    if (!wallet) {
       // Wallet doesn't exist, create one
       console.log(`Creating wallet for user: ${user.id}`);
 
       // First, ensure the user exists in the users table
-      // This is required because wallets has a foreign key to users table
       try {
-        // Check if user exists in users table
-        const { data: existingUser, error: userCheckError } = await supabase
-          .from("users")
-          .select("id")
-          .eq("id", user.id)
-          .single();
+        const existingUser = await prisma.users.findUnique({
+          where: { id: user.id },
+          select: { id: true },
+        });
 
-        if (userCheckError && userCheckError.code === "PGRST116") {
-          // User doesn't exist in users table, create it
+        if (!existingUser) {
           console.log(`Creating user record in users table for: ${user.id}`);
-
-          // Use data from req.user (populated by authenticate middleware)
-          // instead of making a failing admin API call
           const userData = {
             id: user.id,
             email: user.email,
@@ -133,117 +131,40 @@ export const getUserWallet = async (req, res) => {
             is_active: true
           };
 
-          // Create user record in users table
-          let { data: newUser, error: createUserError } = await supabase
-            .from("users")
-            .upsert([userData], {
-              onConflict: "id",
-              ignoreDuplicates: false,
-            })
-            .select()
-            .single();
-
-          // Handle duplicate email case (Conflict error)
-          if (createUserError && (String(createUserError.code) === '23505' || createUserError.message?.includes('users_email_key') || createUserError.details?.includes('already exists'))) {
-            console.log("Email conflict detected. Archiving old user to allow new user creation.");
-
-            // Find the user with this email
-            const { data: conflictingUser, error: findError } = await supabase
-              .from("users")
-              .select("id, email")
-              .eq("email", user.email)
-              .single();
-
-            if (findError) console.log("Error finding conflicting user:", findError);
-
-            if (conflictingUser && conflictingUser.id !== user.id) {
-              // Update the conflicting user's email to free it up
-              const archivedEmail = `archived_${Date.now()}_${conflictingUser.email}`;
-              const { error: updateError } = await supabase
-                .from("users")
-                .update({ email: archivedEmail })
-                .eq("id", conflictingUser.id);
-
-              if (updateError) {
-                console.log("Failed to archive old user:", updateError);
-              } else {
-                console.log(`Archived conflicting user ${conflictingUser.id} email to ${archivedEmail}`);
-              }
-
-              // Retry creating the new user
-              const retryResult = await supabase
-                .from("users")
-                .upsert([userData], {
-                  onConflict: "id",
-                  ignoreDuplicates: false,
-                })
-                .select()
-                .single();
-
-              newUser = retryResult.data;
-              createUserError = retryResult.error;
-            }
-          }
-
-          if (createUserError) {
-            console.error("Error creating user record:", createUserError);
-            // Don't block - try to continue, maybe it was created in parallel
-          } else {
-            console.log(`User record created successfully for: ${user.id}`);
-          }
-        } else if (userCheckError) {
-          console.error("Error checking user existence:", userCheckError);
+          await prisma.users.upsert({
+            where: { id: user.id },
+            update: userData,
+            create: userData,
+          });
+          console.log(`User record created successfully for: ${user.id}`);
         }
       } catch (userSyncError) {
         console.error("Error syncing user to users table:", userSyncError);
-        // Continue - let the wallet creation error if needed
       }
 
       // Now create the wallet
-      const { data: newWallet, error: createError } = await supabase
-        .from("wallets")
-        .insert([{ user_id: user.id, balance: 0.0 }])
-        .select(
-          "id, user_id, balance, is_frozen, frozen_reason, created_at, updated_at",
-        )
-        .single();
-
-      if (createError) {
+      try {
+        wallet = await prisma.wallets.create({
+          data: { user_id: user.id, balance: 0.0 },
+          select: {
+            id: true,
+            user_id: true,
+            balance: true,
+            is_frozen: true,
+            frozen_reason: true,
+            created_at: true,
+            updated_at: true,
+          },
+        });
+        console.log(`Wallet created successfully for user: ${user.id}`);
+      } catch (createError) {
         console.error("Error creating wallet:", createError);
-
-        // Provide more specific error messages based on error code
-        if (createError.code === "23503") {
-          return res.status(400).json({
-            success: false,
-            error: "Cannot create wallet: User account not found in database",
-            details:
-              "Foreign key constraint violation - this should not happen after user sync",
-          });
-        } else if (createError.code === "42501") {
-          return res.status(500).json({
-            success: false,
-            error: "Database permission error. Please contact support.",
-            details:
-              "Row-level security policy violation. The service role should bypass RLS - check Supabase RLS policies.",
-          });
-        }
-
-        return res
-          .status(500)
-          .json({
-            success: false,
-            error: "Failed to create wallet",
-            details: createError.message,
-          });
+        return res.status(500).json({
+          success: false,
+          error: "Failed to create wallet",
+          details: createError.message,
+        });
       }
-
-      wallet = newWallet;
-      console.log(`Wallet created successfully for user: ${user.id}`);
-    } else if (walletError) {
-      console.error("Error fetching wallet:", walletError);
-      return res
-        .status(500)
-        .json({ success: false, error: "Failed to fetch wallet" });
     }
 
     // Return minimal response for faster transmission
@@ -276,28 +197,30 @@ export const getWalletTransactions = async (req, res) => {
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    let query = supabase
-      .from("wallet_transactions")
-      .select(
-        "id, transaction_type, amount, balance_before, balance_after, description, created_at, status",
-        { count: "exact" },
-      )
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .range(offset, offset + parseInt(limit) - 1);
-
+    const where = { user_id: user.id };
     if (type) {
-      query = query.eq("transaction_type", type);
+      where.transaction_type = type;
     }
 
-    const { data: transactions, error, count } = await query;
-
-    if (error) {
-      console.error("Error fetching transactions:", error);
-      return res
-        .status(500)
-        .json({ success: false, error: "Failed to fetch transactions" });
-    }
+    const [transactions, count] = await Promise.all([
+      prisma.wallet_transactions.findMany({
+        where,
+        orderBy: { created_at: "desc" },
+        skip: offset,
+        take: parseInt(limit),
+        select: {
+          id: true,
+          transaction_type: true,
+          amount: true,
+          balance_before: true,
+          balance_after: true,
+          description: true,
+          created_at: true,
+          status: true,
+        },
+      }),
+      prisma.wallet_transactions.count({ where }),
+    ]);
 
     res.json({
       success: true,
@@ -362,18 +285,39 @@ export const createWalletTopupOrder = async (req, res) => {
     //   key_secret_present: !!process.env.RAZORPAY_KEY_SECRET,
     // });
 
-    // Get user wallet
-    const { data: wallet, error: walletError } = await supabase
-      .from("wallets")
-      .select("*")
-      .eq("user_id", user.id)
-      .single();
+    // Get user wallet using Prisma
+    let wallet = await prisma.wallets.findUnique({
+      where: { user_id: user.id },
+    });
 
-    if (walletError) {
-      console.error("Error fetching wallet:", walletError);
-      return res
-        .status(500)
-        .json({ success: false, error: "Wallet not found" });
+    if (!wallet) {
+      // Wallet doesn't exist, try to create it
+      console.log(`Wallet not found for topup, creating one: ${user.id}`);
+      try {
+        // Ensure user exists in users table first (idempotent)
+        const userData = {
+          id: user.id,
+          email: user.email,
+          name: user.name || user.user_metadata?.name || user.user_metadata?.full_name || "User",
+          role: "USER",
+          is_active: true
+        };
+
+        await prisma.users.upsert({
+          where: { id: user.id },
+          update: {}, // Don't update if exists
+          create: userData,
+        }).catch(err => console.warn("User sync in topup warning:", err));
+
+        wallet = await prisma.wallets.create({
+          data: { user_id: user.id, balance: 0.0 },
+        });
+      } catch (createError) {
+        console.error("Error creating wallet during topup:", createError);
+        return res
+          .status(500)
+          .json({ success: false, error: "Failed to create wallet" });
+      }
     }
 
     if (wallet.is_frozen) {
@@ -407,27 +351,15 @@ export const createWalletTopupOrder = async (req, res) => {
 
     const razorpayOrder = await razorpay.orders.create(razorpayOrderOptions);
 
-    // Store pending topup
-    const { data: pendingTopup, error: topupError } = await supabase
-      .from("wallet_topups_pending")
-      .insert([
-        {
-          user_id: user.id,
-          wallet_id: wallet.id,
-          amount: topupAmount,
-          razorpay_order_id: razorpayOrder.id,
-          expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(), // 15 minutes
-        },
-      ])
-      .select()
-      .single();
-
-    if (topupError) {
-      console.error("Error creating pending topup:", topupError);
-      return res
-        .status(500)
-        .json({ success: false, error: "Failed to create topup order" });
-    }
+    // Store pending topup using WalletDAO (transactions table)
+    const pendingTopup = await WalletDAO.createPendingTransaction({
+      wallet_id: wallet.id,
+      user_id: user.id,
+      amount: topupAmount,
+      transaction_type: 'TOPUP',
+      razorpay_order_id: razorpayOrder.id,
+      description: 'Wallet topup pending'
+    });
 
     res.json({
       success: true,
@@ -513,14 +445,12 @@ export const verifyWalletTopup = async (req, res) => {
         .json({ success: false, error: "Invalid payment signature" });
     }
 
-    // Get pending topup
-    const { data: pendingTopup, error: topupError } = await supabase
-      .from("wallet_topups_pending")
-      .select("*")
-      .eq("razorpay_order_id", razorpay_order_id)
-      .single();
+    // Get pending topup (transaction)
+    const pendingTopup = await prisma.wallet_transactions.findFirst({
+      where: { razorpay_order_id: razorpay_order_id },
+    });
 
-    if (topupError || !pendingTopup) {
+    if (!pendingTopup) {
       console.error("Pending topup not found:", razorpay_order_id);
       return res
         .status(404)
@@ -544,52 +474,13 @@ export const verifyWalletTopup = async (req, res) => {
       });
     }
 
-    // Generate idempotency key
-    const idempotencyKey = generateIdempotencyKey(
-      pendingTopup.user_id,
-      "TOPUP",
-      pendingTopup.amount,
-      razorpay_order_id,
-    );
-
     try {
-      // Execute wallet topup transaction
-      const { wallet, transaction } = await executeWalletTransaction(
-        pendingTopup.user_id,
-        "TOPUP",
-        pendingTopup.amount,
-        "TOPUP_ORDER",
+      // Execute wallet topup completion (update balance and status)
+      const { updatedWallet, updatedTransaction } = await WalletDAO.completeTopupTransaction(
         pendingTopup.id,
-        `Wallet topup via Razorpay`,
-        { razorpay_order_id, razorpay_payment_id },
-        null,
-        razorpay_order_id,
         razorpay_payment_id,
-        idempotencyKey,
+        razorpay_signature
       );
-
-      // Update pending topup status
-      await supabase
-        .from("wallet_topups_pending")
-        .update({
-          status: "COMPLETED",
-          razorpay_payment_id,
-          razorpay_signature,
-          completed_at: new Date().toISOString(),
-        })
-        .eq("id", pendingTopup.id);
-
-      // Create notification
-      /*
-      await createNotificationHelper(
-        pendingTopup.user_id,
-        "Wallet Recharged Successfully",
-        `Your wallet has been recharged with ₹${pendingTopup.amount}. Current balance: ₹${wallet.balance}`,
-        "wallet_topup",
-        transaction.id,
-        "user"
-      );
-      */
 
       console.log(
         `Wallet topup verified and completed: User ${pendingTopup.user_id}, Amount: ${pendingTopup.amount}`,
@@ -598,20 +489,18 @@ export const verifyWalletTopup = async (req, res) => {
       res.json({
         success: true,
         message: "Wallet topup completed successfully",
-        wallet_balance: parseFloat(wallet.balance),
-        transaction_id: transaction.id,
+        wallet_balance: parseFloat(updatedWallet.balance),
+        transaction_id: updatedTransaction.id,
       });
     } catch (transactionError) {
       console.error("Error processing wallet topup:", transactionError);
 
-      // Mark topup as failed
-      await supabase
-        .from("wallet_topups_pending")
-        .update({
-          status: "FAILED",
-          failure_reason: transactionError.message,
-        })
-        .eq("id", pendingTopup.id);
+      // Mark topup as failed (optional, or leave as pending/failed status if supported)
+      // Since we use wallet_transactions, maybe update status to FAILED?
+      await prisma.wallet_transactions.update({
+        where: { id: pendingTopup.id },
+        data: { status: 'FAILED', description: transactionError.message }
+      }).catch(e => console.error("Failed to update fail status", e));
 
       res.status(500).json({
         success: false,
@@ -653,15 +542,15 @@ export const walletTopupWebhook = async (req, res) => {
         .json({ success: false, error: "Invalid signature" });
     }
 
-    // Get pending topup
-    const { data: pendingTopup, error: topupError } = await supabase
-      .from("wallet_topups_pending")
-      .select("*")
-      .eq("razorpay_order_id", razorpay_order_id)
-      .eq("status", "PENDING")
-      .single();
+    // Get pending topup (transaction)
+    const pendingTopup = await prisma.wallet_transactions.findFirst({
+      where: {
+        razorpay_order_id: razorpay_order_id,
+        status: "PENDING",
+      },
+    });
 
-    if (topupError || !pendingTopup) {
+    if (!pendingTopup) {
       console.error("Pending topup not found:", razorpay_order_id);
       return res
         .status(404)
@@ -673,55 +562,16 @@ export const walletTopupWebhook = async (req, res) => {
       return res.json({ success: true, message: "Topup already processed" });
     }
 
-    // Generate idempotency key
-    const idempotencyKey = generateIdempotencyKey(
-      pendingTopup.user_id,
-      "TOPUP",
-      pendingTopup.amount,
-      razorpay_order_id,
-    );
-
     try {
-      // Execute wallet topup transaction
-      const { wallet, transaction } = await executeWalletTransaction(
-        pendingTopup.user_id,
-        "TOPUP",
-        pendingTopup.amount,
-        "TOPUP_ORDER",
+      // Execute wallet topup completion (idempotent)
+      const { updatedWallet, updatedTransaction } = await WalletDAO.completeTopupTransaction(
         pendingTopup.id,
-        `Wallet topup via Razorpay`,
-        { razorpay_order_id, razorpay_payment_id },
-        null,
-        razorpay_order_id,
         razorpay_payment_id,
-        idempotencyKey,
+        razorpay_signature // Signature might default or be reconstructed
       );
-
-      // Update pending topup status
-      await supabase
-        .from("wallet_topups_pending")
-        .update({
-          status: "COMPLETED",
-          razorpay_payment_id,
-          razorpay_signature,
-          completed_at: new Date().toISOString(),
-        })
-        .eq("id", pendingTopup.id);
-
-      // Create notification
-      /*
-      await createNotificationHelper(
-        pendingTopup.user_id,
-        "Wallet Recharged Successfully",
-        `Your wallet has been recharged with ₹${pendingTopup.amount}. Current balance: ₹${wallet.balance}`,
-        "wallet_topup",
-        transaction.id,
-        "user"
-      );
-      */
 
       console.log(
-        `Wallet topup completed: User ${pendingTopup.user_id}, Amount: ${pendingTopup.amount}`,
+        `Wallet topup completed via webhook: User ${pendingTopup.user_id}, Amount: ${pendingTopup.amount}`,
       );
 
       res.json({
@@ -731,14 +581,13 @@ export const walletTopupWebhook = async (req, res) => {
     } catch (transactionError) {
       console.error("Error processing wallet topup:", transactionError);
 
-      // Mark topup as failed
-      await supabase
-        .from("wallet_topups_pending")
-        .update({
+      await prisma.wallet_transactions.update({
+        where: { id: pendingTopup.id },
+        data: {
           status: "FAILED",
-          failure_reason: transactionError.message,
-        })
-        .eq("id", pendingTopup.id);
+          description: transactionError.message,
+        },
+      }).catch(e => console.error("Webhook fail status update error", e));
 
       res
         .status(500)
@@ -776,15 +625,16 @@ export const spendFromWallet = async (req, res) => {
 
     const spendAmount = parseFloat(amount);
 
-    // Check if order exists
-    const { data: order, error: orderError } = await supabase
-      .from("orders")
-      .select("id, status")
-      .eq("id", order_id)
-      .eq("user_id", user.id)
-      .single();
+    // Check if order exists using Prisma
+    const order = await prisma.orders.findFirst({
+      where: {
+        id: order_id,
+        user_id: user.id,
+      },
+      select: { id: true, status: true },
+    });
 
-    if (orderError || !order) {
+    if (!order) {
       return res.status(404).json({ success: false, error: "Order not found" });
     }
 
@@ -792,12 +642,10 @@ export const spendFromWallet = async (req, res) => {
       req.headers["idempotency-key"] ||
       generateIdempotencyKey(user.id, "SPEND", spendAmount, order_id);
 
-    // Check if transaction already exists
-    const { data: existingTransaction } = await supabase
-      .from("wallet_transactions")
-      .select("*")
-      .eq("idempotency_key", idempotencyKey)
-      .single();
+    // Check if transaction already exists using Prisma
+    const existingTransaction = await prisma.wallet_transactions.findUnique({
+      where: { idempotency_key: idempotencyKey },
+    });
 
     if (existingTransaction) {
       return res.json({
@@ -878,12 +726,10 @@ export const processRefundToWallet = async (req, res) => {
       refund_request_id,
     );
 
-    // Check if refund already processed
-    const { data: existingTransaction } = await supabase
-      .from("wallet_transactions")
-      .select("*")
-      .eq("idempotency_key", idempotencyKey)
-      .single();
+    // Check if refund already processed using Prisma
+    const existingTransaction = await prisma.wallet_transactions.findUnique({
+      where: { idempotency_key: idempotencyKey },
+    });
 
     if (existingTransaction) {
       return res.json({

@@ -26,7 +26,7 @@ class OrderDAO {
                                 product: {
                                     select: {
                                         name: true,
-                                        images: true
+                                        media: true
                                     }
                                 }
                             }
@@ -88,6 +88,21 @@ class OrderDAO {
                 created_at: 'desc'
             },
             include: {
+                order_items: {
+                    take: 5,
+                    include: {
+                        variant: {
+                            include: {
+                                product: {
+                                    select: {
+                                        name: true,
+                                        media: true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
                 _count: {
                     select: { order_items: true }
                 }
