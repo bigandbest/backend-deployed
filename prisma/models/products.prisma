@@ -38,6 +38,7 @@ cess_rate          Decimal?           @default(0) @db.Decimal
 
   active             Boolean?           @default(true)
   has_variants       Boolean?           @default(false)
+  faq                Json?
 
   created_at         DateTime?          @default(now()) @db.Timestamptz
   updated_at         DateTime?          @updatedAt @db.Timestamptz
