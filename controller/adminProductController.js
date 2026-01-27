@@ -300,7 +300,6 @@ export const updateProductWarehouseMapping = async (req, res) => {
       stock_quantity,
       faq,
       weight_unit,
-      weight_display,
       weight_value,
       portion,
       quantity,
@@ -368,9 +367,6 @@ export const updateProductWarehouseMapping = async (req, res) => {
     // Add weight and quantity fields that exist in schema
     if (weight_unit) {
       updateData.weight_unit = weight_unit;
-    }
-    if (weight_display) {
-      updateData.weight_display = weight_display;
     }
     if (weight_value) {
       updateData.weight_value = weight_value;
