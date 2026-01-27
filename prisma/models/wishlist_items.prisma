@@ -1,0 +1,14 @@
+model wishlist_items {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String    @db.Uuid
+  product_id String    @db.Uuid
+  added_at   DateTime  @default(now()) @db.Timestamptz
+
+  // Relations
+  user       users     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  product    products  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, product_id])
+  @@index([user_id])
+  @@index([product_id])
+}

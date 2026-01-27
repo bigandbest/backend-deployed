@@ -1,0 +1,294 @@
+import prisma from "../config/prisma.js";
+
+/**
+ * Inventory DAO - Production-level inventory management
+ * Handles stock tracking through inventory table with performance optimizations
+ */
+class InventoryDAO {
+    /**
+     * Get stock information for multiple variant IDs (batch operation)
+     * @param {Array<string>} variantIds - Array of variant UUIDs
+     * @param {number} warehouseId - Optional warehouse filter
+     * @returns {Map<string, Object>} Map of variantId -> stock info
+     */
+    async getStockByVariantIds(variantIds, warehouseId = null) {
+        if (!variantIds || variantIds.length === 0) {
+            return new Map();
+        }
+
+        // Batch size limit to prevent query overload
+        const BATCH_SIZE = 100;
+        const batches = [];
+        for (let i = 0; i < variantIds.length; i += BATCH_SIZE) {
+            batches.push(variantIds.slice(i, i + BATCH_SIZE));
+        }
+
+        const allResults = await Promise.all(
+            batches.map(async (batch) => {
+                const where = {
+                    variant_id: { in: batch },
+                };
+
+                if (warehouseId) {
+                    where.warehouse_id = warehouseId;
+                }
+
+                return await prisma.inventory.findMany({
+                    where,
+                    select: {
+                        variant_id: true,
+                        stock_qty: true,
+                        reserved_qty: true,
+                        warehouse_id: true,
+                        warehouse: {
+                            select: {
+                                id: true,
+                                name: true,
+                                type: true,
+                            },
+                        },
+                    },
+                });
+            })
+        );
+
+        // Flatten results and aggregate by variant
+        const stockMap = new Map();
+        allResults.flat().forEach((inv) => {
+            const availableStock = inv.stock_qty - (inv.reserved_qty || 0);
+
+            if (stockMap.has(inv.variant_id)) {
+                // Aggregate stock across warehouses
+                const existing = stockMap.get(inv.variant_id);
+                existing.total_stock += inv.stock_qty;
+                existing.available_stock += availableStock;
+                existing.warehouses.push({
+                    warehouse_id: inv.warehouse_id,
+                    warehouse_name: inv.warehouse.name,
+                    warehouse_type: inv.warehouse.type,
+                    stock: availableStock,
+                });
+            } else {
+                stockMap.set(inv.variant_id, {
+                    variant_id: inv.variant_id,
+                    total_stock: inv.stock_qty,
+                    available_stock: availableStock,
+                    in_stock: availableStock > 0,
+                    low_stock: availableStock > 0 && availableStock < 10,
+                    warehouses: [
+                        {
+                            warehouse_id: inv.warehouse_id,
+                            warehouse_name: inv.warehouse.name,
+                            warehouse_type: inv.warehouse.type,
+                            stock: availableStock,
+                        },
+                    ],
+                });
+            }
+        });
+
+        return stockMap;
+    }
+
+    /**
+     * Get available stock for a single variant
+     * @param {string} variantId - Variant UUID
+     * @param {number} warehouseId - Optional warehouse filter
+     * @returns {Object} Stock information
+     */
+    async getAvailableStock(variantId, warehouseId = null) {
+        const stockMap = await this.getStockByVariantIds([variantId], warehouseId);
+        return stockMap.get(variantId) || {
+            variant_id: variantId,
+            total_stock: 0,
+            available_stock: 0,
+            in_stock: false,
+            low_stock: false,
+            warehouses: [],
+        };
+    }
+
+    /**
+     * Check availability for multiple items (for cart validation)
+     * @param {Array<{variant_id: string, quantity: number}>} items
+     * @param {number} warehouseId - Optional warehouse filter
+     * @returns {Array<{variant_id, available, requested, can_fulfill}>}
+     */
+    async checkBulkAvailability(items, warehouseId = null) {
+        const variantIds = items.map((item) => item.variant_id);
+        const stockMap = await this.getStockByVariantIds(variantIds, warehouseId);
+
+        return items.map((item) => {
+            const stock = stockMap.get(item.variant_id);
+            const availableStock = stock?.available_stock || 0;
+
+            return {
+                variant_id: item.variant_id,
+                requested_quantity: item.quantity,
+                available_stock: availableStock,
+                can_fulfill: availableStock >= item.quantity,
+                in_stock: availableStock > 0,
+            };
+        });
+    }
+
+    /**
+     * Reserve stock for order processing
+     * @param {string} variantId - Variant UUID
+     * @param {number} quantity - Quantity to reserve
+     * @param {number} warehouseId - Warehouse ID
+     * @returns {Object} Updated inventory record
+     */
+    async reserveStock(variantId, quantity, warehouseId) {
+        // Use transaction to ensure atomicity
+        return await prisma.$transaction(async (tx) => {
+            // Get current inventory with lock
+            const inventory = await tx.inventory.findUnique({
+                where: {
+                    variant_id_warehouse_id: {
+                        variant_id: variantId,
+                        warehouse_id: warehouseId,
+                    },
+                },
+            });
+
+            if (!inventory) {
+                throw new Error("Inventory record not found");
+            }
+
+            const availableStock = inventory.stock_qty - (inventory.reserved_qty || 0);
+            if (availableStock < quantity) {
+                throw new Error("Insufficient stock available");
+            }
+
+            // Update reserved quantity
+            return await tx.inventory.update({
+                where: {
+                    variant_id_warehouse_id: {
+                        variant_id: variantId,
+                        warehouse_id: warehouseId,
+                    },
+                },
+                data: {
+                    reserved_qty: (inventory.reserved_qty || 0) + quantity,
+                },
+            });
+        });
+    }
+
+    /**
+     * Release reserved stock (e.g., when order is cancelled)
+     * @param {string} variantId - Variant UUID
+     * @param {number} quantity - Quantity to release
+     * @param {number} warehouseId - Warehouse ID
+     * @returns {Object} Updated inventory record
+     */
+    async releaseStock(variantId, quantity, warehouseId) {
+        return await prisma.inventory.update({
+            where: {
+                variant_id_warehouse_id: {
+                    variant_id: variantId,
+                    warehouse_id: warehouseId,
+                },
+            },
+            data: {
+                reserved_qty: {
+                    decrement: quantity,
+                },
+            },
+        });
+    }
+
+    /**
+     * Update stock quantity (for admin/warehouse operations)
+     * @param {string} variantId - Variant UUID
+     * @param {number} warehouseId - Warehouse ID
+     * @param {number} newQuantity - New stock quantity
+     * @returns {Object} Updated inventory record
+     */
+    async updateStock(variantId, warehouseId, newQuantity) {
+        return await prisma.inventory.upsert({
+            where: {
+                variant_id_warehouse_id: {
+                    variant_id: variantId,
+                    warehouse_id: warehouseId,
+                },
+            },
+            update: {
+                stock_qty: newQuantity,
+                updated_at: new Date(),
+            },
+            create: {
+                variant_id: variantId,
+                warehouse_id: warehouseId,
+                stock_qty: newQuantity,
+                reserved_qty: 0,
+            },
+        });
+    }
+
+    /**
+     * Get low stock items (for alerts/reporting)
+     * @param {number} threshold - Stock threshold (default: 10)
+     * @param {number} warehouseId - Optional warehouse filter
+     * @returns {Array} Low stock items
+     */
+    async getLowStockItems(threshold = 10, warehouseId = null) {
+        const where = {
+            stock_qty: {
+                gt: 0,
+                lte: threshold,
+            },
+        };
+
+        if (warehouseId) {
+            where.warehouse_id = warehouseId;
+        }
+
+        return await prisma.inventory.findMany({
+            where,
+            include: {
+                variant: {
+                    include: {
+                        product: {
+                            select: {
+                                id: true,
+                                name: true,
+                            },
+                        },
+                    },
+                },
+                warehouse: {
+                    select: {
+                        id: true,
+                        name: true,
+                    },
+                },
+            },
+            orderBy: {
+                stock_qty: 'asc',
+            },
+        });
+    }
+
+    // Legacy methods for backward compatibility
+    async getByVariant(variantId) {
+        return await prisma.inventory.findFirst({
+            where: { variant_id: variantId },
+            include: { warehouse: true },
+        });
+    }
+
+    async create(data) {
+        return await prisma.inventory.create({ data });
+    }
+
+    async listByWarehouse(warehouseId) {
+        return await prisma.inventory.findMany({
+            where: { warehouse_id: warehouseId },
+            include: { variant: true },
+        });
+    }
+}
+
+export default new InventoryDAO();

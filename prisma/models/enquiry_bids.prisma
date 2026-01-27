@@ -1,0 +1,17 @@
+model enquiry_bids {
+  id             Int               @id @default(autoincrement())
+  enquiry_id     Int
+  bid_type       String?           @default("SINGLE_PRODUCT") @db.VarChar
+  base_price     Decimal?          @db.Decimal
+  quantity       Int?
+  validity_hours Int?              @default(24)
+  created_at     DateTime?         @default(now()) @db.Timestamp
+  expires_at     DateTime?         @db.Timestamp
+  status         String?           @default("ACTIVE") @db.VarChar
+  created_by     String?           @db.Uuid
+  terms          String?
+  notes          String?
+
+  // Relations
+  enquiry        product_enquiries @relation(fields: [enquiry_id], references: [id])
+}

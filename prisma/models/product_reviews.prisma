@@ -1,0 +1,16 @@
+model product_reviews {
+  id                   Int       @id @default(autoincrement())
+  product_id           String    @db.Uuid
+  user_id              String?   @db.Uuid // References auth.users(id)
+  user_name            String    @db.VarChar
+  user_email           String?   @db.VarChar
+  rating               Int
+  comment              String
+  is_verified_purchase Boolean?  @default(false)
+  helpful_count        Int?      @default(0)
+  created_at           DateTime? @default(now()) @db.Timestamptz
+  updated_at           DateTime? @default(now()) @db.Timestamptz
+
+  // Relations
+  product              products  @relation(fields: [product_id], references: [id])
+}

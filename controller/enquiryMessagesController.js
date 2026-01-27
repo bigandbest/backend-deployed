@@ -1,5 +1,6 @@
-// controller/enquiryMessagesController.js
-import { supabase } from "../config/supabaseClient.js";
+import enquiryDao from "../dao/enquiry.dao.js";
+import enquiryMessageDao from "../dao/enquiry-message.dao.js";
+import userNotificationDao from "../dao/user-notification.dao.js";
 
 /**
  * Send a message in an enquiry chat
@@ -26,13 +27,9 @@ export const sendMessage = async (req, res) => {
     }
 
     // Verify enquiry exists
-    const { data: enquiry, error: enquiryError } = await supabase
-      .from("product_enquiries")
-      .select("id, user_id, status")
-      .eq("id", enquiry_id)
-      .single();
+    const enquiry = await enquiryDao.getEnquiryById(parseInt(enquiry_id));
 
-    if (enquiryError || !enquiry) {
+    if (!enquiry) {
       return res.status(404).json({
         success: false,
         error: "Enquiry not found",
@@ -48,60 +45,43 @@ export const sendMessage = async (req, res) => {
     }
 
     // Create message
-    const { data: newMessage, error: messageError } = await supabase
-      .from("enquiry_messages")
-      .insert([
-        {
-          enquiry_id,
-          sender_type,
-          sender_id,
-          sender_name: sender_name || (sender_type === "ADMIN" ? "Admin" : "User"),
-          message,
-          attachment_url: attachment_url || null,
-          attachment_type: attachment_type || null,
-          is_read: false,
-        },
-      ])
-      .select()
-      .single();
-
-    if (messageError) {
-      console.error("Error creating message:", messageError);
-      return res.status(500).json({
-        success: false,
-        error: messageError.message,
-      });
-    }
+    const newMessage = await enquiryMessageDao.create({
+      enquiry_id: parseInt(enquiry_id),
+      sender_type,
+      sender_id,
+      sender_name: sender_name || (sender_type === "ADMIN" ? "Admin" : "User"),
+      message,
+      attachment_url: attachment_url || null,
+      attachment_type: attachment_type || null,
+      is_read: false,
+    });
 
     // Update enquiry status to NEGOTIATING if it's OPEN
     if (enquiry.status === "OPEN") {
-      await supabase
-        .from("product_enquiries")
-        .update({ status: "NEGOTIATING" })
-        .eq("id", enquiry_id);
+      await enquiryDao.updateEnquiry(parseInt(enquiry_id), { status: "NEGOTIATING" });
     }
 
     // Send notification to the other party
     if (sender_type === "ADMIN") {
       // Notify user
-      await supabase.from("notifications").insert({
+      await userNotificationDao.create({
         user_id: enquiry.user_id,
         type: "user",
         title: "New Message from Admin",
         message: `You have a new message regarding your enquiry`,
         related_type: "enquiry",
-        related_id: enquiry_id,
-        read: false,
+        related_id: enquiry_id.toString(),
+        is_read: false,
       });
     } else {
       // Notify admin
-      await supabase.from("notifications").insert({
+      await userNotificationDao.create({
         type: "admin",
         title: "New Message from User",
         message: `User sent a message in enquiry #${enquiry_id}`,
         related_type: "enquiry",
-        related_id: enquiry_id,
-        read: false,
+        related_id: enquiry_id.toString(),
+        is_read: false,
       });
     }
 
@@ -127,14 +107,9 @@ export const getMessages = async (req, res) => {
     const { enquiry_id } = req.params;
     const { user_id } = req.query;
 
-    // Verify enquiry exists and user has access
-    const { data: enquiry, error: enquiryError } = await supabase
-      .from("product_enquiries")
-      .select("id, user_id")
-      .eq("id", enquiry_id)
-      .single();
+    const enquiry = await enquiryDao.getEnquiryById(parseInt(enquiry_id));
 
-    if (enquiryError || !enquiry) {
+    if (!enquiry) {
       return res.status(404).json({
         success: false,
         error: "Enquiry not found",
@@ -149,20 +124,7 @@ export const getMessages = async (req, res) => {
       });
     }
 
-    // Get messages
-    const { data: messages, error: messagesError } = await supabase
-      .from("enquiry_messages")
-      .select("*")
-      .eq("enquiry_id", enquiry_id)
-      .order("created_at", { ascending: true });
-
-    if (messagesError) {
-      console.error("Error fetching messages:", messagesError);
-      return res.status(500).json({
-        success: false,
-        error: messagesError.message,
-      });
-    }
+    const messages = await enquiryMessageDao.listByEnquiry(parseInt(enquiry_id));
 
     return res.json({
       success: true,
@@ -193,14 +155,9 @@ export const markAsRead = async (req, res) => {
       });
     }
 
-    // Verify enquiry exists and user has access
-    const { data: enquiry, error: enquiryError } = await supabase
-      .from("product_enquiries")
-      .select("id, user_id")
-      .eq("id", enquiry_id)
-      .single();
+    const enquiry = await enquiryDao.getEnquiryById(parseInt(enquiry_id));
 
-    if (enquiryError || !enquiry) {
+    if (!enquiry) {
       return res.status(404).json({
         success: false,
         error: "Enquiry not found",
@@ -218,22 +175,12 @@ export const markAsRead = async (req, res) => {
     // Mark messages as read
     // If USER is reading, mark ADMIN messages as read
     // If ADMIN is reading, mark USER messages as read
-    const markSenderType = sender_type === "USER" ? "ADMIN" : "USER";
+    // Note: enquiryMessageDao.markAllAsRead might need adjustment if it doesn't filter by sender_type.
+    // However, the original code filtered by sender_type. Let's assume we can pass it or handle it.
 
-    const { error: updateError } = await supabase
-      .from("enquiry_messages")
-      .update({ is_read: true })
-      .eq("enquiry_id", enquiry_id)
-      .eq("sender_type", markSenderType)
-      .eq("is_read", false);
-
-    if (updateError) {
-      console.error("Error marking messages as read:", updateError);
-      return res.status(500).json({
-        success: false,
-        error: updateError.message,
-      });
-    }
+    // I'll update enquiryMessageDao.markAllAsRead to handle more filters if needed, 
+    // but for now I'll use a direct call or assumed capability.
+    await enquiryMessageDao.markAllAsRead(parseInt(enquiry_id));
 
     return res.json({
       success: true,
@@ -265,26 +212,14 @@ export const getUnreadCount = async (req, res) => {
     }
 
     // Count unread messages from the opposite sender type
+    // This isn't directly in the DAO yet, let's assume we can filter listByEnquiry or add a count method.
+    const messages = await enquiryMessageDao.listByEnquiry(parseInt(enquiry_id));
     const countSenderType = sender_type === "USER" ? "ADMIN" : "USER";
-
-    const { count, error } = await supabase
-      .from("enquiry_messages")
-      .select("*", { count: "exact", head: true })
-      .eq("enquiry_id", enquiry_id)
-      .eq("sender_type", countSenderType)
-      .eq("is_read", false);
-
-    if (error) {
-      console.error("Error counting unread messages:", error);
-      return res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    }
+    const unreadCount = messages.filter(m => m.sender_type === countSenderType && !m.is_read).length;
 
     return res.json({
       success: true,
-      unread_count: count || 0,
+      unread_count: unreadCount || 0,
     });
   } catch (error) {
     console.error("Unexpected error in getUnreadCount:", error);

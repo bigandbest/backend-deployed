@@ -1,17 +1,9 @@
-import { supabase } from "../config/supabaseClient.js";
+import testimonialDao from "../dao/testimonial.dao.js";
 
 // Get all customer testimonials
 export const getAllTestimonials = async (req, res) => {
     try {
-        const { data, error } = await supabase
-            .from("customer_testimonials")
-            .select("*")
-            .order("sort_order", { ascending: true })
-            .order("created_at", { ascending: false });
-
-        if (error) {
-            return res.status(500).json({ success: false, error: error.message });
-        }
+        const data = await testimonialDao.list();
 
         res.status(200).json({
             success: true,
@@ -20,23 +12,14 @@ export const getAllTestimonials = async (req, res) => {
         });
     } catch (err) {
         console.error("Error fetching testimonials:", err);
-        res.status(500).json({ success: false, error: "Server error" });
+        res.status(500).json({ success: false, error: err.message || "Server error" });
     }
 };
 
 // Get active customer testimonials only (for frontend)
 export const getActiveTestimonials = async (req, res) => {
     try {
-        const { data, error } = await supabase
-            .from("customer_testimonials")
-            .select("*")
-            .eq("active", true)
-            .order("sort_order", { ascending: true })
-            .order("created_at", { ascending: false });
-
-        if (error) {
-            return res.status(500).json({ success: false, error: error.message });
-        }
+        const data = await testimonialDao.list({ active: true });
 
         res.status(200).json({
             success: true,
@@ -45,7 +28,7 @@ export const getActiveTestimonials = async (req, res) => {
         });
     } catch (err) {
         console.error("Error fetching active testimonials:", err);
-        res.status(500).json({ success: false, error: "Server error" });
+        res.status(500).json({ success: false, error: err.message || "Server error" });
     }
 };
 
@@ -69,32 +52,23 @@ export const addTestimonial = async (req, res) => {
             });
         }
 
-        const { data, error } = await supabase
-            .from("customer_testimonials")
-            .insert([
-                {
-                    name,
-                    rating: rating || 5,
-                    image_url: image_url || "",
-                    comment,
-                    active: active !== undefined ? active : true,
-                    sort_order: sort_order || 0,
-                },
-            ])
-            .select();
-
-        if (error) {
-            return res.status(500).json({ success: false, error: error.message });
-        }
+        const data = await testimonialDao.create({
+            name,
+            rating: rating || 5,
+            image_url: image_url || "",
+            comment,
+            active: active !== undefined ? active : true,
+            sort_order: sort_order || 0,
+        });
 
         res.status(201).json({
             success: true,
-            testimonial: data[0],
+            testimonial: data,
             message: "Testimonial added successfully",
         });
     } catch (err) {
         console.error("Error adding testimonial:", err);
-        res.status(500).json({ success: false, error: "Server error" });
+        res.status(500).json({ success: false, error: err.message || "Server error" });
     }
 };
 
@@ -112,10 +86,7 @@ export const updateTestimonial = async (req, res) => {
             });
         }
 
-        const updateData = {
-            updated_at: new Date().toISOString(),
-        };
-
+        const updateData = {};
         if (name !== undefined) updateData.name = name;
         if (rating !== undefined) updateData.rating = rating;
         if (image_url !== undefined) updateData.image_url = image_url;
@@ -123,31 +94,19 @@ export const updateTestimonial = async (req, res) => {
         if (active !== undefined) updateData.active = active;
         if (sort_order !== undefined) updateData.sort_order = sort_order;
 
-        const { data, error } = await supabase
-            .from("customer_testimonials")
-            .update(updateData)
-            .eq("id", id)
-            .select();
-
-        if (error) {
-            return res.status(500).json({ success: false, error: error.message });
-        }
-
-        if (data.length === 0) {
-            return res.status(404).json({
-                success: false,
-                error: "Testimonial not found",
-            });
-        }
+        const data = await testimonialDao.update(id, updateData);
 
         res.status(200).json({
             success: true,
-            testimonial: data[0],
+            testimonial: data,
             message: "Testimonial updated successfully",
         });
     } catch (err) {
         console.error("Error updating testimonial:", err);
-        res.status(500).json({ success: false, error: "Server error" });
+        if (err.code === 'P2025') {
+            return res.status(404).json({ success: false, error: "Testimonial not found" });
+        }
+        res.status(500).json({ success: false, error: err.message || "Server error" });
     }
 };
 
@@ -156,14 +115,7 @@ export const deleteTestimonial = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const { error } = await supabase
-            .from("customer_testimonials")
-            .delete()
-            .eq("id", id);
-
-        if (error) {
-            return res.status(500).json({ success: false, error: error.message });
-        }
+        await testimonialDao.delete(id);
 
         res.status(200).json({
             success: true,
@@ -171,7 +123,10 @@ export const deleteTestimonial = async (req, res) => {
         });
     } catch (err) {
         console.error("Error deleting testimonial:", err);
-        res.status(500).json({ success: false, error: "Server error" });
+        if (err.code === 'P2025') {
+            return res.status(404).json({ success: false, error: "Testimonial not found" });
+        }
+        res.status(500).json({ success: false, error: err.message || "Server error" });
     }
 };
 
@@ -180,41 +135,18 @@ export const toggleTestimonialStatus = async (req, res) => {
     try {
         const { id } = req.params;
 
-        // First get current status
-        const { data: current, error: fetchError } = await supabase
-            .from("customer_testimonials")
-            .select("active")
-            .eq("id", id)
-            .single();
-
-        if (fetchError || !current) {
-            return res.status(404).json({
-                success: false,
-                error: "Testimonial not found",
-            });
-        }
-
-        // Toggle status
-        const { data, error } = await supabase
-            .from("customer_testimonials")
-            .update({
-                active: !current.active,
-                updated_at: new Date().toISOString(),
-            })
-            .eq("id", id)
-            .select();
-
-        if (error) {
-            return res.status(500).json({ success: false, error: error.message });
-        }
+        const data = await testimonialDao.toggleStatus(id);
 
         res.status(200).json({
             success: true,
-            testimonial: data[0],
+            testimonial: data,
             message: "Testimonial status updated successfully",
         });
     } catch (err) {
         console.error("Error toggling testimonial status:", err);
-        res.status(500).json({ success: false, error: "Server error" });
+        if (err.message === 'Testimonial not found' || err.code === 'P2025') {
+            return res.status(404).json({ success: false, error: "Testimonial not found" });
+        }
+        res.status(500).json({ success: false, error: err.message || "Server error" });
     }
 };

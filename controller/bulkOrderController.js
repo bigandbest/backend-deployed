@@ -1,10 +1,15 @@
-import { supabase } from "../config/supabaseClient.js";
+import BulkOrderEnquiryDAO from "../dao/bulk-order-enquiry.dao.js";
+import WholesaleBulkOrderDAO from "../dao/wholesale-bulk-order.dao.js";
+import WholesaleBulkOrderItemDAO from "../dao/wholesale-bulk-order-item.dao.js";
+import OrderDAO from "../dao/order.dao.js";
+import OrderItemDAO from "../dao/order-item.dao.js";
+import CartDAO from "../dao/cart.dao.js";
 
 // B2B Bulk Order Enquiry Functions
 export const createBulkOrderEnquiry = async (req, res) => {
   try {
     console.log('Creating bulk order enquiry:', req.body);
-    
+
     const {
       companyName,
       contactPerson,
@@ -23,9 +28,9 @@ export const createBulkOrderEnquiry = async (req, res) => {
 
     // Validation
     if (!companyName || !contactPerson || !email || !phone || !productName || !quantity) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Missing required fields: companyName, contactPerson, email, phone, productName, quantity' 
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: companyName, contactPerson, email, phone, productName, quantity'
       });
     }
 
@@ -46,22 +51,13 @@ export const createBulkOrderEnquiry = async (req, res) => {
       status: 'Pending'
     };
 
-    const { data, error } = await supabase
-      .from('bulk_order_enquiries')
-      .insert([enquiryData])
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Database Error:', error);
-      return res.status(500).json({ success: false, error: error.message });
-    }
+    const data = await BulkOrderEnquiryDAO.create(enquiryData);
 
     console.log('Bulk order enquiry created successfully:', data);
-    return res.status(201).json({ 
-      success: true, 
+    return res.status(201).json({
+      success: true,
       message: 'Bulk order enquiry submitted successfully',
-      enquiry: data 
+      enquiry: data
     });
   } catch (error) {
     console.error('Server Error:', error);
@@ -72,29 +68,15 @@ export const createBulkOrderEnquiry = async (req, res) => {
 export const getBulkOrderEnquiries = async (req, res) => {
   try {
     const { page = 1, limit = 10, status } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    
+
     console.log('Fetching bulk order enquiries - Page:', page, 'Limit:', limit, 'Status:', status);
 
-    let query = supabase
-      .from('bulk_order_enquiries')
-      .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false })
-      .range(offset, offset + parseInt(limit) - 1);
-
-    if (status && status !== 'all') {
-      query = query.eq('status', status);
-    }
-
-    const { data, error, count } = await query;
-
-    if (error) {
-      console.error('Database Error:', error);
-      return res.status(500).json({ success: false, error: error.message });
-    }
+    const { data, count } = await BulkOrderEnquiryDAO.list(
+      { status, page: parseInt(page), limit: parseInt(limit) }
+    );
 
     console.log(`Found ${count} total enquiries, returning ${data.length} for page ${page}`);
-    
+
     return res.json({
       success: true,
       enquiries: data || [],
@@ -115,7 +97,7 @@ export const updateBulkOrderEnquiry = async (req, res) => {
   try {
     const { id } = req.params;
     const { status, adminNotes } = req.body;
-    
+
     console.log(`Updating bulk enquiry ${id} - Status: ${status}`);
 
     // Validate status
@@ -130,21 +112,11 @@ export const updateBulkOrderEnquiry = async (req, res) => {
     const updateData = {
       last_updated: new Date().toISOString()
     };
-    
+
     if (status) updateData.status = status;
     if (adminNotes !== undefined) updateData.admin_notes = adminNotes;
 
-    const { data, error } = await supabase
-      .from('bulk_order_enquiries')
-      .update(updateData)
-      .eq('id', parseInt(id))
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Database Error:', error);
-      return res.status(500).json({ success: false, error: error.message });
-    }
+    const data = await BulkOrderEnquiryDAO.update(parseInt(id), updateData);
 
     if (!data) {
       return res.status(404).json({ success: false, error: 'Bulk order enquiry not found' });
@@ -162,7 +134,7 @@ export const updateBulkOrderEnquiry = async (req, res) => {
 export const createWholesaleBulkOrder = async (req, res) => {
   try {
     console.log('Creating wholesale bulk order:', req.body);
-    
+
     const {
       user_id,
       items,
@@ -177,9 +149,9 @@ export const createWholesaleBulkOrder = async (req, res) => {
 
     // Validation
     if (!total_price || !email || !contact || !items || items.length === 0) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Missing required fields: total_price, email, contact, items' 
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: total_price, email, contact, items'
       });
     }
 
@@ -218,19 +190,10 @@ export const createWholesaleBulkOrder = async (req, res) => {
       orderData.billing_zip_code = billing_address.zipCode || null;
     }
 
-    // Create wholesale bulk order
-    const { data: order, error: orderError } = await supabase
-      .from('wholesale_bulk_orders')
-      .insert([orderData])
-      .select()
-      .single();
+    // Create wholesale bulk order using DAO
+    const order = await WholesaleBulkOrderDAO.create(orderData);
 
-    if (orderError) {
-      console.error('Order Creation Error:', orderError);
-      return res.status(500).json({ success: false, error: orderError.message });
-    }
-
-    // Create order items with variant support
+    // Create order items using DAO
     const orderItems = items.map(item => ({
       wholesale_bulk_order_id: order.id,
       product_id: String(item.product_id || item.id),
@@ -245,25 +208,18 @@ export const createWholesaleBulkOrder = async (req, res) => {
       original_price: item.original_price ? parseFloat(item.original_price) : null
     }));
 
-    const { error: itemsError } = await supabase
-      .from('wholesale_bulk_order_items')
-      .insert(orderItems);
-
-    if (itemsError) {
-      console.error('Order Items Error:', itemsError);
-      return res.status(500).json({ success: false, error: itemsError.message });
-    }
+    await WholesaleBulkOrderItemDAO.createBulk(orderItems);
 
     // Clear cart if user_id provided
     if (user_id) {
-      await supabase.from('cart_items').delete().eq('user_id', user_id);
+      await CartDAO.clearCart(user_id);
     }
 
     console.log('Wholesale bulk order created successfully:', order);
-    return res.status(201).json({ 
-      success: true, 
+    return res.status(201).json({
+      success: true,
       message: 'Bulk order created successfully',
-      order 
+      order
     });
   } catch (error) {
     console.error('Server Error:', error);
@@ -274,41 +230,15 @@ export const createWholesaleBulkOrder = async (req, res) => {
 export const getWholesaleBulkOrders = async (req, res) => {
   try {
     const { page = 1, limit = 10, status } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    
+
     console.log('Fetching wholesale bulk orders - Page:', page, 'Limit:', limit, 'Status:', status);
 
-    let query = supabase
-      .from('wholesale_bulk_orders')
-      .select(`
-        *,
-        wholesale_bulk_order_items(
-          id,
-          product_id,
-          quantity,
-          price,
-          is_bulk_order,
-          bulk_range,
-          original_price
-        )
-      `, { count: 'exact' })
-      .eq('is_deleted', false)
-      .order('created_at', { ascending: false })
-      .range(offset, offset + parseInt(limit) - 1);
-
-    if (status && status !== 'all') {
-      query = query.eq('order_status', status);
-    }
-
-    const { data, error, count } = await query;
-
-    if (error) {
-      console.error('Database Error:', error);
-      return res.status(500).json({ success: false, error: error.message });
-    }
+    const { data, count } = await WholesaleBulkOrderDAO.list(
+      { status, page: parseInt(page), limit: parseInt(limit) }
+    );
 
     console.log(`Found ${count} total wholesale orders, returning ${data.length} for page ${page}`);
-    
+
     return res.json({
       success: true,
       orders: data || [],
@@ -329,13 +259,13 @@ export const updateWholesaleBulkOrder = async (req, res) => {
   try {
     const { id } = req.params;
     const { order_status, payment_status } = req.body;
-    
+
     console.log(`Updating wholesale bulk order ${id} - Order Status: ${order_status}, Payment Status: ${payment_status}`);
 
     const updateData = {
       updated_at: new Date().toISOString()
     };
-    
+
     if (order_status) {
       const validOrderStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
       if (!validOrderStatuses.includes(order_status)) {
@@ -346,7 +276,7 @@ export const updateWholesaleBulkOrder = async (req, res) => {
       }
       updateData.order_status = order_status;
     }
-    
+
     if (payment_status) {
       const validPaymentStatuses = ['PAYMENT_PENDING', 'PAYMENT_SUCCESS', 'PAYMENT_FAILED', 'REFUNDED'];
       if (!validPaymentStatuses.includes(payment_status)) {
@@ -358,17 +288,7 @@ export const updateWholesaleBulkOrder = async (req, res) => {
       updateData.payment_status = payment_status;
     }
 
-    const { data, error } = await supabase
-      .from('wholesale_bulk_orders')
-      .update(updateData)
-      .eq('id', parseInt(id))
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Database Error:', error);
-      return res.status(500).json({ success: false, error: error.message });
-    }
+    const data = await WholesaleBulkOrderDAO.update(parseInt(id), updateData);
 
     if (!data) {
       return res.status(404).json({ success: false, error: 'Wholesale bulk order not found' });
@@ -429,7 +349,6 @@ export const createOrderWithBulkSupport = async (req, res) => {
       address: addressString,
       payment_method: hasBulkItems ? 'bulk_order' : payment_method,
       is_bulk_order: hasBulkItems,
-      bulk_order_type: hasBulkItems ? 'integrated' : null,
       company_name,
       gst_number,
       shipping_house_number: detailedAddress.houseNumber,
@@ -454,17 +373,10 @@ export const createOrderWithBulkSupport = async (req, res) => {
       orderData.razorpay_signature = razorpay_signature;
     }
 
-    const { data: order, error: orderError } = await supabase
-      .from("orders")
-      .insert([orderData])
-      .select()
-      .single();
+    // Create order using DAO
+    const order = await OrderDAO.create(orderData);
 
-    if (orderError) {
-      return res.status(500).json({ success: false, error: orderError.message });
-    }
-
-    // Create order items
+    // Create order items using DAO
     const orderItemsToInsert = items.map((item) => ({
       order_id: order.id,
       product_id: item.product_id || item.id,
@@ -475,21 +387,17 @@ export const createOrderWithBulkSupport = async (req, res) => {
       original_price: item.original_price || null,
     }));
 
-    const { error: itemsError } = await supabase
-      .from("order_items")
-      .insert(orderItemsToInsert);
-
-    if (itemsError) {
-      return res.status(500).json({ success: false, error: itemsError.message });
+    for (const item of orderItemsToInsert) {
+      await OrderItemDAO.create(item);
     }
 
     // Clear cart
     if (user_id) {
-      await supabase.from("cart_items").delete().eq("user_id", user_id);
+      await CartDAO.clearCart(user_id);
     }
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       order,
       isBulkOrder: hasBulkItems,
       message: hasBulkItems ? 'Bulk order created successfully. Our team will contact you soon.' : 'Order placed successfully'

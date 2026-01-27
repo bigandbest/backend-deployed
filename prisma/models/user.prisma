@@ -1,0 +1,54 @@
+enum UserRole {
+  USER
+  ADMIN
+  SELLER
+}
+
+model users {
+  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email            String               @unique
+  photo_url        String?
+  role             UserRole             @default(USER)
+  password         String?
+  password_reset_token String?
+  password_reset_expires DateTime?      @db.Timestamptz
+  created_at       DateTime?            @default(now()) @db.Timestamptz
+  last_login       DateTime?            @db.Timestamptz
+  is_active        Boolean?             @default(true)
+  phone            String?
+  avatar           String?
+  name             String?
+  account_type     String?
+  company_name     String?
+  street_address   String?              @db.VarChar
+  suite_unit_floor String?              @db.VarChar
+  house_number     String?              @db.VarChar
+  locality         String?              @db.VarChar
+  city             String?              @db.VarChar
+  state            String?              @db.VarChar
+  postal_code      String?              @db.VarChar
+  country          String?              @default("India") @db.VarChar
+  landmark         String?              @db.VarChar
+  gstin            String?              @unique @db.VarChar
+  pan              String?              @unique @db.VarChar
+  adhaar_no        String?              @unique @db.VarChar
+  first_name       String?
+  last_name        String?
+  business_type    String?
+  user_image       String?
+  
+  // Relations
+  notifications    user_notifications[]
+  posts            Post[]
+  cart_items       cart_items[]
+  wishlist_items   wishlist_items[]
+  orders           orders[]
+  enquiries        enquiries[]
+  coupon_usages    coupon_usage[]
+  wallet           wallets?         @relation("UserWallet")
+  frozen_wallets   wallets[]        @relation("WalletFreezer")
+  wallet_txs       wallet_transactions[] @relation("UserTransactions")
+  created_txs      wallet_transactions[] @relation("TransactionCreator")
+  service_bookings service_bookings[]
+  addresses        user_addresses[]
+}

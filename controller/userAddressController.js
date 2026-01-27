@@ -1,7 +1,6 @@
-import { supabase } from "../config/supabaseClient.js";
+import prisma from "../config/prisma.js";
 import axios from "axios";
 
-// Get all addresses for a user
 export const getUserAddresses = async (req, res) => {
   try {
     const userId = req.user?.id || req.query.user_id;
@@ -13,27 +12,20 @@ export const getUserAddresses = async (req, res) => {
       });
     }
 
-    const { data: addresses, error } = await supabase
-      .from("user_addresses")
-      .select("*")
-      .eq("user_id", userId)
-      .eq("is_active", true)
-      .order("is_default", { ascending: false })
-      .order("created_at", { ascending: false });
+    const addresses = await prisma.user_addresses.findMany({
+      where: { user_id: userId },
+      orderBy: [
+        { is_default: 'desc' },
+        { created_at: 'desc' }
+      ]
+    });
 
-    if (error) {
-      console.error("Error fetching addresses:", error);
-      return res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    }
-
-    // Normalize addresses to ensure frontend compatibility
-    const normalizedAddresses = (addresses || []).map((addr) => ({
+    const normalizedAddresses = addresses.map((addr) => ({
       ...addr,
-      label: addr.label || addr.address_name,
-      address_line1: addr.address_line1 || addr.street_address,
+      label: addr.address_name,
+      address_line1: addr.street_address,
+      address_line2: addr.suite_unit_floor,
+      pincode: addr.postal_code,
     }));
 
     return res.json({
@@ -49,35 +41,32 @@ export const getUserAddresses = async (req, res) => {
   }
 };
 
-// Get a single address by ID
 export const getAddressById = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user?.id;
 
-    const { data: address, error } = await supabase
-      .from("user_addresses")
-      .select("*")
-      .eq("id", id)
-      .eq("user_id", userId)
-      .single();
+    const address = await prisma.user_addresses.findFirst({
+      where: {
+        id,
+        user_id: userId
+      }
+    });
 
-    if (error) {
-      console.error("Error fetching address:", error);
+    if (!address) {
       return res.status(404).json({
         success: false,
         error: "Address not found",
       });
     }
 
-    // Normalize address
-    const normalizedAddress = address
-      ? {
-          ...address,
-          label: address.label || address.address_name,
-          address_line1: address.address_line1 || address.street_address,
-        }
-      : null;
+    const normalizedAddress = {
+      ...address,
+      label: address.address_name,
+      address_line1: address.street_address,
+      address_line2: address.suite_unit_floor,
+      pincode: address.postal_code,
+    };
 
     return res.json({
       success: true,
@@ -92,14 +81,11 @@ export const getAddressById = async (req, res) => {
   }
 };
 
-// Create a new address
 export const createAddress = async (req, res) => {
   try {
     const userId = req.user?.id || req.body.user_id;
     const {
       label,
-      full_name,
-      mobile,
       address_line1,
       address_line2,
       city,
@@ -107,46 +93,28 @@ export const createAddress = async (req, res) => {
       pincode,
       landmark,
       is_default,
-      // New fields
+      house_number,
+      locality,
+      // Frontend compatibility fields
+      type,
       receiver_name,
       receiver_phone,
-      building_type,
-      flat_no,
-      building_name,
-      type, // Frontend sends 'type' instead of 'label' sometimes
+      full_name,
+      mobile,
     } = req.body;
 
-    // Map frontend fields to backend expected variables
-    const nameToSave = receiver_name || full_name;
-    const mobileToSave = receiver_phone || mobile;
-    const addressLabel = type || label;
+    // Map frontend fields to backend schema
+    const addressLabel = label || type;
+    const nameToSave = full_name || receiver_name;
+    const mobileToSave = mobile || receiver_phone;
 
-    // Construct address_line1 if broken down fields are provided
-    let finalAddressLine1 = address_line1;
-    if (flat_no || building_name) {
-      finalAddressLine1 = `${flat_no ? flat_no + ", " : ""}${
-        building_name || ""
-      }`;
-    }
-
-    // Validation
-    if (
-      !addressLabel ||
-      !nameToSave ||
-      !mobileToSave ||
-      !finalAddressLine1 ||
-      !city ||
-      !state ||
-      !pincode
-    ) {
+    if (!addressLabel || !address_line1 || !city || !state || !pincode) {
       return res.status(400).json({
         success: false,
-        error:
-          "Required fields: label/type, receiver_name/full_name, receiver_phone/mobile, address_line1 (or flat_no+building_name), city, state, pincode",
+        error: "Required fields: label, address_line1, city, state, pincode",
       });
     }
 
-    // Validate pincode (6 digits)
     if (!/^\d{6}$/.test(pincode)) {
       return res.status(400).json({
         success: false,
@@ -154,48 +122,22 @@ export const createAddress = async (req, res) => {
       });
     }
 
-    // Validate mobile (10 digits)
-    if (!/^\d{10}$/.test(mobileToSave)) {
-      return res.status(400).json({
-        success: false,
-        error: "Mobile number must be 10 digits",
-      });
-    }
-
-    const addressData = {
-      user_id: userId,
-      label: addressLabel,
-      address_name: addressLabel, // Map label to address_name for backward compatibility
-      full_name: nameToSave,
-      mobile: mobileToSave,
-      address_line1: finalAddressLine1,
-      street_address: finalAddressLine1, // Map address_line1 to street_address
-      address_line2: address_line2 || null,
-      city,
-      state,
-      country: "India", // Default country
-      pincode,
-      landmark: landmark || null,
-      is_default: is_default || false,
-      is_active: true,
-      // Add building_type if the column exists in your DB, otherwise it might be ignored or error.
-      // Assuming user wants it stored. If DB schema doesn't have it, we might need to add it to address_line2 or similar.
-      // For now, attempting to add it as requested.
-    };
-
-    const { data: newAddress, error } = await supabase
-      .from("user_addresses")
-      .insert([addressData])
-      .select()
-      .single();
-
-    if (error) {
-      console.error("Error creating address:", error);
-      return res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    }
+    const newAddress = await prisma.user_addresses.create({
+      data: {
+        user_id: userId,
+        address_name: addressLabel,
+        street_address: address_line1,
+        suite_unit_floor: address_line2 || null,
+        house_number: house_number || null,
+        locality: locality || null,
+        city,
+        state,
+        country: "India",
+        postal_code: pincode,
+        landmark: landmark || null,
+        is_default: is_default || false,
+      }
+    });
 
     return res.status(201).json({
       success: true,
@@ -211,15 +153,12 @@ export const createAddress = async (req, res) => {
   }
 };
 
-// Update an address
 export const updateAddress = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user?.id;
     const {
       label,
-      full_name,
-      mobile,
       address_line1,
       address_line2,
       city,
@@ -227,9 +166,21 @@ export const updateAddress = async (req, res) => {
       pincode,
       landmark,
       is_default,
+      house_number,
+      locality,
+      // Frontend compatibility fields
+      type,
+      receiver_name,
+      receiver_phone,
+      full_name,
+      mobile,
     } = req.body;
 
-    // Validate pincode if provided
+    // Map frontend fields to backend schema
+    const addressLabel = label || type;
+    const nameToSave = full_name || receiver_name;
+    const mobileToSave = mobile || receiver_phone;
+
     if (pincode && !/^\d{6}$/.test(pincode)) {
       return res.status(400).json({
         success: false,
@@ -237,60 +188,42 @@ export const updateAddress = async (req, res) => {
       });
     }
 
-    // Validate mobile if provided
-    if (mobile && !/^\d{10}$/.test(mobile)) {
-      return res.status(400).json({
-        success: false,
-        error: "Mobile number must be 10 digits",
-      });
-    }
-
     const updateData = {};
-    if (label !== undefined) {
-      updateData.label = label;
-      updateData.address_name = label; // Map label to address_name
-    }
-    if (full_name !== undefined) updateData.full_name = full_name;
-    if (mobile !== undefined) updateData.mobile = mobile;
-    if (address_line1 !== undefined) {
-      updateData.address_line1 = address_line1;
-      updateData.street_address = address_line1; // Map address_line1 to street_address
-    }
-    if (address_line2 !== undefined) updateData.address_line2 = address_line2;
+    if (addressLabel !== undefined) updateData.address_name = addressLabel;
+    if (address_line1 !== undefined) updateData.street_address = address_line1;
+    if (address_line2 !== undefined) updateData.suite_unit_floor = address_line2;
+    if (house_number !== undefined) updateData.house_number = house_number;
+    if (locality !== undefined) updateData.locality = locality;
     if (city !== undefined) updateData.city = city;
     if (state !== undefined) updateData.state = state;
-    updateData.country = "India"; // Ensure country is set
-    if (pincode !== undefined) updateData.pincode = pincode;
+    if (pincode !== undefined) updateData.postal_code = pincode;
     if (landmark !== undefined) updateData.landmark = landmark;
     if (is_default !== undefined) updateData.is_default = is_default;
+    updateData.updated_at = new Date();
 
-    const { data: updatedAddress, error } = await supabase
-      .from("user_addresses")
-      .update(updateData)
-      .eq("id", id)
-      .eq("user_id", userId)
-      .select()
-      .single();
+    const updatedAddress = await prisma.user_addresses.updateMany({
+      where: {
+        id,
+        user_id: userId
+      },
+      data: updateData
+    });
 
-    if (error) {
-      console.error("Error updating address:", error);
-      return res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    }
-
-    if (!updatedAddress) {
+    if (updatedAddress.count === 0) {
       return res.status(404).json({
         success: false,
         error: "Address not found",
       });
     }
 
+    const address = await prisma.user_addresses.findUnique({
+      where: { id }
+    });
+
     return res.json({
       success: true,
       message: "Address updated successfully",
-      address: updatedAddress,
+      address,
     });
   } catch (error) {
     console.error("Error in updateAddress:", error);
@@ -301,29 +234,19 @@ export const updateAddress = async (req, res) => {
   }
 };
 
-// Delete an address (soft delete)
 export const deleteAddress = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user?.id;
 
-    const { data: deletedAddress, error } = await supabase
-      .from("user_addresses")
-      .update({ is_active: false })
-      .eq("id", id)
-      .eq("user_id", userId)
-      .select()
-      .single();
+    const deletedAddress = await prisma.user_addresses.deleteMany({
+      where: {
+        id,
+        user_id: userId
+      }
+    });
 
-    if (error) {
-      console.error("Error deleting address:", error);
-      return res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    }
-
-    if (!deletedAddress) {
+    if (deletedAddress.count === 0) {
       return res.status(404).json({
         success: false,
         error: "Address not found",
@@ -343,29 +266,31 @@ export const deleteAddress = async (req, res) => {
   }
 };
 
-// Set an address as default
 export const setDefaultAddress = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user?.id;
 
-    const { data: updatedAddress, error } = await supabase
-      .from("user_addresses")
-      .update({ is_default: true })
-      .eq("id", id)
-      .eq("user_id", userId)
-      .select()
-      .single();
-
-    if (error) {
-      console.error("Error setting default address:", error);
-      return res.status(500).json({
-        success: false,
-        error: error.message,
+    await prisma.$transaction(async (tx) => {
+      await tx.user_addresses.updateMany({
+        where: { user_id: userId },
+        data: { is_default: false }
       });
-    }
 
-    if (!updatedAddress) {
+      await tx.user_addresses.updateMany({
+        where: {
+          id,
+          user_id: userId
+        },
+        data: { is_default: true }
+      });
+    });
+
+    const address = await prisma.user_addresses.findUnique({
+      where: { id }
+    });
+
+    if (!address) {
       return res.status(404).json({
         success: false,
         error: "Address not found",
@@ -375,7 +300,7 @@ export const setDefaultAddress = async (req, res) => {
     return res.json({
       success: true,
       message: "Default address updated successfully",
-      address: updatedAddress,
+      address,
     });
   } catch (error) {
     console.error("Error in setDefaultAddress:", error);
@@ -386,35 +311,25 @@ export const setDefaultAddress = async (req, res) => {
   }
 };
 
-// Get default address
 export const getDefaultAddress = async (req, res) => {
   try {
     const userId = req.user?.id || req.query.user_id;
 
-    const { data: address, error } = await supabase
-      .from("user_addresses")
-      .select("*")
-      .eq("user_id", userId)
-      .eq("is_default", true)
-      .eq("is_active", true)
-      .single();
+    const address = await prisma.user_addresses.findFirst({
+      where: {
+        user_id: userId,
+        is_default: true
+      }
+    });
 
-    if (error && error.code !== "PGRST116") {
-      // PGRST116 is "not found" error
-      console.error("Error fetching default address:", error);
-      return res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    }
-
-    // Normalize address
     const normalizedAddress = address
       ? {
-          ...address,
-          label: address.label || address.address_name,
-          address_line1: address.address_line1 || address.street_address,
-        }
+        ...address,
+        label: address.address_name,
+        address_line1: address.street_address,
+        address_line2: address.suite_unit_floor,
+        pincode: address.postal_code,
+      }
       : null;
 
     return res.json({
@@ -430,7 +345,6 @@ export const getDefaultAddress = async (req, res) => {
   }
 };
 
-// Reverse Geocode using Nominatim (Proxy)
 export const reverseGeocode = async (req, res) => {
   try {
     const { lat, lng } = req.query;
@@ -453,7 +367,7 @@ export const reverseGeocode = async (req, res) => {
           addressdetails: 1,
         },
         headers: {
-          "User-Agent": "BigBestMart/1.0 (contact@bigbestmart.com)", // Required by Nominatim policy
+          "User-Agent": "BigBestMart/1.0 (contact@bigbestmart.com)",
         },
       }
     );

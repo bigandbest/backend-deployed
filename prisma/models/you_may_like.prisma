@@ -1,0 +1,7 @@
+model you_may_like {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id String?   @db.Uuid
+
+  // Relations
+  product    products? @relation(fields: [product_id], references: [id])
+}

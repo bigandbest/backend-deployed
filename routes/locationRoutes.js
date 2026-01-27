@@ -2,10 +2,14 @@ import express from 'express';
 import {
   getPincodeDetails,
   calculateShipping,
-  calculateTax
+  calculateTax,
+  searchLocation
 } from '../controller/locationController.js';
 
 const router = express.Router();
+
+// Search location (Proxy to OpenStreetMap)
+router.get('/search', searchLocation);
 
 // Get pincode details
 router.get('/pincode/:pincode', getPincodeDetails);

@@ -1,6 +1,7 @@
 import { v2 as cloudinary } from "cloudinary";
 import multer from "multer";
 import { supabase } from "../config/supabaseClient.js";
+import userDao from "../dao/user.dao.js";
 
 // Configure Cloudinary
 cloudinary.config({
@@ -45,14 +46,14 @@ export const uploadProfileImage = async (req, res) => {
 
     // Try to create bucket first, then upload
     const fileName = `profile_${userId}_${Date.now()}.${req.file.originalname.split('.').pop()}`;
-    
+
     // Try to create bucket if it doesn't exist
     try {
       await supabase.storage.createBucket('profile-images', { public: true });
     } catch (bucketError) {
       // Bucket might already exist, continue
     }
-    
+
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('profile-images')
       .upload(fileName, req.file.buffer, {
@@ -76,23 +77,10 @@ export const uploadProfileImage = async (req, res) => {
     const imageUrl = urlData.publicUrl;
 
     // Update user profile with new image URL
-    const { data, error } = await supabase
-      .from("users")
-      .update({
-        photo_url: imageUrl,
-        avatar: imageUrl,
-      })
-      .eq("id", userId)
-      .select("*")
-      .single();
-
-    if (error) {
-      console.error("Database update error:", error);
-      return res.status(500).json({
-        success: false,
-        error: "Failed to update user profile",
-      });
-    }
+    const data = await userDao.updateUser(userId, {
+      photo_url: imageUrl,
+      avatar: imageUrl,
+    });
 
     res.json({
       success: true,
@@ -121,16 +109,12 @@ export const deleteProfileImage = async (req, res) => {
     }
 
     // Get current user data to find the image URL
-    const { data: userData, error: fetchError } = await supabase
-      .from("users")
-      .select("photo_url")
-      .eq("id", userId)
-      .single();
+    const userData = await userDao.getUserById(userId);
 
-    if (fetchError) {
-      return res.status(500).json({
+    if (!userData) {
+      return res.status(404).json({
         success: false,
-        error: "Failed to fetch user data",
+        error: "User not found",
       });
     }
 
@@ -147,22 +131,10 @@ export const deleteProfileImage = async (req, res) => {
     }
 
     // Update user profile to remove image URL
-    const { data, error } = await supabase
-      .from("users")
-      .update({
-        photo_url: null,
-        avatar: null,
-      })
-      .eq("id", userId)
-      .select("*")
-      .single();
-
-    if (error) {
-      return res.status(500).json({
-        success: false,
-        error: "Failed to update user profile",
-      });
-    }
+    const data = await userDao.updateUser(userId, {
+      photo_url: null,
+      avatar: null,
+    });
 
     res.json({
       success: true,
@@ -189,17 +161,34 @@ export const getUserProfile = async (req, res) => {
       });
     }
 
-    const { data, error } = await supabase
-      .from("users")
-      .select("*")
-      .eq("id", userId)
-      .single();
+    let data = await userDao.getUserById(userId);
 
-    if (error) {
-      return res.status(500).json({
-        success: false,
-        error: "Failed to fetch user profile",
-      });
+    // If user doesn't exist in database, create them
+    if (!data) {
+      console.log("Creating user record in users table for:", userId);
+      try {
+        data = await userDao.createUser({
+          id: userId,
+          email: req.user.email || "",
+          name: req.user.name || req.user.user_metadata?.name || "User",
+          phone: req.user.phone || req.user.user_metadata?.phone || "",
+          role: req.user.role === "authenticated" ? "USER" : req.user.role?.toUpperCase() || "USER",
+          is_active: true,
+        });
+      } catch (createError) {
+        console.error("Error creating user record:", createError);
+        // If creation fails, return a basic user object
+        return res.json({
+          success: true,
+          user: {
+            id: userId,
+            email: req.user.email,
+            name: req.user.name || req.user.user_metadata?.name || "User",
+            phone: req.user.phone || "",
+            role: "USER",
+          },
+        });
+      }
     }
 
     res.json({
@@ -242,20 +231,7 @@ export const updateUserProfile = async (req, res) => {
       });
     }
 
-    const { data, error } = await supabase
-      .from("users")
-      .update(updateData)
-      .eq("id", userId)
-      .select("*")
-      .single();
-
-    if (error) {
-      console.error("Profile update error:", error);
-      return res.status(500).json({
-        success: false,
-        error: "Failed to update profile",
-      });
-    }
+    const data = await userDao.updateUser(userId, updateData);
 
     res.json({
       success: true,

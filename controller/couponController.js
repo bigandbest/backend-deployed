@@ -1,4 +1,4 @@
-import { supabase } from "../config/supabaseClient.js";
+import couponDAO from "../dao/coupon.dao.js";
 import couponValidator from "../services/couponValidator.js";
 import moment from "moment-timezone";
 
@@ -52,13 +52,7 @@ export const createCoupon = async (req, res) => {
             });
         }
 
-        // Check if code already exists
-        const { data: existing } = await supabase
-            .from("coupons")
-            .select("id")
-            .ilike("code", code)
-            .single();
-
+        const existing = await couponDAO.getByCode(code);
         if (existing) {
             return res.status(400).json({
                 success: false,
@@ -66,38 +60,27 @@ export const createCoupon = async (req, res) => {
             });
         }
 
-        // Create coupon
-        const { data, error } = await supabase
-            .from("coupons")
-            .insert({
-                code: code.toUpperCase(),
-                discount_type,
-                discount_value,
-                max_discount,
-                min_order_value: min_order_value || 0,
-                allowed_brands: allowed_brands || [],
-                new_user_only: new_user_only || false,
-                usage_limit_total,
-                usage_limit_per_user: usage_limit_per_user || 1,
-                valid_from,
-                valid_to,
-                timezone: timezone || "UTC",
-                description,
-                terms_conditions,
-                created_by: req.user?.id,
-                status: "ACTIVE"
-            })
-            .select()
-            .single();
+        const tz = timezone || "UTC";
+        const processedValidFrom = moment.tz(valid_from, tz).toISOString();
+        const processedValidTo = moment.tz(valid_to, tz).toISOString();
 
-        if (error) throw error;
-
-        // Log audit
-        await supabase.from("coupon_audit_logs").insert({
-            coupon_id: data.id,
-            user_id: req.user?.id,
-            action: "CREATED",
-            new_values: data
+        const data = await couponDAO.create({
+            code: code.toUpperCase(),
+            discount_type,
+            discount_value,
+            max_discount,
+            min_order_value: min_order_value || 0,
+            allowed_brands: allowed_brands || [],
+            new_user_only: new_user_only || false,
+            usage_limit_total,
+            usage_limit_per_user: usage_limit_per_user || 1,
+            valid_from: processedValidFrom,
+            valid_to: processedValidTo,
+            timezone: tz,
+            description,
+            terms_conditions,
+            created_by: req.user?.id,
+            status: "ACTIVE"
         });
 
         res.status(201).json({
@@ -123,13 +106,7 @@ export const updateCoupon = async (req, res) => {
         const { id } = req.params;
         const updates = req.body;
 
-        // Get current coupon
-        const { data: currentCoupon } = await supabase
-            .from("coupons")
-            .select("*")
-            .eq("id", id)
-            .single();
-
+        const currentCoupon = await couponDAO.getById(id);
         if (!currentCoupon) {
             return res.status(404).json({
                 success: false,
@@ -137,24 +114,15 @@ export const updateCoupon = async (req, res) => {
             });
         }
 
-        // Update coupon
-        const { data, error } = await supabase
-            .from("coupons")
-            .update(updates)
-            .eq("id", id)
-            .select()
-            .single();
+        const tz = updates.timezone || currentCoupon.timezone || "UTC";
+        if (updates.valid_from) {
+            updates.valid_from = moment.tz(updates.valid_from, tz).toISOString();
+        }
+        if (updates.valid_to) {
+            updates.valid_to = moment.tz(updates.valid_to, tz).toISOString();
+        }
 
-        if (error) throw error;
-
-        // Log audit
-        await supabase.from("coupon_audit_logs").insert({
-            coupon_id: id,
-            user_id: req.user?.id,
-            action: "UPDATED",
-            old_values: currentCoupon,
-            new_values: data
-        });
+        const data = await couponDAO.update(id, updates);
 
         res.status(200).json({
             success: true,
@@ -186,21 +154,7 @@ export const toggleCouponStatus = async (req, res) => {
             });
         }
 
-        const { data, error } = await supabase
-            .from("coupons")
-            .update({ status })
-            .eq("id", id)
-            .select()
-            .single();
-
-        if (error) throw error;
-
-        // Log audit
-        await supabase.from("coupon_audit_logs").insert({
-            coupon_id: id,
-            user_id: req.user?.id,
-            action: status === "ACTIVE" ? "ENABLED" : "DISABLED"
-        });
+        const data = await couponDAO.updateStatus(id, status);
 
         res.status(200).json({
             success: true,
@@ -225,28 +179,19 @@ export const getAllCoupons = async (req, res) => {
         const { status, page = 1, limit = 20 } = req.query;
         const offset = (page - 1) * limit;
 
-        let query = supabase
-            .from("coupons")
-            .select("*, coupon_usage(count)", { count: "exact" })
-            .order("created_at", { ascending: false })
-            .range(offset, offset + limit - 1);
-
-        if (status) {
-            query = query.eq("status", status);
-        }
-
-        const { data, error, count } = await query;
-
-        if (error) throw error;
+        const result = await couponDAO.list(
+            { status },
+            { page: parseInt(page), limit: parseInt(limit) }
+        );
 
         res.status(200).json({
             success: true,
-            data,
+            data: result.items,
             pagination: {
-                total: count,
-                page: parseInt(page),
-                limit: parseInt(limit),
-                pages: Math.ceil(count / limit)
+                total: result.total,
+                page: result.page,
+                limit: result.limit,
+                pages: Math.ceil(result.total / result.limit)
             }
         });
     } catch (error) {
@@ -268,37 +213,27 @@ export const getCouponUsageHistory = async (req, res) => {
         const { page = 1, limit = 50 } = req.query;
         const offset = (page - 1) * limit;
 
-        // Get usage records
-        const { data: usage, error: usageError, count } = await supabase
-            .from("coupon_usage")
-            .select("*", { count: "exact" })
-            .eq("coupon_id", id)
-            .order("created_at", { ascending: false })
-            .range(offset, offset + limit - 1);
-
-        if (usageError) throw usageError;
-
-        // Get statistics
-        const { data: stats } = await supabase.rpc("get_coupon_stats", {
-            coupon_uuid: id
-        });
+        const result = await couponDAO.getUsageHistory(
+            id,
+            { page: parseInt(page), limit: parseInt(limit) }
+        );
 
         res.status(200).json({
             success: true,
             data: {
-                usage,
-                statistics: stats?.[0] || {
-                    total_usage: 0,
+                usage: result.usage,
+                statistics: {
+                    total_usage: result.total,
                     total_discount: 0,
                     unique_users: 0,
                     avg_discount: 0
                 }
             },
             pagination: {
-                total: count,
-                page: parseInt(page),
-                limit: parseInt(limit),
-                pages: Math.ceil(count / limit)
+                total: result.total,
+                page: result.page,
+                limit: result.limit,
+                pages: Math.ceil(result.total / result.limit)
             }
         });
     } catch (error) {
@@ -364,21 +299,7 @@ export const deleteCoupon = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const { data, error } = await supabase
-            .from("coupons")
-            .update({ status: "DISABLED" })
-            .eq("id", id)
-            .select()
-            .single();
-
-        if (error) throw error;
-
-        // Log audit
-        await supabase.from("coupon_audit_logs").insert({
-            coupon_id: id,
-            user_id: req.user?.id,
-            action: "DELETED"
-        });
+        await couponDAO.delete(id);
 
         res.status(200).json({
             success: true,

@@ -1,63 +1,40 @@
-import { supabase } from "../config/supabaseClient.js";
+import TrackingDAO from "../dao/tracking.dao.js";
+
+/**
+ * Tracking Controller - Routes for order tracking operations
+ * Updated to use tracking.dao.js
+ */
 
 // Get order tracking by order ID
 export const getOrderTracking = async (req, res) => {
   try {
     const { orderId } = req.params;
 
-    // Optimize query by selecting only necessary fields
-    const { data: order, error: orderError } = await supabase
-      .from('orders')
-      .select(`
-        id,
-        user_id,
-        status,
-        total,
-        current_location,
-        tracking_number,
-        created_at,
-        updated_at,
-        order_items(
-          id,
-          quantity,
-          price,
-          products(name, image)
-        ),
-        order_tracking(
-          id,
-          status,
-          location,
-          description,
-          timestamp
-        )
-      `)
-      .eq('id', orderId)
-      .single();
+    const order = await TrackingDAO.getOrderWithTracking(orderId);
 
-    if (orderError) {
-      console.error("Error fetching order tracking:", orderError);
+    if (!order) {
       return res.status(404).json({
         success: false,
-        message: "Order not found"
+        message: "Order not found",
       });
     }
 
     // Sort tracking by timestamp
-    const tracking = order.order_tracking?.sort((a, b) => 
-      new Date(a.timestamp) - new Date(b.timestamp)
-    ) || [];
+    const tracking =
+      order.order_tracking?.sort(
+        (a, b) => new Date(a.timestamp) - new Date(b.timestamp),
+      ) || [];
 
     res.json({
       success: true,
       order,
-      tracking
+      tracking,
     });
-
   } catch (error) {
     console.error("Error fetching order tracking:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to fetch tracking information"
+      message: "Failed to fetch tracking information",
     });
   }
 };
@@ -67,50 +44,30 @@ export const addTrackingUpdate = async (req, res) => {
   try {
     const { orderId, status, location, description } = req.body;
 
-    // Add tracking entry
-    const { data: tracking, error: trackingError } = await supabase
-      .from('order_tracking')
-      .insert([{
-        order_id: orderId,
-        status,
-        location,
-        description,
-        timestamp: new Date().toISOString()
-      }])
-      .select()
-      .single();
-
-    if (trackingError) {
-      return res.status(500).json({
+    // Validate required fields
+    if (!orderId || !status || !location) {
+      return res.status(400).json({
         success: false,
-        message: "Failed to add tracking update"
+        message: "Order ID, status, and location are required",
       });
     }
 
-    // Update order status and location
-    const { error: orderError } = await supabase
-      .from('orders')
-      .update({
-        status,
-        current_location: location,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', orderId);
-
-    if (orderError) {
-      console.error("Error updating order:", orderError);
-    }
+    const tracking = await TrackingDAO.addTrackingUpdate({
+      order_id: orderId,
+      status,
+      location,
+      description: description || `Order ${status.toLowerCase()}`,
+    });
 
     res.json({
       success: true,
-      tracking
+      tracking,
     });
-
   } catch (error) {
     console.error("Error adding tracking update:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to add tracking update"
+      message: "Failed to add tracking update",
     });
   }
 };
@@ -120,57 +77,38 @@ export const searchByTrackingNumber = async (req, res) => {
   try {
     const { trackingNumber } = req.params;
 
-    const { data: order, error } = await supabase
-      .from('orders')
-      .select(`
-        id,
-        user_id,
-        status,
-        total,
-        current_location,
-        tracking_number,
-        created_at,
-        updated_at,
-        order_items(
-          id,
-          quantity,
-          price,
-          products(name, image)
-        ),
-        order_tracking(
-          id,
-          status,
-          location,
-          description,
-          timestamp
-        )
-      `)
-      .eq('tracking_number', trackingNumber)
-      .single();
-
-    if (error) {
-      console.error("Error searching by tracking number:", error);
-      return res.status(404).json({
+    if (!trackingNumber) {
+      return res.status(400).json({
         success: false,
-        message: "Order not found with this tracking number"
+        message: "Tracking number is required",
       });
     }
 
-    const tracking = order.order_tracking?.sort((a, b) => 
-      new Date(a.timestamp) - new Date(b.timestamp)
-    ) || [];
+    const order = await TrackingDAO.getByTrackingNumber(trackingNumber);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found with this tracking number",
+      });
+    }
+
+    // Sort tracking by timestamp
+    const tracking =
+      order.order_tracking?.sort(
+        (a, b) => new Date(a.timestamp) - new Date(b.timestamp),
+      ) || [];
 
     res.json({
       success: true,
       order,
-      tracking
+      tracking,
     });
-
   } catch (error) {
     console.error("Error searching by tracking number:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to search order"
+      message: "Failed to search order",
     });
   }
 };

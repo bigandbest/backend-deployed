@@ -1,16 +1,9 @@
-import { supabase } from "../config/supabaseClient.js";
+import TeamMemberDAO from "../dao/team-member.dao.js";
 
 // Get all team members
 export const getTeamMembers = async (req, res) => {
     try {
-        const { data, error } = await supabase
-            .from("team_members")
-            .select("*")
-            .order("created_at", { ascending: true });
-
-        if (error) {
-            throw error;
-        }
+        const data = await TeamMemberDAO.list();
 
         res.status(200).json({
             success: true,
@@ -38,15 +31,17 @@ export const addTeamMember = async (req, res) => {
             });
         }
 
-        const { data, error } = await supabase
-            .from("team_members")
-            .insert([{ name, designation, image_url }])
-            .select()
-            .single();
+        const data = await TeamMemberDAO.create({
+            name,
+            designation,
+            image_url
+        });
 
-        if (error) {
-            throw error;
-        }
+        res.status(201).json({
+            success: true,
+            message: "Team member added successfully",
+            data,
+        });
 
         res.status(201).json({
             success: true,
@@ -69,16 +64,11 @@ export const updateTeamMember = async (req, res) => {
         const { id } = req.params;
         const { name, designation, image_url } = req.body;
 
-        const { data, error } = await supabase
-            .from("team_members")
-            .update({ name, designation, image_url, updated_at: new Date() })
-            .eq("id", id)
-            .select()
-            .single();
-
-        if (error) {
-            throw error;
-        }
+        const data = await TeamMemberDAO.update(id, {
+            name,
+            designation,
+            image_url
+        });
 
         res.status(200).json({
             success: true,
@@ -100,14 +90,7 @@ export const deleteTeamMember = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const { error } = await supabase
-            .from("team_members")
-            .delete()
-            .eq("id", id);
-
-        if (error) {
-            throw error;
-        }
+        await TeamMemberDAO.delete(id);
 
         res.status(200).json({
             success: true,

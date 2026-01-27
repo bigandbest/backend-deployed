@@ -1,0 +1,17 @@
+model payment_retry_logs {
+  id                 String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scheduled_order_id String                @db.Uuid
+  execution_log_id   String?               @db.Uuid
+  retry_number       Int
+  attempted_at       DateTime?             @default(now()) @db.Timestamptz
+  payment_method     String?               @db.VarChar
+  amount             Decimal?              @db.Decimal
+  status             String?               @db.VarChar
+  error_code         String?               @db.VarChar
+  error_message      String?
+  next_retry_at      DateTime?             @db.Timestamptz
+
+  // Relations
+  scheduled_order    scheduled_orders      @relation(fields: [scheduled_order_id], references: [id])
+  execution_log      order_execution_logs? @relation(fields: [execution_log_id], references: [id])
+}

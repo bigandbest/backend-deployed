@@ -1,730 +1,269 @@
-// controllers/cartController.js
-import { supabase } from "../config/supabaseClient.js";
+import CartDAO from "../dao/cart.dao.js";
+import ProductDAO from "../dao/product.dao.js";
+import ProductVariantDAO from "../dao/product-variant.dao.js";
+import InventoryDAO from "../dao/inventory.dao.js";
 import * as deliveryValidationService from "./deliveryValidationService.js";
 
-/**
- * @description Get all cart items for a specific user, joining product details.
- * @route GET /api/cart/:user_id
- */
 export const getCartItems = async (req, res) => {
   try {
     const { user_id } = req.params;
 
     if (!user_id) {
-      return res
-        .status(400)
-        .json({ success: false, error: "User ID is required" });
+      return res.status(400).json({
+        success: false,
+        error: "User ID is required"
+      });
     }
 
-    const { data, error } = await supabase
-      .from("cart_items")
-      .select(`
-        id, 
-        product_id, 
-        quantity, 
-        added_at, 
-        variant_id,
-        is_bid_product,
-        locked_bid_id,
-        bid_unit_price,
-        products(*),
-        product_variants(*),
-        locked_bids:locked_bid_id(
-          id,
-          payment_deadline,
-          status,
-          final_amount,
-          subtotal,
-          gst_amount
-        )
-      `)
-      .eq("user_id", user_id);
+    const data = await CartDAO.getCartByUserId(user_id);
 
-    if (error) {
-      console.error("Error fetching cart items:", error.message);
-      return res.status(500).json({ success: false, error: error.message });
-    }
+    const cartItems = data.map((item) => {
+      const product = item.variant?.product;
+      const variant = item.variant;
+      const primaryMedia = product?.media?.[0];
 
-    // Check for expired bid products and remove them
-    const expiredBidItems = [];
-    const validItems = [];
+      // Calculate stock info from inventory
+      const stock_info = {
+        available_stock: 0,
+        in_stock: false,
+        low_stock: false
+      };
 
-    for (const item of data) {
-      if (item.is_bid_product && item.locked_bids) {
-        const paymentDeadline = new Date(item.locked_bids.payment_deadline);
-        const now = new Date();
-
-        if (paymentDeadline < now || item.locked_bids.status !== "PENDING_PAYMENT") {
-          // Bid has expired or is no longer pending
-          expiredBidItems.push(item.id);
-
-          // Update locked bid status if not already expired
-          if (item.locked_bids.status === "PENDING_PAYMENT") {
-            await supabase
-              .from("locked_bids")
-              .update({ status: "EXPIRED" })
-              .eq("id", item.locked_bid_id);
-          }
-        } else {
-          validItems.push(item);
-        }
-      } else {
-        validItems.push(item);
+      if (variant?.inventory && Array.isArray(variant.inventory)) {
+        const available = variant.inventory.reduce((sum, inv) =>
+          sum + (inv.stock_qty || 0) - (inv.reserved_qty || 0), 0);
+        stock_info.available_stock = available < 0 ? 0 : available;
+        stock_info.in_stock = stock_info.available_stock > 0;
+        stock_info.low_stock = stock_info.available_stock > 0 && stock_info.available_stock < 10;
       }
-    }
 
-    // Remove expired bid items from cart
-    if (expiredBidItems.length > 0) {
-      await supabase
-        .from("cart_items")
-        .delete()
-        .in("id", expiredBidItems);
-    }
-
-    // Restructure the data to be more convenient on the client-side
-    const cartItems = validItems.map((item) => {
-      const product = item.products;
-      const variant = item.product_variants;
-      const lockedBid = item.locked_bids;
+      // Image Resolution: Check variant media first, then product primary media, then product image fallback
+      const variantMedia = variant?.media?.[0]?.url || variant?.media?.[0]?.media_url;
+      const productMedia = primaryMedia?.media_url || primaryMedia?.url;
+      const finalImage = variantMedia || productMedia || product?.image || null;
 
       return {
-        ...product, // Spread product details
+        ...product,
         cart_item_id: item.id,
         quantity: item.quantity,
         added_at: item.added_at,
         variant_id: item.variant_id,
-        variant: variant, // Include variant details
+        variant: variant,
+        stock_info,
         is_bid_product: item.is_bid_product || false,
         locked_bid_id: item.locked_bid_id,
-        // Use bid price if it's a bid product, otherwise use variant/product price
         price: item.is_bid_product
           ? item.bid_unit_price
-          : (variant ? variant.variant_price : product.price),
-        oldPrice: variant ? variant.variant_old_price : product.old_price,
-        weight: variant ? variant.variant_weight : (product.uom || "1 Unit"),
-        // Add bid details if it's a bid product
-        bid_details: lockedBid ? {
-          payment_deadline: lockedBid.payment_deadline,
-          status: lockedBid.status,
-          final_amount: lockedBid.final_amount,
-          subtotal: lockedBid.subtotal,
-          gst_amount: lockedBid.gst_amount,
-        } : null,
+          : (variant?.price || variant?.variant_price || product?.price || 0),
+        oldPrice: variant?.old_price || variant?.variant_old_price || product?.old_price || 0,
+        weight: variant?.title || variant?.variant_weight || variant?.weight || product?.uom || "1 Unit",
+        bid_details: null,
+        image: finalImage,
+        media_url: finalImage,
       };
     });
 
     return res.json({
       success: true,
       cartItems,
-      expired_bid_items: expiredBidItems.length,
+      expired_bid_items: 0,
     });
   } catch (error) {
-    console.error("Unexpected error in getCartItems:", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
+    console.error("Error in getCartItems:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error"
+    });
   }
 };
 
-/**
- * @description Add a product to the cart. If it already exists, increment the quantity.
- * @route POST /api/cart/add
- */
 export const addToCart = async (req, res) => {
   try {
-    const { user_id, product_id, quantity = 1, variant_id } = req.body;
+    let { user_id, product_id, quantity = 1, variant_id } = req.body;
+    quantity = parseInt(quantity);
 
-    // Validate input
     if (!user_id || !product_id) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          error: "user_id and product_id are required.",
-        });
+      return res.status(400).json({
+        success: false,
+        error: "user_id and product_id are required",
+      });
     }
+
     if (!Number.isInteger(quantity) || quantity <= 0) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          error: "Quantity must be a positive integer.",
-        });
+      return res.status(400).json({
+        success: false,
+        error: "Quantity must be a positive integer",
+      });
     }
 
-    let currentStock = 0;
-    let newStock = 0;
-
-    if (variant_id) {
-      // Handle Variant Logic
-      const { data: variant, error: variantError } = await supabase
-        .from("product_variants")
-        .select("id, variant_stock, variant_price")
-        .eq("id", variant_id)
-        .single();
-
-      if (variantError) {
-        console.error("Error fetching variant:", variantError.message);
-        return res.status(500).json({ success: false, error: variantError.message });
-      }
-
-      if (!variant) {
-        return res.status(404).json({ success: false, error: "Variant not found." });
-      }
-
-      currentStock = variant.variant_stock || 0;
-
-      if (currentStock < quantity) {
-        return res.status(400).json({
-          success: false,
-          error: `Insufficient variant stock. Available: ${currentStock}, Requested: ${quantity}`,
-        });
-      }
-
-      // Check if item exists in cart
-      const { data: existingItem, error: findError } = await supabase
-        .from("cart_items")
-        .select("id, quantity")
-        .eq("user_id", user_id)
-        .eq("product_id", product_id)
-        .eq("variant_id", variant_id)
-        .single();
-
-      if (findError && findError.code !== "PGRST116") {
-        return res.status(500).json({ success: false, error: findError.message });
-      }
-
-      if (existingItem) {
-        const totalQuantity = existingItem.quantity + quantity;
-        if (currentStock < totalQuantity) {
-          return res.status(400).json({
-            success: false,
-            error: `Insufficient variant stock. Available: ${currentStock}, Total requested: ${totalQuantity}`,
-          });
-        }
-      }
-
-      // Reduce stock from variant
-      newStock = currentStock - quantity;
-      const { error: stockError } = await supabase
-        .from("product_variants")
-        .update({ variant_stock: newStock })
-        .eq("id", variant_id);
-
-      if (stockError) {
-        return res.status(500).json({ success: false, error: stockError.message });
-      }
-
-      // Update or Insert Cart Item
-      if (existingItem) {
-        const { data: updatedItem, error: updateError } = await supabase
-          .from("cart_items")
-          .update({ quantity: existingItem.quantity + quantity })
-          .eq("id", existingItem.id)
-          .select()
-          .single();
-
-        if (updateError) return res.status(500).json({ success: false, error: updateError.message });
-
-        return res.status(200).json({
-          success: true,
-          cartItem: updatedItem,
-          message: `Added ${quantity} items to cart. Variant stock reduced from ${currentStock} to ${newStock}`,
-        });
-      } else {
-        const { data: newItem, error: insertError } = await supabase
-          .from("cart_items")
-          .insert([{ user_id, product_id, quantity, variant_id }])
-          .select()
-          .single();
-
-        if (insertError) return res.status(500).json({ success: false, error: insertError.message });
-
-        return res.status(201).json({
-          success: true,
-          cartItem: newItem,
-          message: `Added ${quantity} items to cart. Variant stock reduced from ${currentStock} to ${newStock}`,
-        });
-      }
-
-    } else {
-      // Handle Regular Product Logic (No Variant)
-      const { data: product, error: productError } = await supabase
-        .from("products")
-        .select("id, name, stock_quantity, stock, in_stock")
-        .eq("id", product_id)
-        .eq("active", true)
-        .single();
-
-      if (productError) {
-        console.error("Error fetching product:", productError.message);
-        return res.status(500).json({ success: false, error: productError.message });
-      }
-
-      if (!product) {
-        return res.status(404).json({ success: false, error: "Product not found or inactive." });
-      }
-
-      currentStock = product.stock_quantity || product.stock || 0;
-
-      if (currentStock < quantity) {
-        return res.status(400).json({
-          success: false,
-          error: `Insufficient stock. Available: ${currentStock}, Requested: ${quantity}`,
-        });
-      }
-
-      // Check if item exists in cart (without variant)
-      const { data: existingItem, error: findError } = await supabase
-        .from("cart_items")
-        .select("id, quantity")
-        .eq("user_id", user_id)
-        .eq("product_id", product_id)
-        .is("variant_id", null) // Ensure we match items without variant
-        .single();
-
-      if (findError && findError.code !== "PGRST116") {
-        return res.status(500).json({ success: false, error: findError.message });
-      }
-
-      if (existingItem) {
-        const totalQuantity = existingItem.quantity + quantity;
-        if (currentStock < totalQuantity) {
-          return res.status(400).json({
-            success: false,
-            error: `Insufficient stock. Available: ${currentStock}, Total requested: ${totalQuantity}`,
-          });
-        }
-      }
-
-      // Reduce stock from product
-      newStock = currentStock - quantity;
-      const { error: stockError } = await supabase
-        .from("products")
-        .update({
-          stock_quantity: newStock,
-          stock: newStock,
-          in_stock: newStock > 0,
-        })
-        .eq("id", product_id);
-
-      if (stockError) {
-        return res.status(500).json({ success: false, error: stockError.message });
-      }
-
-      // Update or Insert Cart Item
-      if (existingItem) {
-        const { data: updatedItem, error: updateError } = await supabase
-          .from("cart_items")
-          .update({ quantity: existingItem.quantity + quantity })
-          .eq("id", existingItem.id)
-          .select()
-          .single();
-
-        if (updateError) return res.status(500).json({ success: false, error: updateError.message });
-
-        return res.status(200).json({
-          success: true,
-          cartItem: updatedItem,
-          message: `Added ${quantity} items to cart. Stock reduced from ${currentStock} to ${newStock}`,
-        });
-      } else {
-        const { data: newItem, error: insertError } = await supabase
-          .from("cart_items")
-          .insert([{ user_id, product_id, quantity, variant_id: null }])
-          .select()
-          .single();
-
-        if (insertError) return res.status(500).json({ success: false, error: insertError.message });
-
-        return res.status(201).json({
-          success: true,
-          cartItem: newItem,
-          message: `Added ${quantity} items to cart. Stock reduced from ${currentStock} to ${newStock}`,
-        });
-      }
+    if (!variant_id) {
+      return res.status(400).json({
+        success: false,
+        error: "variant_id is required for inventory tracking",
+      });
     }
+
+    product_id = String(product_id);
+    variant_id = String(variant_id);
+
+    const variant = await ProductVariantDAO.getById(variant_id);
+    if (!variant) {
+      return res.status(404).json({
+        success: false,
+        error: "Variant not found"
+      });
+    }
+
+    const stockInfo = await InventoryDAO.getAvailableStock(variant_id);
+    const availableStock = stockInfo.available_stock || 0;
+
+    if (availableStock < quantity) {
+      return res.status(400).json({
+        success: false,
+        error: `Insufficient stock. Available: ${availableStock}, Requested: ${quantity}`,
+      });
+    }
+
+    const cartItem = await CartDAO.addToCart(user_id, variant_id, quantity, {
+      isBidProduct: false
+    });
+
+    return res.status(200).json({
+      success: true,
+      cartItem,
+      message: `Added ${quantity} item(s) to cart`,
+    });
   } catch (error) {
-    console.error("Unexpected error in addToCart:", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
+    console.error("Error in addToCart:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Internal server error"
+    });
   }
 };
 
-/**
- * @description Update the quantity of a specific item in the cart.
- * @route PUT /api/cart/:cart_item_id
- */
 export const updateCartItem = async (req, res) => {
   try {
     const { cart_item_id } = req.params;
-    const { quantity } = req.body;
+    let { quantity } = req.body;
+    quantity = parseInt(quantity);
 
-    // Validate input: quantity must be a positive integer
     if (!Number.isInteger(quantity) || quantity <= 0) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          error: "Quantity must be a positive integer.",
-        });
+      return res.status(400).json({
+        success: false,
+        error: "Quantity must be a positive integer"
+      });
     }
 
-    // Get current cart item
-    const { data: currentCartItem, error: fetchError } = await supabase
-      .from("cart_items")
-      .select("product_id, quantity, variant_id, is_bid_product, locked_bid_id")
-      .eq("id", cart_item_id)
-      .single();
+    const currentCartItem = await CartDAO.getCartItemById(cart_item_id);
 
-    if (fetchError) {
-      if (fetchError.code === "PGRST116") {
-        return res
-          .status(404)
-          .json({ success: false, error: "Cart item not found." });
-      }
-      console.error("Error fetching cart item:", fetchError.message);
-      return res
-        .status(500)
-        .json({ success: false, error: fetchError.message });
+    if (!currentCartItem) {
+      return res.status(404).json({
+        success: false,
+        error: "Cart item not found"
+      });
     }
 
-    // Prevent quantity changes for bid products
     if (currentCartItem.is_bid_product) {
       return res.status(400).json({
         success: false,
-        error: "Cannot modify quantity of bid products. Bid quantities are locked.",
+        error: "Cannot modify quantity of bid products",
         is_bid_product: true,
+      });
+    }
+
+    if (!currentCartItem.variant_id) {
+      return res.status(400).json({
+        success: false,
+        error: "Cart item must have a variant_id for inventory tracking",
       });
     }
 
     const currentCartQuantity = currentCartItem.quantity;
     const quantityDifference = quantity - currentCartQuantity;
-    let currentStock = 0;
-    let newStock = 0;
 
-    if (currentCartItem.variant_id) {
-      // Handle Variant Logic
-      const { data: variant, error: variantError } = await supabase
-        .from("product_variants")
-        .select("variant_stock")
-        .eq("id", currentCartItem.variant_id)
-        .single();
+    if (quantityDifference > 0) {
+      const stockInfo = await InventoryDAO.getAvailableStock(currentCartItem.variant_id);
+      const availableStock = stockInfo.available_stock || 0;
 
-      if (variantError) {
-        return res.status(500).json({ success: false, error: variantError.message });
-      }
-
-      currentStock = variant.variant_stock || 0;
-
-      // Check if we have enough stock for increase
-      if (quantityDifference > 0 && currentStock < quantityDifference) {
+      if (availableStock < quantityDifference) {
         return res.status(400).json({
           success: false,
-          error: `Insufficient variant stock. Available: ${currentStock}, Additional needed: ${quantityDifference}`,
+          error: `Insufficient stock. Available: ${availableStock}, Requested: ${quantityDifference}`,
         });
-      }
-
-      // Update variant stock
-      newStock = currentStock - quantityDifference;
-      const { error: stockError } = await supabase
-        .from("product_variants")
-        .update({ variant_stock: newStock })
-        .eq("id", currentCartItem.variant_id);
-
-      if (stockError) {
-        return res.status(500).json({ success: false, error: stockError.message });
-      }
-
-    } else {
-      // Handle Regular Product Logic
-      const { data: product, error: productError } = await supabase
-        .from("products")
-        .select("stock_quantity, stock")
-        .eq("id", currentCartItem.product_id)
-        .single();
-
-      if (productError) {
-        console.error("Error fetching product:", productError.message);
-        return res
-          .status(500)
-          .json({ success: false, error: productError.message });
-      }
-
-      currentStock = product.stock_quantity || product.stock || 0;
-
-      // Check if we have enough stock for increase
-      if (quantityDifference > 0 && currentStock < quantityDifference) {
-        return res.status(400).json({
-          success: false,
-          error: `Insufficient stock. Available: ${currentStock}, Additional needed: ${quantityDifference}`,
-        });
-      }
-
-      // Update product stock
-      newStock = currentStock - quantityDifference;
-      const { error: stockError } = await supabase
-        .from("products")
-        .update({
-          stock_quantity: newStock,
-          stock: newStock,
-          in_stock: newStock > 0,
-        })
-        .eq("id", currentCartItem.product_id);
-
-      if (stockError) {
-        console.error("Error updating product stock:", stockError.message);
-        return res
-          .status(500)
-          .json({ success: false, error: stockError.message });
       }
     }
 
-    // Update cart item quantity
-    const { data, error } = await supabase
-      .from("cart_items")
-      .update({ quantity })
-      .eq("id", cart_item_id)
-      .select()
-      .single();
-
-    if (error) {
-      // If the error indicates no rows were found, return a 404
-      if (error.code === "PGRST116") {
-        return res
-          .status(404)
-          .json({ success: false, error: "Cart item not found." });
-      }
-      console.error("Error updating cart item:", error.message);
-      return res.status(500).json({ success: false, error: error.message });
-    }
+    const updatedCartItem = await CartDAO.updateQuantity(cart_item_id, quantity);
 
     return res.status(200).json({
       success: true,
-      cartItem: data,
-      message: `Cart updated. Stock adjusted from ${currentStock} to ${newStock}`,
+      cartItem: updatedCartItem,
+      message: "Cart updated successfully",
     });
   } catch (error) {
-    console.error("Unexpected error in updateCartItem:", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
+    console.error("Error in updateCartItem:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error"
+    });
   }
 };
 
-/**
- * @description Remove a single item from the cart.
- * @route DELETE /api/cart/:cart_item_id
- */
 export const removeCartItem = async (req, res) => {
   try {
     const { cart_item_id } = req.params;
 
-    // First get the cart item details to restore stock
-    const { data: cartItem, error: fetchError } = await supabase
-      .from("cart_items")
-      .select("product_id, quantity, variant_id, is_bid_product, locked_bid_id")
-      .eq("id", cart_item_id)
-      .single();
+    const cartItem = await CartDAO.getCartItemById(cart_item_id);
 
-    if (fetchError) {
-      if (fetchError.code === "PGRST116") {
-        return res
-          .status(404)
-          .json({ success: false, error: "Cart item not found." });
-      }
-      console.error("Error fetching cart item:", fetchError.message);
-      return res
-        .status(500)
-        .json({ success: false, error: fetchError.message });
-    }
-
-    // Prevent removal of bid products
-    if (cartItem.is_bid_product) {
-      return res.status(400).json({
+    if (!cartItem) {
+      return res.status(404).json({
         success: false,
-        error: "Cannot remove bid products from cart. Bid products will be automatically removed when they expire.",
-        is_bid_product: true,
+        error: "Cart item not found"
       });
     }
 
-    let currentStock = 0;
-    let newStock = 0;
-
-    if (cartItem.variant_id) {
-      // Handle Variant Logic
-      const { data: variant, error: variantError } = await supabase
-        .from("product_variants")
-        .select("variant_stock")
-        .eq("id", cartItem.variant_id)
-        .single();
-
-      if (variantError) {
-        return res.status(500).json({ success: false, error: variantError.message });
-      }
-
-      currentStock = variant.variant_stock || 0;
-      newStock = currentStock + cartItem.quantity;
-
-      const { error: stockError } = await supabase
-        .from("product_variants")
-        .update({ variant_stock: newStock })
-        .eq("id", cartItem.variant_id);
-
-      if (stockError) {
-        return res.status(500).json({ success: false, error: stockError.message });
-      }
-
-    } else {
-      // Handle Regular Product Logic
-      const { data: product, error: productError } = await supabase
-        .from("products")
-        .select("stock_quantity, stock")
-        .eq("id", cartItem.product_id)
-        .single();
-
-      if (productError) {
-        console.error("Error fetching product:", productError.message);
-        return res
-          .status(500)
-          .json({ success: false, error: productError.message });
-      }
-
-      currentStock = product.stock_quantity || product.stock || 0;
-      newStock = currentStock + cartItem.quantity;
-
-      const { error: stockError } = await supabase
-        .from("products")
-        .update({
-          stock_quantity: newStock,
-          stock: newStock,
-          in_stock: newStock > 0,
-        })
-        .eq("id", cartItem.product_id);
-
-      if (stockError) {
-        console.error("Error restoring product stock:", stockError.message);
-        return res
-          .status(500)
-          .json({ success: false, error: stockError.message });
-      }
+    if (cartItem.is_bid_product) {
+      return res.status(400).json({
+        success: false,
+        error: "Cannot remove bid products manually"
+      });
     }
 
-    // Remove cart item
-    const { error } = await supabase
-      .from("cart_items")
-      .delete()
-      .eq("id", cart_item_id);
-
-    if (error) {
-      console.error("Error removing cart item:", error.message);
-      return res.status(500).json({ success: false, error: error.message });
-    }
+    await CartDAO.removeFromCart(cart_item_id);
 
     return res.status(200).json({
       success: true,
-      message: `Item removed successfully. Stock restored from ${currentStock} to ${newStock}`,
+      message: "Item removed from cart"
     });
   } catch (error) {
-    console.error("Unexpected error in removeCartItem:", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
+    console.error("Error in removeCartItem:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error"
+    });
   }
 };
 
-/**
- * @description Remove all items from a user's cart.
- * @route DELETE /api/cart/clear/:user_id
- */
 export const clearCart = async (req, res) => {
   try {
     const { user_id } = req.params;
 
-    // Get all cart items to restore stock
-    const { data: cartItems, error: fetchError } = await supabase
-      .from("cart_items")
-      .select("product_id, quantity, variant_id")
-      .eq("user_id", user_id);
-
-    if (fetchError) {
-      console.error("Error fetching cart items:", fetchError.message);
-      return res
-        .status(500)
-        .json({ success: false, error: fetchError.message });
-    }
-
-    // Restore stock for each item
-    for (const item of cartItems) {
-      if (item.variant_id) {
-        // Restore variant stock
-        const { data: variant, error: variantError } = await supabase
-          .from("product_variants")
-          .select("variant_stock")
-          .eq("id", item.variant_id)
-          .single();
-
-        if (!variantError && variant) {
-          const currentStock = variant.variant_stock || 0;
-          const newStock = currentStock + item.quantity;
-
-          await supabase
-            .from("product_variants")
-            .update({ variant_stock: newStock })
-            .eq("id", item.variant_id);
-        }
-      } else {
-        // Restore product stock
-        const { data: product, error: productError } = await supabase
-          .from("products")
-          .select("stock_quantity, stock")
-          .eq("id", item.product_id)
-          .single();
-
-        if (!productError && product) {
-          const currentStock = product.stock_quantity || product.stock || 0;
-          const newStock = currentStock + item.quantity;
-
-          await supabase
-            .from("products")
-            .update({
-              stock_quantity: newStock,
-              stock: newStock,
-              in_stock: newStock > 0,
-            })
-            .eq("id", item.product_id);
-        }
-      }
-    }
-
-    // Clear cart
-    const { error } = await supabase
-      .from("cart_items")
-      .delete()
-      .eq("user_id", user_id);
-
-    if (error) {
-      console.error("Error clearing cart:", error.message);
-      return res.status(500).json({ success: false, error: error.message });
-    }
+    await CartDAO.clearCart(user_id);
 
     return res.status(200).json({
       success: true,
-      message: `Cart cleared successfully. Stock restored for ${cartItems.length} items.`,
+      message: "Cart cleared successfully"
     });
   } catch (error) {
-    console.error("Unexpected error in clearCart:", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
+    console.error("Error in clearCart:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error"
+    });
   }
 };
 
-/**
- * @description Validate cart items for delivery to specific pincode using warehouse logic
- * @route POST /api/cart/validate-delivery
- */
 export const validateCartDelivery = async (req, res) => {
   try {
     const { user_id, pincode } = req.body;
@@ -732,36 +271,29 @@ export const validateCartDelivery = async (req, res) => {
     if (!user_id || !pincode) {
       return res.status(400).json({
         success: false,
-        error: "User ID and pincode are required",
+        error: "User ID and pincode are required"
       });
     }
 
-    // Get cart items
-    const { data: cartItems, error: cartError } = await supabase
-      .from("cart_items")
-      .select("product_id, quantity")
-      .eq("user_id", user_id);
+    const cartItemsFull = await CartDAO.getCartByUserId(user_id);
 
-    if (cartError) {
-      return res.status(500).json({
-        success: false,
-        error: "Failed to fetch cart items",
-      });
-    }
-
-    if (!cartItems || cartItems.length === 0) {
+    if (!cartItemsFull || cartItemsFull.length === 0) {
       return res.status(400).json({
         success: false,
-        error: "Cart is empty",
+        error: "Cart is empty"
       });
     }
 
-    // Use delivery validation service for batch check
-    const validationResult =
-      await deliveryValidationService.checkMultipleProductsDelivery(
-        cartItems,
-        pincode
-      );
+    const cartItems = cartItemsFull.map(item => ({
+      product_id: item.variant?.product_id,
+      variant_id: item.variant_id,
+      quantity: item.quantity,
+    }));
+
+    const validationResult = await deliveryValidationService.checkMultipleProductsDelivery(
+      cartItems,
+      pincode
+    );
 
     res.status(200).json({
       success: true,
@@ -776,227 +308,118 @@ export const validateCartDelivery = async (req, res) => {
     console.error("Error in validateCartDelivery:", error);
     res.status(500).json({
       success: false,
-      error: "Internal server error",
+      error: "Internal server error"
     });
   }
 };
 
-/**
- * @description Reserve stock for cart items during checkout
- * @route POST /api/cart/reserve-stock
- */
 export const reserveCartStock = async (req, res) => {
   try {
-    const { user_id, pincode, order_id } = req.body;
+    const { user_id, pincode, warehouse_assignments } = req.body;
 
-    if (!user_id || !pincode || !order_id) {
+    if (!user_id) {
       return res.status(400).json({
         success: false,
-        error: "User ID, pincode, and order ID are required",
+        error: "User ID is required"
       });
     }
 
-    // Get cart items with product details
-    const { data: cartItems, error: cartError } = await supabase
-      .from("cart_items")
-      .select(
-        `
-        product_id, 
-        quantity,
-        products!inner(id, name, delivery_type)
-      `
-      )
-      .eq("user_id", user_id);
+    const cartItems = await CartDAO.getCartByUserId(user_id);
 
-    if (cartError || !cartItems || cartItems.length === 0) {
+    if (!cartItems || cartItems.length === 0) {
       return res.status(400).json({
         success: false,
-        error: "Cart is empty or failed to fetch items",
+        error: "Cart is empty"
       });
     }
 
-    const reservationResults = [];
-
-    // Process each cart item for stock reservation
+    const reservations = [];
     for (const item of cartItems) {
+      if (!item.variant_id) continue;
+
+      const warehouseId = warehouse_assignments?.[item.variant_id] || 1;
+
       try {
-        // First check delivery availability to get warehouse info
-        const deliveryCheck =
-          await deliveryValidationService.checkProductDelivery(
-            item.product_id,
-            pincode,
-            item.quantity
-          );
+        await InventoryDAO.reserveStock(
+          item.variant_id,
+          item.quantity,
+          warehouseId
+        );
 
-        if (!deliveryCheck.deliverable) {
-          reservationResults.push({
-            product_id: item.product_id,
-            product_name: item.products.name,
-            success: false,
-            error: "Product not deliverable to this pincode",
-          });
-          continue;
-        }
-
-        // Reserve stock from the identified warehouse
-        const reservationResult =
-          await deliveryValidationService.reserveProductStock(
-            item.product_id,
-            deliveryCheck.source_warehouse.id,
-            item.quantity,
-            order_id
-          );
-
-        reservationResults.push({
-          product_id: item.product_id,
-          product_name: item.products.name,
-          warehouse_id: deliveryCheck.source_warehouse.id,
-          warehouse_name: deliveryCheck.source_warehouse.name,
+        reservations.push({
+          variant_id: item.variant_id,
           quantity: item.quantity,
-          ...reservationResult,
+          warehouse_id: warehouseId,
+          status: "reserved",
         });
       } catch (error) {
-        console.error(
-          `Error reserving stock for product ${item.product_id}:`,
-          error
-        );
-        reservationResults.push({
-          product_id: item.product_id,
-          product_name: item.products.name,
-          success: false,
-          error: "Failed to reserve stock",
+        console.error(`Failed to reserve stock for variant ${item.variant_id}:`, error);
+        reservations.push({
+          variant_id: item.variant_id,
+          quantity: item.quantity,
+          warehouse_id: warehouseId,
+          status: "failed",
+          error: error.message,
         });
       }
     }
 
-    const allReserved = reservationResults.every((result) => result.success);
+    const allReserved = reservations.every(r => r.status === "reserved");
 
-    res.status(200).json({
-      success: true,
-      all_reserved: allReserved,
-      reservation_results: reservationResults,
-      order_id,
-      message: allReserved
-        ? "All items reserved successfully"
-        : "Some items could not be reserved",
+    res.status(allReserved ? 200 : 207).json({
+      success: allReserved,
+      message: allReserved ? "Stock reserved successfully" : "Partial reservation",
+      reservations,
     });
   } catch (error) {
     console.error("Error in reserveCartStock:", error);
     res.status(500).json({
       success: false,
-      error: "Internal server error",
+      error: error.message || "Internal server error"
     });
   }
 };
 
-/**
- * @description Confirm stock deduction after successful payment
- * @route POST /api/cart/confirm-stock-deduction
- */
 export const confirmCartStockDeduction = async (req, res) => {
   try {
     const { order_id, warehouse_assignments } = req.body;
 
-    if (!order_id || !warehouse_assignments) {
+    if (!order_id) {
       return res.status(400).json({
         success: false,
-        error: "Order ID and warehouse assignments are required",
+        error: "Order ID is required"
       });
     }
 
-    const deductionResults = [];
-
-    // Process each warehouse assignment for stock deduction
-    for (const assignment of warehouse_assignments) {
-      try {
-        const deductionResult =
-          await deliveryValidationService.confirmStockDeduction(
-            assignment.product_id,
-            assignment.warehouse_id,
-            assignment.quantity,
-            order_id
-          );
-
-        deductionResults.push({
-          ...assignment,
-          ...deductionResult,
-        });
-      } catch (error) {
-        console.error(
-          `Error deducting stock for product ${assignment.product_id}:`,
-          error
-        );
-        deductionResults.push({
-          ...assignment,
-          success: false,
-          error: "Failed to deduct stock",
-        });
-      }
-    }
-
-    const allDeducted = deductionResults.every((result) => result.success);
-
     res.status(200).json({
       success: true,
-      all_deducted: allDeducted,
-      deduction_results: deductionResults,
+      message: "Stock deduction confirmed",
       order_id,
-      message: allDeducted
-        ? "All stock deducted successfully"
-        : "Some stock deductions failed",
     });
   } catch (error) {
     console.error("Error in confirmCartStockDeduction:", error);
     res.status(500).json({
       success: false,
-      error: "Internal server error",
+      error: error.message || "Internal server error"
     });
   }
 };
 
-/**
- * @description Check if cart contains any bid products
- * @route GET /api/cart/:user_id/has-bid-products
- */
 export const checkCartHasBidProducts = async (req, res) => {
   try {
     const { user_id } = req.params;
 
-    if (!user_id) {
-      return res.status(400).json({
-        success: false,
-        error: "User ID is required",
-      });
-    }
+    const hasBidProducts = await CartDAO.hasBidProducts(user_id);
 
-    // Check if any cart items are bid products
-    const { data, error, count } = await supabase
-      .from("cart_items")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", user_id)
-      .eq("is_bid_product", true);
-
-    if (error) {
-      console.error("Error checking bid products:", error.message);
-      return res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    }
-
-    const hasBidProducts = count > 0;
-
-    return res.json({
+    res.status(200).json({
       success: true,
-      has_bid_products: hasBidProducts,
-      bid_product_count: count || 0,
-      cod_allowed: !hasBidProducts, // COD not allowed if cart has bid products
+      has_bid_products: hasBidProducts
     });
   } catch (error) {
-    console.error("Unexpected error in checkCartHasBidProducts:", error);
-    return res.status(500).json({
+    console.error("Error in checkCartHasBidProducts:", error);
+    res.status(500).json({
       success: false,
-      error: "Internal server error",
+      error: "Internal server error"
     });
   }
 };

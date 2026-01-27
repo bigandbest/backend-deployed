@@ -1,0 +1,17 @@
+model cart_items {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id        String            @db.Uuid
+  variant_id     String            @db.Uuid
+  quantity       Int               @default(1)
+  added_at       DateTime          @default(now()) @db.Timestamptz
+  is_bid_product Boolean?          @default(false)
+  locked_bid_id  Int?
+  bid_unit_price Decimal?          @db.Decimal
+
+  // Relations
+  user           users             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  variant        product_variants  @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([variant_id])
+}

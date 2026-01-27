@@ -1,0 +1,26 @@
+model orders {
+  id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id             String?          @db.Uuid
+  subtotal            Decimal          @db.Decimal
+  shipping            Decimal          @db.Decimal
+  total               Decimal          @db.Decimal
+  address             String?
+  payment_method      String?          @default("prepaid")
+  status              String?          @default("Pending")
+  created_at          DateTime?        @default(now()) @db.Timestamp
+  updated_at          DateTime?        @db.Timestamptz
+  razorpay_order_id   String?          @db.VarChar
+  razorpay_payment_id String?          @db.VarChar
+  tracking_number     String?          @db.VarChar
+  estimated_delivery  DateTime?        @db.Timestamp
+  is_bulk_order       Boolean?         @default(false)
+  company_name        String?          @db.VarChar
+  gst_number          String?          @db.VarChar
+  is_deleted          Boolean?         @default(false)
+
+  // Relations
+  user                users?           @relation(fields: [user_id], references: [id])
+  order_items         order_items[]
+  tracking            order_tracking[]
+  coupon_usage        coupon_usage?
+}

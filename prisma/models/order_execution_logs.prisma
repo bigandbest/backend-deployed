@@ -1,0 +1,18 @@
+model order_execution_logs {
+  id                     String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scheduled_order_id     String            @db.Uuid
+  attempt_number         Int
+  executed_at            DateTime?         @default(now()) @db.Timestamptz
+  status                 String            @db.VarChar
+  inventory_check_passed Boolean?          @default(false)
+  payment_check_passed   Boolean?          @default(false)
+  error_message          String?
+  error_code             String?           @db.VarChar
+  execution_duration_ms  Int?
+  worker_id              String?           @db.VarChar
+  metadata               Json?             @default("{}")
+
+  // Relations
+  scheduled_order        scheduled_orders  @relation(fields: [scheduled_order_id], references: [id])
+  payment_retry_logs     payment_retry_logs[]
+}

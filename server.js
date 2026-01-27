@@ -1,11 +1,11 @@
+// import "./config/loadEnv.js";
 import cluster from "cluster";
 import os from "os";
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import dotenv from "dotenv";
 
-dotenv.config();
+import prisma, { connectPrisma, disconnectPrisma } from "./config/prisma.js";
 
 import {
   startScheduledJobs,
@@ -23,34 +23,28 @@ import { getProductsCartData } from "./controller/productController.js";
 import locationRoute from "./routes/locationRoutes.js";
 import cartRoutes from "./routes/cartRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
-import orderItemsRoutes from "./routes/orderItemsRoutes.js";
 import checkCartAvailabilityRoute from "./routes/checkCartAvailabilityRoute.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
-import bnbRoutes from "./routes/b&bRoutes.js";
-import bnbGroupRoutes from "./routes/b&bGroupRoutes.js";
-import bnbGroupProductRoutes from "./routes/b&bGroupProductRoutes.js";
+// import bnbRoutes from "./routes/b&bRoutes.js";
+// import bnbGroupRoutes from "./routes/b&bGroupRoutes.js";
+// import bnbGroupProductRoutes from "./routes/b&bGroupProductRoutes.js";
 import dailyDealsRoutes from "./routes/dailyDealsRoutes.js";
 import dailyDealsProductRoutes from "./routes/dailyDealsProductRoutes.js";
 import brandRoutes from "./routes/brandRoutes.js";
 import brandProductsRoutes from "./routes/brandProducts.js";
 import recommendedStoreRoutes from "./routes/recommendedStoreRoutes.js";
-
-import productRecommendedStoreRoutes from "./routes/productRecommendedStoreRoutes.js";
 import quickPickRoutes from "./routes/quickPickRoutes.js";
 import quickPickGroupRoutes from "./routes/quickPickGroupRoutes.js";
 import quickPickGroupProductRoutes from "./routes/quickPickGroupProductRoutes.js";
 import savingZoneRoutes from "./routes/savingZoneRoutes.js";
-import savingZoneGroupRoutes from "./routes/savingZoneGroupRoutes.js";
-import savingZoneGroupProductRoutes from "./routes/savingZoneGroupProductRoutes.js";
 import storeRoutes from "./routes/storeRoute.js";
 import subStoreRoutes from "./routes/subStoreRoute.js";
 import YouMayLikeProductRoutes from "./routes/youMayLikeRoutes.js";
 import addBannerRoutes from "./routes/addBannerRoutes.js";
-import addBannerGroupRoutes from "./routes/addBannerGroupRoutes.js";
-import addBannerGroupProductRoutes from "./routes/addBannerGroupProductRoutes.js";
+// import addBannerGroupRoutes from "./routes/addBannerGroupRoutes.js";
+// import addBannerGroupProductRoutes from "./routes/addBannerGroupProductRoutes.js";
 import uniqueSectionRoutes from "./routes/uniqueSectionRoutes.js";
-import uniqueSectionProductRoutes from "./routes/uniqueSectionProductRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
 import returnOrderRoutes from "./routes/returnOrderRoutes.js";
 import refundRoutes from "./routes/refundRoutes.js";
@@ -60,7 +54,6 @@ import trackingRoutes from "./routes/trackingRoutes.js";
 import categoryRoutes from "./routes/categoryRoutes.js";
 import bulkOrderRoutes from "./routes/bulkOrderRoutes.js";
 import bulkProductRoutes from "./routes/bulkProductRoutes.js";
-import productVariantsRoutes from "./routes/productVariantsRoutes.js";
 import locationRoutes from "./routes/locationRoutes.js";
 import variantRoutes from "./routes/variantRoutes.js";
 import inventoryRoutes from "./routes/inventoryRoutes.js";
@@ -69,19 +62,16 @@ import shopByStoreRoutes from "./routes/shopByStoreRoutes.js";
 import productSectionRoutes from "./routes/productSectionRoutes.js";
 import zoneRoutes from "./routes/zoneRoutes.js";
 import promoBannerRoutes from "./routes/promoBannerRoutes.js";
-import storeSectionMappingRoutes from "./routes/storeSectionMappingRoutes.js";
 import bulkWholesaleRoutes from "./routes/bulkWholesaleRoutes.js";
-import codOrderRoutes from "./routes/codOrderRoutes.js";
+// import codOrderRoutes from "./routes/codOrderRoutes.js";
 import onlinePaymentOrderRoutes from "./routes/onlinePaymentOrderRoutes.js";
 import walletOrderRoutes from "./routes/walletOrderRoutes.js";
 import stockRoutes from "./routes/stockRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
-import productGridSettingsRoutes from "./routes/productGridSettingsRoutes.js";
 import adminProductRoutes from "./routes/adminProductRoutes.js";
 import enquiriesRoutes from "./routes/enquiriesRoutes.js";
 import walletRoutes from "./routes/walletRoutes.js";
 import adminWalletRoutes from "./routes/adminWalletRoutes.js";
-import productAvailabilityRoutes from "./routes/productAvailabilityRoutes.js";
 import userAddressRoutes from "./routes/userAddressRoutes.js";
 import reviewRoutes from "./routes/reviewRoutes.js";
 import customerTestimonialRoutes from "./routes/customerTestimonialRoutes.js";
@@ -98,8 +88,8 @@ import contactRoutes from "./routes/contactRoutes.js";
 import teamMemberRoutes from "./routes/teamMemberRoutes.js";
 import deliveryChargeRoutes from "./routes/deliveryChargeRoutes.js";
 import chargeSettingsRoutes from "./routes/chargeSettingsRoutes.js";
-import scheduledOrderRoutes from "./routes/scheduledOrderRoutes.js";
 import couponRoutes from "./routes/couponRoutes.js";
+import adminUserRoutes from "./routes/adminUserRoutes.js";
 
 // Configuration
 const PORT = process.env.PORT || 8000;
@@ -146,7 +136,7 @@ const createApp = () => {
         "X-Client-Info",
       ],
       credentials: true,
-    })
+    }),
   );
 
   app.use(express.json());
@@ -168,33 +158,36 @@ const createApp = () => {
   app.use("/api/locationsroute", locationRoute);
   app.use("/api/cart", cartRoutes);
   app.use("/api/order", orderRoutes);
-  app.use("/api/orderItems", orderItemsRoutes);
+  app.use("/api/orderItems", orderRoutes); // Now pointing to the same merged file
   app.use("/api/check", checkCartAvailabilityRoute);
   app.use("/api/payment", paymentRoutes);
   app.use("/api/notifications", notificationRoutes);
-  app.use("/api/bnb", bnbRoutes);
-  app.use("/api/b&b-group", bnbGroupRoutes);
-  app.use("/api/b&b-group-product", bnbGroupProductRoutes);
+  // app.use("/api/bnb", bnbRoutes);
+  // app.use("/api/b&b-group", bnbGroupRoutes);
+  // app.use("/api/b&b-group-product", bnbGroupProductRoutes);
+
   app.use("/api/daily-deals", dailyDealsRoutes);
   app.use("/api/daily-deals-product", dailyDealsProductRoutes);
-  app.use("/api/brand", brandRoutes);
+  app.use("/api/brands", brandRoutes);
+
   app.use("/api/product-brand", brandProductsRoutes);
   app.use("/api/recommended-stores", recommendedStoreRoutes);
-  app.use("/api/product-recommended-stores", productRecommendedStoreRoutes);
+  app.use("/api/product-recommended-stores", recommendedStoreRoutes);
   app.use("/api/quick-pick", quickPickRoutes);
   app.use("/api/quick-pick-group", quickPickGroupRoutes);
   app.use("/api/quick-pick-group-product", quickPickGroupProductRoutes);
   app.use("/api/saving-zone", savingZoneRoutes);
-  app.use("/api/saving-zone-group", savingZoneGroupRoutes);
-  app.use("/api/saving-zone-group-product", savingZoneGroupProductRoutes);
+  app.use("/api/saving-zone-group", savingZoneRoutes);
+  app.use("/api/saving-zone-group-product", savingZoneRoutes);
   app.use("/api/stores", storeRoutes);
   app.use("/api/sub-stores", subStoreRoutes);
   app.use("/api/you-may-like-products", YouMayLikeProductRoutes);
+  app.use("/api/add-banner", addBannerRoutes);
   app.use("/api/banner", addBannerRoutes);
-  app.use("/api/banner-groups", addBannerGroupRoutes);
-  app.use("/api/banner-group-products", addBannerGroupProductRoutes);
+  // app.use("/api/banner-groups", addBannerGroupRoutes);
+  // app.use("/api/banner-group-products", addBannerGroupProductRoutes);
   app.use("/api/unique-sections", uniqueSectionRoutes);
-  app.use("/api/unique-sections-products", uniqueSectionProductRoutes);
+  app.use("/api/unique-sections-products", uniqueSectionRoutes);
   app.use("/api/user", profileRoutes);
   app.use("/api/return-orders", returnOrderRoutes);
   app.use("/api/refund", refundRoutes);
@@ -204,7 +197,6 @@ const createApp = () => {
   app.use("/api/categories", categoryRoutes);
   app.use("/api/bulk-orders", bulkOrderRoutes);
   app.use("/api/bulk-products", bulkProductRoutes);
-  app.use("/api/product-variants", productVariantsRoutes);
   app.use("/api/location", locationRoutes);
   app.use("/api/variants", variantRoutes);
   app.use("/api/inventory", inventoryRoutes);
@@ -212,10 +204,11 @@ const createApp = () => {
   app.use("/api/shop-by-stores", shopByStoreRoutes);
   app.use("/api/product-sections", productSectionRoutes);
   app.use("/api/promo-banner", promoBannerRoutes);
-  app.use("/api/store-section-mappings", storeSectionMappingRoutes);
+  app.use("/api/store-section-mappings", subStoreRoutes);
   app.use("/api/small-promo-cards", smallPromoCardRoutes);
   app.use("/api/bulk-wholesale", bulkWholesaleRoutes);
 
+  /*
   // COD Orders routes with logging middleware
   app.use(
     "/api/cod-orders",
@@ -226,6 +219,7 @@ const createApp = () => {
     },
     codOrderRoutes
   );
+  */
 
   // Online Payment Orders (Razorpay, etc.) - No amount limit
   app.use("/api/online-payment-orders", onlinePaymentOrderRoutes);
@@ -236,12 +230,12 @@ const createApp = () => {
   app.use("/api/zones", zoneRoutes);
   app.use("/api/stock", stockRoutes);
   app.use("/api/upload", uploadRoutes);
-  app.use("/api/product-grid-settings", productGridSettingsRoutes);
   app.use("/api/admin", adminProductRoutes);
+  app.use("/api/admin/users", adminUserRoutes);
+
   app.use("/api/enquiries", enquiriesRoutes);
   app.use("/api/wallet", walletRoutes);
   app.use("/api/admin/wallets", adminWalletRoutes);
-  app.use("/api/product-availability", productAvailabilityRoutes);
   app.use("/api/user/addresses", userAddressRoutes);
   app.use("/api/reviews", reviewRoutes);
   app.use("/api/customer-testimonials", customerTestimonialRoutes);
@@ -257,7 +251,7 @@ const createApp = () => {
   app.use("/api/team-members", teamMemberRoutes);
   app.use("/api/delivery-charges", deliveryChargeRoutes);
   app.use("/api/charge-settings", chargeSettingsRoutes);
-  app.use("/api/scheduled-orders", scheduledOrderRoutes);
+  app.use("/api/scheduled-orders", orderRoutes);
   app.use("/api/coupons", couponRoutes);
 
   // Enhanced health check with cluster and system info
@@ -348,13 +342,13 @@ const validateEnv = () => {
   ];
 
   const missingEnvVars = requiredEnvVars.filter(
-    (varName) => !process.env[varName]
+    (varName) => !process.env[varName],
   );
 
   if (missingEnvVars.length > 0) {
     console.error(
       "❌ Missing required environment variables:",
-      missingEnvVars.join(", ")
+      missingEnvVars.join(", "),
     );
     console.error("⚠️  Server may not function correctly!");
     return false;
@@ -365,25 +359,37 @@ const validateEnv = () => {
 };
 
 // Graceful shutdown handler
-const gracefulShutdown = (server, signal) => {
-  console.log(`\n${signal} received. Starting graceful shutdown...`);
+const gracefulShutdown = async (server, signal) => {
+  console.log(`\n🛑 ${signal} received. Starting graceful shutdown...`);
 
-  // Stop scheduled jobs
-  stopScheduledJobs();
-
+  // Stop accepting new requests
   server.close(() => {
     console.log("✅ HTTP server closed");
-    console.log("👋 Process terminated gracefully");
-    process.exit(0);
   });
 
-  // Force shutdown after 30 seconds
+  // Stop scheduled jobs
+  try {
+    stopScheduledJobs();
+    console.log("✅ Scheduled jobs stopped");
+  } catch (error) {
+    console.error("⚠️  Error stopping scheduled jobs:", error);
+  }
+
+  // Disconnect Prisma
+  try {
+    await disconnectPrisma();
+  } catch (error) {
+    console.error("⚠️  Error disconnecting Prisma:", error);
+  }
+
+  // Give ongoing requests time to complete
   setTimeout(() => {
-    console.error("⚠️  Forced shutdown after timeout");
-    process.exit(1);
-  }, 30000);
+    console.log("⏱️  Forcing shutdown after timeout");
+    process.exit(0);
+  }, 10000); // 10 second timeout
 };
 
+/*
 // Master process - manages worker processes
 if (IS_CLUSTERED && cluster.isPrimary) {
   console.log("╔════════════════════════════════════════════════════════════╗");
@@ -420,8 +426,7 @@ if (IS_CLUSTERED && cluster.isPrimary) {
 
   cluster.on("exit", (worker, code, signal) => {
     console.log(
-      `⚠️  Worker ${worker.process.pid} (ID: ${worker.id}) died (${
-        signal || code
+      `⚠️  Worker ${worker.process.pid} (ID: ${worker.id}) died (${signal || code
       })`
     );
 
@@ -462,38 +467,107 @@ if (IS_CLUSTERED && cluster.isPrimary) {
   // Worker process - runs the actual server
   const app = createApp();
 
+  // Initialize Prisma connection before starting server
+  connectPrisma()
+    .then(() => {
+      const server = app.listen(PORT, () => {
+        const workerId = cluster.worker?.id || "standalone";
+        const pid = process.pid;
+
+        console.log(
+          "\n╔════════════════════════════════════════════════════════════╗"
+        );
+        console.log(
+          `║  🚀 Worker ${workerId} (PID: ${pid}) - Server Started on Port ${PORT}  ║`
+        );
+        console.log(
+          "╚════════════════════════════════════════════════════════════╝"
+        );
+        console.log(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
+        console.log(`🌐 CORS: Configured to allow all origins`);
+        console.log(
+          `💳 Razorpay Mode: ${process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
+          }`
+        );
+        console.log(
+          `🔗 Supabase: Storage & Auth only`
+        );
+        console.log(`🔧 Cluster Mode: ${IS_CLUSTERED ? "ENABLED" : "DISABLED"}`);
+        console.log(
+          "════════════════════════════════════════════════════════════\n"
+        );
+
+        // Start scheduled jobs (only in first worker or standalone mode)
+        // if (!IS_CLUSTERED || workerId === 1) {
+        //   startScheduledJobs();
+        // }
+      });
+
+      // Graceful shutdown for workers
+      process.on("SIGTERM", () => gracefulShutdown(server, "SIGTERM"));
+      process.on("SIGINT", () => gracefulShutdown(server, "SIGINT"));
+
+      // Handle uncaught exceptions
+      process.on("uncaughtException", (error) => {
+        console.error("❌ Uncaught Exception:", error);
+        gracefulShutdown(server, "UNCAUGHT_EXCEPTION");
+      });
+
+      // Handle unhandled promise rejections
+      process.on("unhandledRejection", (reason, promise) => {
+        console.error("❌ Unhandled Rejection at:", promise, "reason:", reason);
+      });
+    })
+    .catch((error) => {
+      console.error("❌ Failed to start server due to Prisma connection error");
+      process.exit(1);
+    });
+}
+*/
+
+// Worker process - runs the actual server
+const app = createApp();
+
+// Initialize Prisma connection before starting server (skip if SKIP_DB is set)
+const startServer = async () => {
+  if (process.env.SKIP_DB !== "true") {
+    await connectPrisma();
+  } else {
+    console.log("⚠️ Skipping database connection (SKIP_DB=true)");
+  }
+
   const server = app.listen(PORT, () => {
-    const workerId = cluster.worker?.id || "standalone";
+    const workerId = "standalone";
     const pid = process.pid;
 
     console.log(
-      "\n╔════════════════════════════════════════════════════════════╗"
+      "\n╔════════════════════════════════════════════════════════════╗",
     );
     console.log(
-      `║  🚀 Worker ${workerId} (PID: ${pid}) - Server Started on Port ${PORT}  ║`
+      `║  🚀 Worker ${workerId} (PID: ${pid}) - Server Started on Port ${PORT}  ║`,
     );
     console.log(
-      "╚════════════════════════════════════════════════════════════╝"
+      "╚════════════════════════════════════════════════════════════╝",
     );
     console.log(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
     console.log(`🌐 CORS: Configured to allow all origins`);
     console.log(
-      `💳 Razorpay Mode: ${
-        process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
-      }`
+      `💳 Razorpay Mode: ${process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
+      }`,
+    );
+    console.log(`🔗 Supabase: Storage & Auth only`);
+    console.log(`🔧 Cluster Mode: DISABLED`);
+    console.log(
+      `🗄️ Database: ${process.env.SKIP_DB === "true" ? "SKIPPED" : "CONNECTED"}`,
     );
     console.log(
-      `🔗 Supabase URL: ${process.env.SUPABASE_URL || "Not configured"}`
-    );
-    console.log(`🔧 Cluster Mode: ${IS_CLUSTERED ? "ENABLED" : "DISABLED"}`);
-    console.log(
-      "════════════════════════════════════════════════════════════\n"
+      "════════════════════════════════════════════════════════════\n",
     );
 
     // Start scheduled jobs (only in first worker or standalone mode)
-    if (!IS_CLUSTERED || workerId === 1) {
-      startScheduledJobs();
-    }
+    // if (!IS_CLUSTERED || workerId === 1) {
+    //   startScheduledJobs();
+    // }
   });
 
   // Graceful shutdown for workers
@@ -510,7 +584,12 @@ if (IS_CLUSTERED && cluster.isPrimary) {
   process.on("unhandledRejection", (reason, promise) => {
     console.error("❌ Unhandled Rejection at:", promise, "reason:", reason);
   });
-}
+};
+
+startServer().catch((error) => {
+  console.error("❌ Failed to start server:", error.message);
+  process.exit(1);
+});
 
 // Export the app for testing or other purposes
 export default createApp();

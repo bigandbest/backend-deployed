@@ -5,9 +5,13 @@ import {
   getProductForAdmin,
   deleteProductForAdmin,
   updateProduct,
+  createProduct,
 } from "../controller/adminProductController.js";
 
 const router = express.Router();
+
+// POST /api/admin/products - Create new product
+router.post("/products", createProduct);
 
 // GET /api/admin/products - Get all products for admin with full details
 router.get("/products", getAllProductsForAdmin);

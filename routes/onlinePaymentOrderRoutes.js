@@ -1,9 +1,8 @@
 import express from "express";
-import { createOnlinePaymentOrder } from "../controller/onlinePaymentOrderController.js";
+import { placeOrderWithDetailedAddress } from "../controller/orderController.js";
 
 const router = express.Router();
 
-// Create online payment order (Razorpay, etc.)
-router.post("/create", createOnlinePaymentOrder);
+router.post("/create", placeOrderWithDetailedAddress);
 
 export default router;

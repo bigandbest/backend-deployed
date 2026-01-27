@@ -1,23 +1,12 @@
-import { supabase } from '../config/supabaseClient.js';
+import BulkWholesaleSettingsDAO from "../dao/bulk-wholesale-settings.dao.js";
+import ProductDAO from "../dao/product.dao.js";
 
 // Get bulk wholesale settings for a product (all tiers)
 export const getBulkWholesaleSettings = async (req, res) => {
   try {
     const { productId } = req.params;
 
-    const { data, error } = await supabase
-      .from('bulk_wholesale_settings')
-      .select('*')
-      .eq('product_id', String(productId))
-      .eq('is_bulk_enabled', true)
-      .order('sort_order', { ascending: true });
-
-    if (error) {
-      return res.status(500).json({
-        success: false,
-        error: error.message
-      });
-    }
+    const data = await BulkWholesaleSettingsDAO.listByProductId(productId);
 
     if (!data || data.length === 0) {
       return res.status(200).json({
@@ -69,14 +58,10 @@ export const saveBulkWholesaleSettings = async (req, res) => {
       }
     }
 
-    // IMPORTANT: First delete existing bulk settings for this product
-    // This operation must NOT affect main products table
-    await supabase
-      .from('bulk_wholesale_settings')
-      .delete()
-      .eq('product_id', String(product_id));
+    // IMPORTANT: First delete existing bulk settings for this product using DAO
+    await BulkWholesaleSettingsDAO.deleteByProductId(product_id);
 
-    // Insert new tiers - ONLY in bulk_wholesale_settings table
+    // Insert new tiers using DAO - ONLY in bulk_wholesale_settings table
     const insertData = tiers.map((tier, index) => ({
       product_id: String(product_id),
       tier_name: tier.tier_name || `Tier ${index + 1}`,
@@ -89,18 +74,7 @@ export const saveBulkWholesaleSettings = async (req, res) => {
       created_at: new Date().toISOString()
     }));
 
-    const { data, error } = await supabase
-      .from('bulk_wholesale_settings')
-      .insert(insertData)
-      .select();
-
-    if (error) {
-      console.error('Error saving bulk wholesale settings:', error);
-      return res.status(500).json({
-        success: false,
-        error: error.message
-      });
-    }
+    const data = await BulkWholesaleSettingsDAO.createBulk(insertData);
 
     // SUCCESS: Bulk settings saved without affecting main product pricing
     res.status(200).json({
@@ -122,38 +96,16 @@ export const saveBulkWholesaleSettings = async (req, res) => {
 // Get all products with bulk settings
 export const getAllProductsWithBulkSettings = async (req, res) => {
   try {
-    // Get products first
-    const { data: products, error: productsError } = await supabase
-      .from('products')
-      .select('*')
-      .eq('active', true);
+    // Get active products using DAO
+    const { items: products } = await ProductDAO.listProducts({ active: true }, { limit: 1000 });
 
-    if (productsError) {
-      return res.status(500).json({
-        success: false,
-        error: productsError.message
-      });
-    }
-
-    // Get bulk settings for all products
-    const { data: bulkSettings, error: bulkError } = await supabase
-      .from('bulk_wholesale_settings')
-      .select('*')
-      .eq('is_bulk_enabled', true)
-      .order('product_id')
-      .order('sort_order');
-
-    if (bulkError) {
-      return res.status(500).json({
-        success: false,
-        error: bulkError.message
-      });
-    }
+    // Get bulk settings for all products using DAO
+    const bulkSettings = await BulkWholesaleSettingsDAO.listAllEnabled();
 
     // Combine products with their bulk settings
     const productsWithBulk = products.map(product => ({
       ...product,
-      bulk_wholesale_settings: bulkSettings.filter(setting => 
+      bulk_wholesale_settings: bulkSettings.filter(setting =>
         setting.product_id === String(product.id)
       )
     }));

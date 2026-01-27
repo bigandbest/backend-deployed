@@ -1,0 +1,14 @@
+model customer_testimonials {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name       String    @db.VarChar
+  rating     Int       @default(5)
+  image_url  String?
+  comment    String
+  active     Boolean?  @default(true)
+  sort_order Int?      @default(0)
+  created_at DateTime? @default(now()) @db.Timestamptz
+  updated_at DateTime? @default(now()) @db.Timestamptz
+
+  // Note: Check constraints like "rating >= 1 AND rating <= 5" are not directly supported in Prisma schema DSL
+  // but will be enforced by the database if added via raw SQL migration.
+}

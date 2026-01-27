@@ -1,0 +1,13 @@
+model product_section_groups {
+  id          Int       @id @default(autoincrement())
+  section_id  Int
+  group_id    String    @db.Uuid
+  is_active   Boolean?  @default(true)
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+  
+  // Relations
+  product_sections product_sections @relation(fields: [section_id], references: [id], onDelete: Cascade)
+  groups           groups           @relation(fields: [group_id], references: [id], onDelete: Cascade)
+
+  @@unique([section_id, group_id])
+}

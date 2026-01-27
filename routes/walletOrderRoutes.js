@@ -3,7 +3,7 @@ import {
   createWalletOrder,
   getAllWalletOrders,
   getUserWalletOrders,
-} from "../controller/walletOrderController.js";
+} from "../controller/walletController.js"; // Updated: merged into walletController
 
 const router = express.Router();
 

@@ -25,7 +25,10 @@
     "pm2:delete": "pm2 delete bigandbest-api",
     "pm2:logs": "pm2 logs bigandbest-api",
     "pm2:monit": "pm2 monit",
-    "pm2:status": "pm2 status"
+    "pm2:status": "pm2 status",
+    "db:compile": "node scripts/compile-schema.js",
+    "db:generate": "npm run db:compile && prisma generate",
+    "db:migrate": "npm run db:compile && prisma migrate dev"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -54,9 +57,14 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@prisma/client": "^5.22.0",
     "@types/jest": "^29.5.12",
+    "@types/node": "^25.0.8",
     "jest": "^29.7.0",
-    "supertest": "^7.0.0"
+    "prisma": "^5.22.0",
+    "supertest": "^7.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
   },
   "jest": {
     "testEnvironment": "node",

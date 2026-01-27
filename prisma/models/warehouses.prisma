@@ -1,0 +1,33 @@
+model warehouses {
+  id                  Int               @id @default(autoincrement())
+  name                String            @unique @db.VarChar
+  type                String            @db.VarChar
+  location            String?           @db.VarChar
+  address             String?
+  contact_person      String?           @db.VarChar
+  contact_phone       String?           @db.VarChar
+  contact_email       String?           @db.VarChar
+  is_active           Boolean?          @default(true)
+  capacity_limit      Int?
+  current_utilization Int?              @default(0)
+  operational_hours   Json?             @default("{}")
+  facilities          Json?             @default("{}")
+  created_at          DateTime?         @default(now()) @db.Timestamptz
+  updated_at          DateTime?         @default(now()) @db.Timestamptz
+  created_by          Int?
+  parent_warehouse_id Int?
+  hierarchy_level     Int?              @default(0)
+
+  // Relations
+  parent_warehouse    warehouses?       @relation("WarehouseHierarchy", fields: [parent_warehouse_id], references: [id])
+  child_warehouses    warehouses[]      @relation("WarehouseHierarchy")
+  movements           stock_movements[]
+  warehouse_zones     warehouse_zones[]
+  order_items         order_items[]
+  scheduling_configs  warehouse_scheduling_config[]
+  scheduled_slots     scheduled_order_slots[]
+  scheduled_orders    scheduled_orders[]
+  warehouse_pincodes  warehouse_pincodes[]
+  inventory           inventory[]
+  warehouse_stock     product_warehouse_stock[]
+}
