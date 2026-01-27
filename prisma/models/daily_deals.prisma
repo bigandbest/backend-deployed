@@ -1,0 +1,16 @@
+model daily_deals {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title       String?   @db.VarChar
+  image_url   String?
+  discount    String?   @db.VarChar
+  badge       String?   @db.VarChar
+  sort_order  Int?      @default(0)
+  active      Boolean?  @default(true)
+  banner_id   String?   @db.Uuid
+  created_at  DateTime? @default(now()) @db.Timestamptz
+  updated_at  DateTime? @default(now()) @db.Timestamptz
+
+  // Relations
+  banner      add_banner? @relation(fields: [banner_id], references: [id])
+  products    daily_deals_product[]
+}

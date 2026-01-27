@@ -1,0 +1,12 @@
+model variant_attributes {
+  id              String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  variant_id      String @db.Uuid
+
+  attribute_name  String
+  attribute_value String
+
+  variant product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+
+  @@index([variant_id])
+  @@index([attribute_name])
+}

@@ -1,0 +1,12 @@
+model contact_queries {
+  id         Int       @id @default(autoincrement())
+  name       String    @db.VarChar
+  email      String    @db.VarChar
+  phone      String?   @db.VarChar
+  subject    String?   @db.VarChar
+  message    String
+  status     String?   @default("Pending") @db.VarChar
+  created_at DateTime? @default(now()) @db.Timestamptz
+  updated_at DateTime? @default(now()) @db.Timestamptz
+  quantity   String?
+}

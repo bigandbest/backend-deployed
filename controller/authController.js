@@ -1,97 +1,129 @@
-import { supabase } from "../config/supabaseClient.js";
+import {
+  uploadToCloudinary,
+  deleteFromCloudinary,
+} from "../services/uploadService.js";
 import jwt from "jsonwebtoken";
-import bcrypt from "bcrypt";
 import { setSessionCookie, clearSessionCookie } from "../utils/cookieUtils.js";
+import UserDAO from "../dao/user.dao.js";
+import AuthService from "../services/authService.js";
 import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
+import { twilioClient } from "../utils/twilio.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/**
+ * User signup with password-based authentication
+ */
 export const signup = async (req, res) => {
-  const {
-    first_name,
-    last_name,
-    phone_no,
-    email,
-    pan,
-    gstin,
-    adhaar_no,
-    business_type,
-  } = req.body;
-  let { password } = req.body;
-
-  password = await bcrypt.hash(password, 10);
-  const { data, error } = await supabase.from("business_users").insert([
-    {
-      first_name,
-      last_name,
-      phone_no,
-      pan,
-      gstin,
-      adhaar_no,
-      email,
-      password,
-      business_type,
-    },
-  ]);
-
-  if (error) return res.status(400).json({ error: error.message });
-  res.status(201).json({ message: "Business user created" });
-};
-
-export const login = async (req, res) => {
-  const { email, password, business_type } = req.body;
-
-  const { data, error } = await supabase
-    .from("business_users")
-    .select("*")
-    .eq("email", email)
-    .single();
-
-  if (error || !data)
-    return res.status(400).json({ error: "Invalid credentials" });
-
-  const valid = await bcrypt.compare(password, data.password);
-  if (!valid) return res.status(401).json({ error: "Invalid password" });
-
-  const validBusinessType = data.business_type === business_type;
-  if (!validBusinessType)
-    return res.status(403).json({ error: "Unauthorized business type" });
-
-  const token = jwt.sign({ id: data.id }, process.env.JWT_SECRET, {
-    expiresIn: "7d",
-  });
-  setSessionCookie(res, token);
-
-  res.json({
-    message: "Logged in",
-    user: { id: data.id, username: data.username, email: data.email },
-  });
-};
-
-export const getAllBusinessUsers = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("business_users").select("*");
+    const { email, password, name, phone } = req.body;
 
-    if (error) {
-      return res.status(400).json({ error: error.message });
+    // Validate required fields
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        error: "Email and password are required",
+      });
     }
 
-    return res.status(200).json(data);
-  } catch (err) {
-    return res.status(500).json({ error: "Internal server error" });
+    // Create user with role USER by default
+    const result = await AuthService.signup({
+      email,
+      password,
+      name,
+      phone,
+      role: "USER",
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "User registered successfully",
+      user: result.user,
+      token: result.token,
+      refreshToken: result.refreshToken,
+    });
+  } catch (error) {
+    console.error("Signup error:", error);
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
   }
 };
 
-export const logout = (req, res) => {
-  clearSessionCookie(res);
-  res.json({ message: "Logged out" });
+/**
+ * User login with email and password
+ */
+export const login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Validate required fields
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        error: "Email and password are required",
+      });
+    }
+
+    // Authenticate user
+    const result = await AuthService.login(email, password);
+
+    res.json({
+      success: true,
+      message: "Logged in successfully",
+      user: result.user,
+      token: result.token,
+      refreshToken: result.refreshToken,
+    });
+  } catch (error) {
+    console.error("Login error:", error);
+    res.status(401).json({
+      success: false,
+      error: error.message,
+    });
+  }
 };
 
-export const getMe = (req, res) => {
-  res.json({ user: req.user });
+/**
+ * Logout user
+ */
+export const logout = (req, res) => {
+  clearSessionCookie(res);
+  res.json({
+    success: true,
+    message: "Logged out successfully",
+  });
+};
+
+/**
+ * Get current user info
+ */
+export const getMe = async (req, res) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        error: "Not authenticated",
+      });
+    }
+
+    const user = await AuthService.getUserById(req.user.id);
+
+    res.json({
+      success: true,
+      user,
+    });
+  } catch (error) {
+    console.error("GetMe error:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
 };
 
 // Multer configuration for avatar upload
@@ -119,38 +151,25 @@ export const updateUserAvatar = async (req, res) => {
 
     const userId = req.user.id;
     const file = req.file;
-    const fileName = `avatar_${userId}_${Date.now()}.${
-      file.mimetype.split("/")[1]
-    }`;
+    // Upload to Cloudinary
+    const uploadResult = await uploadToCloudinary(
+      file.buffer,
+      "avatars",
+      file.mimetype,
+    );
 
-    // Upload to Supabase Storage
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from("avatars")
-      .upload(fileName, file.buffer, {
-        contentType: file.mimetype,
-        upsert: true,
-      });
-
-    if (uploadError) {
+    if (!uploadResult.success) {
       return res.status(500).json({ error: "Failed to upload image" });
     }
 
-    // Get public URL
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from("avatars").getPublicUrl(fileName);
+    const publicUrl = uploadResult.secure_url;
 
-    // Update user record
-    const { error: updateError } = await supabase
-      .from("users")
-      .update({ avatar: publicUrl })
-      .eq("id", userId);
+    /* Public URL already obtained from Cloudinary response */
 
-    if (updateError) {
-      return res.status(500).json({ error: "Failed to update user profile" });
-    }
+    // Update user record using DAO
+    const updatedUser = await UserDAO.updateUser(userId, { avatar: publicUrl });
 
-    res.json({ success: true, avatarUrl: publicUrl });
+    res.json({ success: true, avatarUrl: publicUrl, user: updatedUser });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -160,15 +179,25 @@ export const removeUserAvatar = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Update user record to remove avatar
-    const { error } = await supabase
-      .from("users")
-      .update({ avatar: null })
-      .eq("id", userId);
+    // Get user to find avatar filename using DAO
+    // Get user to find avatar filename using DAO
+    const user = await UserDAO.getUserById(userId);
+    if (user && user.avatar) {
+      // Extract public_id from Cloudinary URL if possible, or just skip delete if we don't store public_id
+      // Assuming naive approach: just nullify in DB for now as we don't strictly track public_id in User model yet
+      // Ideally we should extract public_id from URL:
+      // URL: https://res.cloudinary.com/demo/image/upload/v1234567890/avatars/filename.jpg
+      const urlParts = user.avatar.split("/");
+      const publicIdWithExt = urlParts
+        .slice(urlParts.indexOf("avatars"))
+        .join("/");
+      const publicId = publicIdWithExt.split(".")[0];
 
-    if (error) {
-      return res.status(500).json({ error: "Failed to remove avatar" });
+      await deleteFromCloudinary(publicId);
     }
+
+    // Update user record to remove avatar using DAO
+    const updatedUser = await UserDAO.updateUser(userId, { avatar: null });
 
     res.json({ success: true });
   } catch (error) {
@@ -177,8 +206,6 @@ export const removeUserAvatar = async (req, res) => {
 };
 
 // Twilio OTP Functions
-import { twilioClient } from "../utils/twilio.js";
-
 export const sendOTP = async (req, res) => {
   try {
     const { phone } = req.body;

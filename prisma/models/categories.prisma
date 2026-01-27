@@ -1,0 +1,15 @@
+model categories {
+  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String
+  description   String?
+  image_url     String?
+  featured      Boolean?        @default(false)
+  icon          String?
+  active        Boolean?        @default(true)
+  
+  // Relations
+  subcategories subcategories[]
+  
+  product_section_categories product_section_categories[]
+  products      products[]
+}

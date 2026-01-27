@@ -1,0 +1,19 @@
+model stock_movements {
+  id             Int       @id @default(autoincrement())
+  product_id     String    @db.Uuid
+  warehouse_id   Int
+  movement_type  String    @db.VarChar
+  quantity       Int
+  previous_stock Int
+  new_stock      Int
+  reference_type String?   @db.VarChar
+  reference_id   Int?
+  reason         String?   @db.VarChar
+  performed_by   Int?
+  performed_at   DateTime? @default(now()) @db.Timestamptz
+  notes          String?
+  created_at     DateTime? @default(now()) @db.Timestamptz
+
+  // Relations
+  warehouse      warehouses @relation(fields: [warehouse_id], references: [id])
+}

@@ -1,0 +1,11 @@
+model order_tracking {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  order_id    String?   @db.Uuid
+  status      String    @db.VarChar
+  location    String?   @db.VarChar
+  description String?
+  timestamp   DateTime? @default(now()) @db.Timestamp
+
+  // Relations
+  order       orders?   @relation(fields: [order_id], references: [id])
+}

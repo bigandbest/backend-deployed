@@ -15,7 +15,8 @@ import {
     getAvailableCoupons,
     getUserCouponHistory
 } from "../controller/userCouponController.js";
-import { authenticateToken, authenticateAdmin, authenticateTokenOptional } from "../middleware/authenticate.js";
+import { authenticateToken, authenticateTokenOptional } from "../middleware/authenticate.js";
+import { requireAdmin } from "../middleware/authorize.js";
 
 const router = express.Router();
 
@@ -43,24 +44,24 @@ router.get("/history", authenticateToken, getUserCouponHistory);
 // =====================================================
 
 // Create new coupon
-router.post("/admin", authenticateAdmin, createCoupon);
+router.post("/admin", authenticateToken, requireAdmin, createCoupon);
 
 // Update coupon
-router.put("/admin/:id", authenticateAdmin, updateCoupon);
+router.put("/admin/:id", authenticateToken, requireAdmin, updateCoupon);
 
 // Enable/Disable coupon
-router.patch("/admin/:id/status", authenticateAdmin, toggleCouponStatus);
+router.patch("/admin/:id/status", authenticateToken, requireAdmin, toggleCouponStatus);
 
 // Get all coupons
-router.get("/admin", authenticateAdmin, getAllCoupons);
+router.get("/admin", authenticateToken, requireAdmin, getAllCoupons);
 
 // Get coupon usage history
-router.get("/admin/:id/usage", authenticateAdmin, getCouponUsageHistory);
+router.get("/admin/:id/usage", authenticateToken, requireAdmin, getCouponUsageHistory);
 
 // Manual override
-router.post("/admin/:id/override", authenticateAdmin, manualOverride);
+router.post("/admin/:id/override", authenticateToken, requireAdmin, manualOverride);
 
 // Delete coupon
-router.delete("/admin/:id", authenticateAdmin, deleteCoupon);
+router.delete("/admin/:id", authenticateToken, requireAdmin, deleteCoupon);
 
 export default router;

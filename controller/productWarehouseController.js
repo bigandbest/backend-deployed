@@ -1,4 +1,8 @@
-import { supabase } from "../config/supabaseClient.js";
+import productDao from "../dao/product.dao.js";
+import warehouseDao from "../dao/warehouse.dao.js";
+import productWarehouseStockDao from "../dao/product-warehouse-stock.dao.js";
+import warehouseZoneDao from "../dao/warehouse-zone.dao.js";
+import stockMovementDao from "../dao/stock-movement.dao.js";
 
 /**
  * Enhanced Product Warehouse Controller with Advanced Warehouse Management
@@ -132,33 +136,16 @@ export const createProductWithWarehouse = async (req, res) => {
       updated_at: new Date().toISOString(),
     };
 
-    const { data: product, error: productError } = await supabase
-      .from("products")
-      .insert([productData])
-      .select()
-      .single();
-
-    if (productError) {
-      console.error("Product creation error:", productError);
-      return res.status(500).json({
-        success: false,
-        error: "Failed to create product",
-        details: productError.message,
-      });
-    }
+    const product = await productDao.createProduct(productData);
 
     // Step 2: Handle warehouse assignments based on mapping type
     let warehouseAssignments = [];
 
     if (warehouse_mapping_type === "nationwide") {
       // Auto-assign to all zonal warehouses for nationwide coverage
-      const { data: zonalWarehouses, error } = await supabase
-        .from("warehouses")
-        .select("*")
-        .eq("type", "zonal")
-        .eq("is_active", true);
+      const zonalWarehouses = await warehouseDao.list({ type: "zonal", active: true });
 
-      if (!error && zonalWarehouses) {
+      if (zonalWarehouses) {
         warehouseAssignments = zonalWarehouses.map((warehouse) => ({
           warehouse_id: warehouse.id,
           stock_quantity: Math.floor(initial_stock / zonalWarehouses.length), // Distribute stock evenly
@@ -211,11 +198,9 @@ export const createProductWithWarehouse = async (req, res) => {
     }));
 
     if (stockInserts.length > 0) {
-      const { error: stockError } = await supabase
-        .from("product_warehouse_stock")
-        .insert(stockInserts);
-
-      if (stockError) {
+      try {
+        await productWarehouseStockDao.createMany(stockInserts);
+      } catch (stockError) {
         console.error("Stock insertion error:", stockError);
         // Don't fail the entire operation, just log the error
       }
@@ -223,15 +208,12 @@ export const createProductWithWarehouse = async (req, res) => {
 
     // Step 4: Update product with finalized warehouse arrays
     if (primary_warehouses.length > 0 || fallback_warehouses.length > 0) {
-      const { error: updateError } = await supabase
-        .from("products")
-        .update({
+      try {
+        await productDao.updateProduct(product.id, {
           primary_warehouses,
           fallback_warehouses,
-        })
-        .eq("id", product.id);
-
-      if (updateError) {
+        });
+      } catch (updateError) {
         console.error("Product warehouse update error:", updateError);
       }
     }
@@ -280,7 +262,7 @@ export const createProductWithWarehouse = async (req, res) => {
 // 1️⃣ Map a single product to a warehouse using IDs (Legacy compatibility)
 export const mapProductToWarehouse = async (req, res) => {
   try {
-    const { product_id, warehouse_id } = req.body;
+    const { product_id, warehouse_id, stock_quantity = 0 } = req.body;
 
     if (!product_id || !warehouse_id) {
       return res
@@ -288,22 +270,15 @@ export const mapProductToWarehouse = async (req, res) => {
         .json({ error: "product_id and warehouse_id are required." });
     }
 
-    // Insert mapping (ignore if duplicate)
-    const { error } = await supabase
-      .from("product_warehouse")
-      .insert([{ product_id, warehouse_id }]);
-
-    if (error) {
-      if (error.code === "23505") {
-        return res.status(409).json({ error: "Mapping already exists." });
-      }
-      return res.status(500).json({ error: error.message });
-    }
+    // Insert mapping via upsert (re-using productWarehouseStockDao if applicable or custom logic)
+    // Note: The original code used a table 'product_warehouse' which seems to be replaced by 'product_warehouse_stock' in Prisma
+    await productWarehouseStockDao.upsertStock(product_id, warehouse_id, { stock_quantity });
 
     res
       .status(201)
       .json({ message: "Product mapped to warehouse successfully." });
   } catch (err) {
+    console.error("Map product to warehouse error:", err);
     res.status(500).json({ error: "Server error" });
   }
 };
@@ -313,16 +288,14 @@ export const removeProductFromWarehouse = async (req, res) => {
   try {
     const { product_id, warehouse_id } = req.body;
 
-    const { error } = await supabase
-      .from("product_warehouse")
-      .delete()
-      .eq("product_id", product_id)
-      .eq("warehouse_id", warehouse_id);
-
-    if (error) return res.status(500).json({ error: error.message });
+    const stockEntry = await productWarehouseStockDao.getByProductAndWarehouse(product_id, warehouse_id);
+    if (stockEntry) {
+      await productWarehouseStockDao.updateStock(stockEntry.id, { is_active: false });
+    }
 
     res.status(200).json({ message: "Mapping removed successfully." });
   } catch (err) {
+    console.error("Remove product from warehouse error:", err);
     res.status(500).json({ error: "Server error" });
   }
 };
@@ -332,12 +305,7 @@ export const getWarehousesForProduct = async (req, res) => {
   try {
     const { product_id } = req.params;
 
-    const { data, error } = await supabase
-      .from("product_warehouse")
-      .select("warehouse_id, warehouses (id, name, address, location)")
-      .eq("product_id", product_id);
-
-    if (error) return res.status(500).json({ error: error.message });
+    const data = await productWarehouseStockDao.listByProduct(product_id);
 
     // Map location to pincode for frontend compatibility
     const transformedData =
@@ -345,14 +313,15 @@ export const getWarehousesForProduct = async (req, res) => {
         ...item,
         warehouses: item.warehouses
           ? {
-              ...item.warehouses,
-              pincode: item.warehouses.location,
-            }
+            ...item.warehouses,
+            pincode: item.warehouses.location,
+          }
           : null,
       })) || [];
 
     res.status(200).json(transformedData);
   } catch (err) {
+    console.error("Get warehouses for product error:", err);
     res.status(500).json({ error: "Server error" });
   }
 };
@@ -362,15 +331,17 @@ export const getProductsForWarehouse = async (req, res) => {
   try {
     const { warehouse_id } = req.params;
 
-    const { data, error } = await supabase
-      .from("product_warehouse")
-      .select("product_id, products (id, name, price, rating, image, category)")
-      .eq("warehouse_id", warehouse_id);
+    const stockItems = await productWarehouseStockDao.listProductsInWarehouse(warehouse_id);
 
-    if (error) return res.status(500).json({ error: error.message });
+    // Transform to match previous response structure if needed, or return as is
+    // The previous structure was likely flat or nested. 
+    // Supabase returns: [{ product_id, products: {...} }]
+    // DAO returns: [{ product_id, products: {...}, ...stockFields }]
+    // We can return the DAO result directly as it contains the necessary info.
 
-    res.status(200).json(data);
+    res.status(200).json(stockItems);
   } catch (err) {
+    console.error("Get products for warehouse error:", err);
     res.status(500).json({ error: "Server error" });
   }
 };
@@ -387,38 +358,22 @@ export const bulkMapByNames = async (req, res) => {
     }
 
     // 1. Get warehouse ID from name
-    const { data: warehouseData, error: warehouseError } = await supabase
-      .from("warehouses")
-      .select("id")
-      .eq("name", warehouse_name)
-      .single();
+    const warehouseData = await warehouseDao.getByName(warehouse_name);
 
-    if (warehouseError || !warehouseData) {
+    if (!warehouseData) {
       return res.status(404).json({ error: "Warehouse not found." });
     }
 
     // 2. Get product IDs from names
-    const { data: products, error: productError } = await supabase
-      .from("products")
-      .select("id, name")
-      .in("name", product_names);
+    const products = await productDao.getProductsByNames(product_names);
 
-    if (productError || !products.length) {
+    if (!products || !products.length) {
       return res.status(404).json({ error: "No matching products found." });
     }
 
     // 3. Map each product to warehouse
-    const inserts = products.map((p) => ({
-      product_id: p.id,
-      warehouse_id: warehouseData.id,
-    }));
-
-    const { error: insertError } = await supabase
-      .from("product_warehouse")
-      .insert(inserts, { upsert: false }); // ignore duplicates
-
-    if (insertError && insertError.code !== "23505") {
-      return res.status(500).json({ error: insertError.message });
+    for (const p of products) {
+      await productWarehouseStockDao.upsertStock(p.id, warehouseData.id, { stock_quantity: 0 });
     }
 
     res.status(201).json({
@@ -474,26 +429,12 @@ export const getProductStockSummary = async (req, res) => {
   try {
     const { product_id } = req.params;
 
-    const { data: stockData, error } = await supabase
-      .from("product_warehouse_stock")
-      .select(
-        `
-        *,
-        warehouses (
-          id,
-          name,
-          type,
-          location
-        )
-      `
-      )
-      .eq("product_id", product_id)
-      .eq("is_active", true);
+    const stockData = await productWarehouseStockDao.listByProduct(product_id);
 
-    if (error) {
-      return res.status(500).json({
+    if (!stockData) {
+      return res.status(404).json({
         success: false,
-        error: "Failed to fetch stock data",
+        error: "No stock data found",
       });
     }
 
@@ -562,13 +503,9 @@ export const getProductVisibilityMatrix = async (req, res) => {
       });
     }
 
-    const { data: product, error: productError } = await supabase
-      .from("products")
-      .select("id, name, delivery_type, price, image")
-      .eq("id", productId)
-      .single();
+    const product = await productDao.getProductById(productId);
 
-    if (productError || !product) {
+    if (!product) {
       return res.status(404).json({
         success: false,
         error: "Product not found",
@@ -576,23 +513,9 @@ export const getProductVisibilityMatrix = async (req, res) => {
     }
 
     // Map zonal warehouse -> zone details
-    const { data: zoneMappings, error: zoneMappingError } = await supabase
-      .from("warehouse_zones")
-      .select(
-        `
-        warehouse_id,
-        zone_id,
-        is_active,
-        delivery_zones (
-          id,
-          name,
-          display_name
-        )
-      `
-      )
-      .eq("is_active", true);
+    const zoneMappings = await warehouseZoneDao.listActiveMappings();
 
-    if (zoneMappingError) {
+    if (!zoneMappings) {
       return res.status(500).json({
         success: false,
         error: "Failed to load warehouse zone mappings",
@@ -601,34 +524,18 @@ export const getProductVisibilityMatrix = async (req, res) => {
 
     const zonalToZoneMap = new Map();
     zoneMappings?.forEach((mapping) => {
-      if (mapping.delivery_zones) {
+      if (mapping.zone) {
         zonalToZoneMap.set(mapping.warehouse_id, {
-          zone_id: mapping.delivery_zones.id,
+          zone_id: mapping.zone.id,
           zone_name:
-            mapping.delivery_zones.display_name || mapping.delivery_zones.name,
+            mapping.zone.display_name || mapping.zone.name,
         });
       }
     });
 
-    const { data: stockRows, error: stockError } = await supabase
-      .from("product_warehouse_stock")
-      .select(
-        `
-        warehouse_id,
-        stock_quantity,
-        reserved_quantity,
-        warehouses (
-          id,
-          name,
-          type,
-          parent_warehouse_id
-        )
-      `
-      )
-      .eq("product_id", productId)
-      .eq("is_active", true);
+    const stockRows = await productWarehouseStockDao.listByProduct(productId);
 
-    if (stockError) {
+    if (!stockRows) {
       return res.status(500).json({
         success: false,
         error: "Failed to load product warehouse assignments",
@@ -755,39 +662,18 @@ export const getZoneProductVisibility = async (req, res) => {
       });
     }
 
-    const { data: zone, error: zoneError } = await supabase
-      .from("delivery_zones")
-      .select("id, name, display_name")
-      .eq("id", zoneId)
-      .single();
+    const zone = await warehouseDao.getZoneById(zoneId); // Corrected to use warehouseDao or similar if exists
 
-    if (zoneError || !zone) {
+    if (!zone) {
       return res.status(404).json({
         success: false,
         error: "Zone not found",
       });
     }
 
-    const { data: zoneWarehouseMappings, error: warehouseMappingError } =
-      await supabase
-        .from("warehouse_zones")
-        .select(
-          `
-        warehouse_id,
-        is_active,
-        warehouses (
-          id,
-          name,
-          type,
-          parent_warehouse_id,
-          is_active
-        )
-      `
-        )
-        .eq("zone_id", zoneId)
-        .eq("is_active", true);
+    const zoneWarehouseMappings = await warehouseZoneDao.listByZone(zoneId);
 
-    if (warehouseMappingError) {
+    if (!zoneWarehouseMappings) {
       return res.status(500).json({
         success: false,
         error: "Failed to fetch zonal warehouses",
@@ -798,8 +684,8 @@ export const getZoneProductVisibility = async (req, res) => {
       zoneWarehouseMappings
         ?.filter(
           (mapping) =>
-            mapping.warehouses?.type === "zonal" &&
-            mapping.warehouses?.is_active
+            mapping.warehouse?.type === "zonal" &&
+            mapping.warehouse?.is_active
         )
         .map((mapping) => mapping.warehouse_id) || [];
 
@@ -820,21 +706,19 @@ export const getZoneProductVisibility = async (req, res) => {
       });
     }
 
-    const { data: divisionWarehouses, error: divisionError } = await supabase
-      .from("warehouses")
-      .select("id, name, parent_warehouse_id, is_active")
-      .eq("type", "division")
-      .eq("is_active", true)
-      .in("parent_warehouse_id", zonalWarehouseIds);
+    const divisionWarehouses = await warehouseDao.list({ type: "division", active: true });
 
-    if (divisionError) {
+    // Manual filter for parent_warehouse_id since list doesn't take nested filters easily here
+    const filteredDivisions = divisionWarehouses?.filter(w => zonalWarehouseIds.includes(w.parent_warehouse_id)) || [];
+
+    if (!divisionWarehouses) {
       return res.status(500).json({
         success: false,
         error: "Failed to fetch division warehouses",
       });
     }
 
-    const divisionIds = divisionWarehouses?.map((warehouse) => warehouse.id) || [];
+    const divisionIds = filteredDivisions.map((warehouse) => warehouse.id) || [];
     const warehouseIds = [...zonalWarehouseIds, ...divisionIds];
 
     if (warehouseIds.length === 0) {
@@ -854,33 +738,9 @@ export const getZoneProductVisibility = async (req, res) => {
       });
     }
 
-    const { data: stockRows, error: stockError } = await supabase
-      .from("product_warehouse_stock")
-      .select(
-        `
-        product_id,
-        warehouse_id,
-        stock_quantity,
-        reserved_quantity,
-        products (
-          id,
-          name,
-          price,
-          image,
-          delivery_type
-        ),
-        warehouses (
-          id,
-          name,
-          type,
-          parent_warehouse_id
-        )
-      `
-      )
-      .in("warehouse_id", warehouseIds)
-      .eq("is_active", true);
+    const stockRows = await productWarehouseStockDao.listByWarehouses(warehouseIds);
 
-    if (stockError) {
+    if (!stockRows) {
       return res.status(500).json({
         success: false,
         error: "Failed to fetch product visibility for this zone",
@@ -990,38 +850,13 @@ export const getZoneProductVisibility = async (req, res) => {
 
 // Helper function to get central warehouse
 async function getCentralWarehouse() {
-  const { data, error } = await supabase
-    .from("warehouses")
-    .select("*")
-    .eq("type", "central")
-    .eq("is_active", true)
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .single();
-
-  if (error) {
-    console.error("Error fetching central warehouse:", error);
-    return null;
-  }
-
-  return data;
+  const warehouses = await warehouseDao.list({ type: "central", active: true });
+  return warehouses && warehouses.length > 0 ? warehouses[0] : null;
 }
 
 // Helper function to get warehouse by ID
 async function getWarehouseById(warehouseId) {
-  const { data, error } = await supabase
-    .from("warehouses")
-    .select("*")
-    .eq("id", warehouseId)
-    .eq("is_active", true)
-    .single();
-
-  if (error) {
-    console.error(`Error fetching warehouse ${warehouseId}:`, error);
-    return null;
-  }
-
-  return data;
+  return await warehouseDao.getById(warehouseId);
 }
 
 // Helper function to auto-distribute to zonal warehouses
@@ -1033,21 +868,13 @@ async function autoDistributeToZonalWarehouses(
 ) {
   try {
     // Get all active zonal warehouses
-    let warehouseQuery = supabase
-      .from("warehouses")
-      .select("*")
-      .eq("type", "zonal")
-      .eq("is_active", true);
+    let zonalWarehouses = await warehouseDao.list({ type: "zonal", active: true });
 
     if (specificZones.length > 0) {
-      // Filter by specific zones if provided
-      warehouseQuery = warehouseQuery.in("id", specificZones);
+      zonalWarehouses = zonalWarehouses.filter(w => specificZones.includes(w.id));
     }
 
-    const { data: zonalWarehouses, error: warehouseError } =
-      await warehouseQuery;
-
-    if (warehouseError) {
+    if (!zonalWarehouses) {
       return { success: false, error: "Failed to fetch zonal warehouses" };
     }
 
@@ -1056,20 +883,7 @@ async function autoDistributeToZonalWarehouses(
 
     for (const warehouse of zonalWarehouses) {
       // Check if product already exists in this warehouse
-      const { data: existingStock, error: checkError } = await supabase
-        .from("product_warehouse_stock")
-        .select("*")
-        .eq("product_id", productId)
-        .eq("warehouse_id", warehouse.id)
-        .single();
-
-      if (checkError && checkError.code !== "PGRST116") {
-        console.error(
-          `Error checking stock for warehouse ${warehouse.id}:`,
-          checkError
-        );
-        continue;
-      }
+      const existingStock = await productWarehouseStockDao.getByProductAndWarehouse(productId, warehouse.id);
 
       if (existingStock && !forceDistribution) {
         distributions.push({
@@ -1084,35 +898,30 @@ async function autoDistributeToZonalWarehouses(
 
       if (existingStock && forceDistribution) {
         // Update existing stock
-        const { error: updateError } = await supabase
-          .from("product_warehouse_stock")
-          .update({
-            stock_quantity: existingStock.stock_quantity + quantityPerZone,
-            last_restocked_at: new Date().toISOString(),
-          })
-          .eq("id", existingStock.id);
+        const newStock = existingStock.stock_quantity + quantityPerZone;
+        await productWarehouseStockDao.updateStock(existingStock.id, {
+          stock_quantity: newStock,
+          last_restocked_at: new Date().toISOString(),
+        });
+        distributions.push({
+          warehouse_id: warehouse.id,
+          warehouse_name: warehouse.name,
+          action: "updated",
+          added_quantity: quantityPerZone,
+          new_stock: existingStock.stock_quantity + quantityPerZone,
+        });
 
-        if (!updateError) {
-          distributions.push({
-            warehouse_id: warehouse.id,
-            warehouse_name: warehouse.name,
-            action: "updated",
-            added_quantity: quantityPerZone,
-            new_stock: existingStock.stock_quantity + quantityPerZone,
-          });
-
-          // Log stock movement
-          await logStockMovement({
-            product_id: productId,
-            warehouse_id: warehouse.id,
-            movement_type: "inbound",
-            quantity: quantityPerZone,
-            previous_stock: existingStock.stock_quantity,
-            new_stock: existingStock.stock_quantity + quantityPerZone,
-            reference_type: "zone_distribution",
-            reason: "Auto-distribution from central warehouse",
-          });
-        }
+        // Log stock movement
+        await logStockMovement({
+          product_id: productId,
+          warehouse_id: warehouse.id,
+          movement_type: "inbound",
+          quantity: quantityPerZone,
+          previous_stock: existingStock.stock_quantity,
+          new_stock: existingStock.stock_quantity + quantityPerZone,
+          reference_type: "zone_distribution",
+          reason: "Auto-distribution from central warehouse",
+        });
       } else {
         // Create new stock entry
         stockInserts.push({
@@ -1137,11 +946,9 @@ async function autoDistributeToZonalWarehouses(
 
     // Insert new stock entries in batch
     if (stockInserts.length > 0) {
-      const { error: insertError } = await supabase
-        .from("product_warehouse_stock")
-        .insert(stockInserts);
-
-      if (insertError) {
+      try {
+        await productWarehouseStockDao.createMany(stockInserts);
+      } catch (insertError) {
         console.error("Error inserting zonal stock:", insertError);
         return {
           success: false,
@@ -1174,16 +981,7 @@ async function autoDistributeToZonalWarehouses(
 // Helper function to log stock movements
 async function logStockMovement(movement) {
   try {
-    const { error } = await supabase.from("stock_movements").insert([
-      {
-        ...movement,
-        created_at: new Date().toISOString(),
-      },
-    ]);
-
-    if (error) {
-      console.error("Error logging stock movement:", error);
-    }
+    await stockMovementDao.create(movement);
   } catch (error) {
     console.error("Error in logStockMovement:", error);
   }

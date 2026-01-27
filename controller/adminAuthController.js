@@ -1,103 +1,116 @@
 import jwt from "jsonwebtoken";
 import { supabase } from "../config/supabaseClient.js";
+import AuthService from "../services/authService.js";
 
-// List of authorized admin emails
-const ADMIN_EMAILS = [
-  "bigandbestmart@gmail.com",
-  // Add more admin emails here as needed
-];
-
+/**
+ * Admin login - Uses centralized auth service with role validation
+ */
 export async function adminLogin(req, res) {
   try {
     const { email, password } = req.body;
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (error) {
-      return res.status(400).json({ success: false, error: error.message });
-    }
-
-    // Check if the user is an admin
-    const isAdmin = ADMIN_EMAILS.includes(email.toLowerCase());
-
-    if (!isAdmin) {
-      // Sign out the user if they're not an admin
-      await supabase.auth.signOut();
-      return res.status(403).json({ 
-        success: false, 
-        error: "You do not have admin privileges" 
+    // Validate required fields
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        error: "Email and password are required",
       });
     }
 
-    // Add admin role to user_metadata in the response
-    const userWithRole = {
-      ...data.user,
+    // Authenticate using centralized auth service
+    const result = await AuthService.login(email, password);
+
+    // Check if user has admin role
+    if (result.user.role !== "ADMIN") {
+      return res.status(403).json({
+        success: false,
+        error: "Admin access required. You do not have admin privileges.",
+      });
+    }
+
+    // Add user_metadata for frontend compatibility
+    const userWithMetadata = {
+      ...result.user,
       user_metadata: {
-        ...data.user.user_metadata,
-        role: "admin"
-      }
+        role: result.user.role, // Expose role in user_metadata for frontend
+      },
     };
 
     res.json({
       success: true,
-      user: userWithRole,
-      session: data.session,
+      message: "Admin logged in successfully",
+      user: userWithMetadata,
+      session: {
+        access_token: result.token,
+      },
+      token: result.token, // Keep for backward compatibility
+      refreshToken: result.refreshToken,
     });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error("Admin login error:", error);
+    res.status(401).json({
+      success: false,
+      error: error.message,
+    });
   }
 }
 
+/**
+ * Admin logout
+ */
 export async function adminLogout(req, res) {
   try {
-    const { error } = await supabase.auth.signOut();
-
-    if (error) {
-      return res.status(400).json({ success: false, error: error.message });
-    }
-
-    res.json({ success: true });
+    res.json({
+      success: true,
+      message: "Admin logged out successfully",
+    });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
   }
 }
 
+/**
+ * Get current admin user info
+ */
 export async function getAdminMe(req, res) {
   try {
-    const {
-      data: { user },
-      error,
-    } = await supabase.auth.getUser();
-
-    if (error) {
-      return res.status(400).json({ success: false, error: error.message });
-    }
-
-    // Check if the user is an admin
-    const isAdmin = ADMIN_EMAILS.includes(user.email.toLowerCase());
-
-    if (!isAdmin) {
-      return res.status(403).json({ 
-        success: false, 
-        error: "You do not have admin privileges" 
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        error: "Not authenticated",
       });
     }
 
-    // Add admin role to user_metadata in the response
-    const userWithRole = {
+    // Verify user has admin role
+    if (req.user.role !== "ADMIN") {
+      return res.status(403).json({
+        success: false,
+        error: "Admin access required",
+      });
+    }
+
+    const user = await AuthService.getUserById(req.user.id);
+
+    // Add user_metadata for frontend compatibility
+    const userWithMetadata = {
       ...user,
       user_metadata: {
-        ...user.user_metadata,
-        role: "admin"
-      }
+        role: user.role,
+      },
     };
 
-    res.json({ success: true, user: userWithRole });
+    res.json({
+      success: true,
+      user: userWithMetadata,
+    });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error("GetAdminMe error:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
   }
 }
-

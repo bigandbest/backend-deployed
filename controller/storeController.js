@@ -1,4 +1,5 @@
-import { supabase } from "../config/supabaseClient.js";
+import { uploadToCloudinary } from "../services/uploadService.js";
+import StoreDAO from "../dao/store.dao.js";
 
 // Add Store
 export async function addStore(req, res) {
@@ -9,32 +10,27 @@ export async function addStore(req, res) {
     let imageUrl = null;
 
     if (imageFile) {
-      const fileExt = imageFile.originalname.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}.${fileExt}`;
+      console.log(
+        "Uploading store image to Cloudinary:",
+        imageFile.originalname,
+      );
+      const uploadResult = await uploadToCloudinary(
+        imageFile.buffer,
+        "Store",
+        imageFile.mimetype,
+      );
 
-      const { error: uploadError } = await supabase.storage
-        .from("Store") // bucket name
-        .upload(fileName, imageFile.buffer, {
-          contentType: imageFile.mimetype,
-          upsert: true,
-        });
+      if (!uploadResult.success) {
+        return res
+          .status(400)
+          .json({ success: false, error: uploadResult.error });
+      }
 
-      if (uploadError)
-        return res.status(400).json({ success: false, error: uploadError.message });
-
-      const { data: urlData } = supabase.storage.from("Store").getPublicUrl(fileName);
-      imageUrl = urlData.publicUrl;
+      imageUrl = uploadResult.secure_url;
     }
 
-    const { data, error } = await supabase
-      .from("Store") // table name
-      .insert([{ name, link, image: imageUrl }]) // using "image" column consistently
-      .select()
-      .single();
+    const data = await StoreDAO.create({ name, link, image: imageUrl });
 
-    if (error) return res.status(400).json({ success: false, error: error.message });
     res.status(201).json({ success: true, store: data });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -51,33 +47,27 @@ export async function updateStore(req, res) {
     let updateData = { name, link };
 
     if (imageFile) {
-      const fileExt = imageFile.originalname.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}.${fileExt}`;
+      console.log(
+        "Uploading store update image to Cloudinary:",
+        imageFile.originalname,
+      );
+      const uploadResult = await uploadToCloudinary(
+        imageFile.buffer,
+        "Store",
+        imageFile.mimetype,
+      );
 
-      const { error: uploadError } = await supabase.storage
-        .from("Store")
-        .upload(fileName, imageFile.buffer, {
-          contentType: imageFile.mimetype,
-          upsert: true,
-        });
+      if (!uploadResult.success) {
+        return res
+          .status(400)
+          .json({ success: false, error: uploadResult.error });
+      }
 
-      if (uploadError)
-        return res.status(400).json({ success: false, error: uploadError.message });
-
-      const { data: urlData } = supabase.storage.from("Store").getPublicUrl(fileName);
-      updateData.image = urlData.publicUrl; // consistent column name
+      updateData.image = uploadResult.secure_url; // consistent column name
     }
 
-    const { data, error } = await supabase
-      .from("Store")
-      .update(updateData)
-      .eq("id", id)
-      .select()
-      .single();
+    const data = await StoreDAO.update(id, updateData);
 
-    if (error) return res.status(400).json({ success: false, error: error.message });
     res.json({ success: true, store: data });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -89,9 +79,8 @@ export async function deleteStore(req, res) {
   try {
     const { id } = req.params;
 
-    const { error } = await supabase.from("Store").delete().eq("id", id);
+    await StoreDAO.delete(id);
 
-    if (error) return res.status(400).json({ success: false, error: error.message });
     res.json({ success: true, message: "Store deleted successfully" });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -101,10 +90,9 @@ export async function deleteStore(req, res) {
 // View All Stores
 export async function getAllStores(req, res) {
   try {
-    const { data, error } = await supabase.from("Store").select("*");
+    const data = await StoreDAO.listAll();
 
-    if (error) return res.status(400).json({ success: false, error: error.message });
-    res.json({ success: true, stores: data });
+    res.json({ success: true, data: data });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

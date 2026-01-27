@@ -12,94 +12,94 @@ import { executeScheduledOrders } from './orderExecutor.js';
  * Execute scheduled orders
  * Runs every minute
  */
-const executeScheduledOrdersJob = cron.schedule('* * * * *', async () => {
-    try {
-        await executeScheduledOrders();
-    } catch (error) {
-        console.error('[CRON] Error in scheduled orders execution:', error);
-    }
-}, {
-    scheduled: false,
-    timezone: "UTC"
-});
+// const executeScheduledOrdersJob = cron.schedule('* * * * *', async () => {
+//     try {
+//         await executeScheduledOrders();
+//     } catch (error) {
+//         console.error('[CRON] Error in scheduled orders execution:', error);
+//     }
+// }, {
+//     scheduled: false,
+//     timezone: "UTC"
+// });
 
 /**
  * Auto-expire old enquiries
  * Runs every 5 minutes
  */
-const expireOldEnquiries = cron.schedule('*/5 * * * *', async () => {
-    try {
-        console.log('[CRON] Running expire_old_enquiries...');
-
-        const { data, error } = await supabase.rpc('expire_old_enquiries');
-
-        if (error) {
-            console.error('[CRON] Error expiring enquiries:', error);
-        } else {
-            const count = data || 0;
-            if (count > 0) {
-                console.log(`[CRON] Expired ${count} old enquiries`);
-            }
-        }
-    } catch (error) {
-        console.error('[CRON] Unexpected error in expireOldEnquiries:', error);
-    }
-}, {
-    scheduled: false // Don't start immediately
-});
+// const expireOldEnquiries = cron.schedule('*/5 * * * * ', async () => {
+// try {
+//     console.log('[CRON] Running expire_old_enquiries...');
+// 
+//     const { data, error } = await supabase.rpc('expire_old_enquiries');
+// 
+//     if (error) {
+//         console.error('[CRON] Error expiring enquiries:', error);
+//     } else {
+//         const count = data || 0;
+//         if (count > 0) {
+//             console.log(`[CRON] Expired ${count} old enquiries`);
+//         }
+//     }
+// } catch (error) {
+//     console.error('[CRON] Unexpected error in expireOldEnquiries:', error);
+// }
+// }, {
+//     scheduled: false // Don't start immediately
+// });
 
 /**
  * Auto-expire old bids
  * Runs every 5 minutes
  */
-const expireOldBids = cron.schedule('*/5 * * * *', async () => {
-    try {
-        console.log('[CRON] Running expire_old_bids...');
-
-        const { data, error } = await supabase.rpc('expire_old_bids');
-
-        if (error) {
-            console.error('[CRON] Error expiring bids:', error);
-        } else {
-            const count = data || 0;
-            if (count > 0) {
-                console.log(`[CRON] Expired ${count} old bids`);
-            }
-        }
-    } catch (error) {
-        console.error('[CRON] Unexpected error in expireOldBids:', error);
-    }
-}, {
-    scheduled: false
-});
+// const expireOldBids = cron.schedule('*/5 * * * * ', async () => {
+// try {
+//     console.log('[CRON] Running expire_old_bids...');
+// 
+//     const { data, error } = await supabase.rpc('expire_old_bids');
+// 
+//     if (error) {
+//         console.error('[CRON] Error expiring bids:', error);
+//     } else {
+//         const count = data || 0;
+//         if (count > 0) {
+//             console.log(`[CRON] Expired ${count} old bids`);
+//         }
+//     }
+// } catch (error) {
+//     console.error('[CRON] Unexpected error in expireOldBids:', error);
+// }
+// }, {
+//     scheduled: false
+// });
 
 /**
  * Release stock from expired locked bids
  * Runs every 2 minutes (more frequent due to 30-min payment deadline)
  */
-const releaseExpiredBidStock = cron.schedule('*/2 * * * *', async () => {
-    try {
-        // console.log('[CRON] Running release_expired_bid_stock...');
-
-        const { data, error } = await supabase.rpc('release_expired_bid_stock');
-
-        if (error) {
-            console.error('[CRON] Error releasing stock:', error);
-        } else {
-            const count = data || 0;
-            if (count > 0) {
-                console.log(`[CRON] Released stock from ${count} expired locked bids`);
-
-                // Also remove expired bid products from carts
-                await removeExpiredBidsFromCart();
-            }
-        }
-    } catch (error) {
-        console.error('[CRON] Unexpected error in releaseExpiredBidStock:', error);
-    }
-}, {
-    scheduled: false
-});
+// const releaseExpiredBidStock = cron.schedule('*/2 * * * * ', async () => {
+// try {
+//     // console.log('[CRON] Running release_expired_bid_stock...');
+// 
+//     const { data, error } = await supabase.rpc('release_expired_bid_stock');
+// 
+//     if (error) {
+//         console.error('[CRON] Error releasing stock:', error);
+//     } else {
+//         const count = data || 0;
+//         if (count > 0) {
+//             console.log(`[CRON] Released stock from ${count} expired locked bids`);
+// 
+//             // Also remove expired bid products from carts
+//             await removeExpiredBidsFromCart();
+//         }
+//     }
+// } catch (error) {
+//     console.error('[CRON] Unexpected error in releaseExpiredBidStock:', error);
+// }
+// }, {
+//     scheduled: false
+// });
 
 /**
  * Helper function to remove expired bid products from cart
@@ -146,8 +146,9 @@ export const startScheduledJobs = () => {
     console.log('🕐 Starting scheduled jobs...');
 
     // Start scheduled order execution
-    executeScheduledOrdersJob.start();
-    console.log('✅ Scheduled order execution job started (runs every minute)');
+    // executeScheduledOrdersJob.start();
+    // console.log('✅ Scheduled order execution job started (runs every minute)');
+    console.log('⚠️ Scheduled order execution job is currently disabled by user request');
 
     // NOTE: Bidding system cron jobs are disabled until database functions are created
     // To enable: Run the SQL script at backend-deployed/database/enquiry_bids_schema.sql in Supabase
@@ -171,10 +172,10 @@ export const startScheduledJobs = () => {
 export const stopScheduledJobs = () => {
     console.log('🛑 Stopping scheduled jobs...');
 
-    executeScheduledOrdersJob.stop();
-    expireOldEnquiries.stop();
-    expireOldBids.stop();
-    releaseExpiredBidStock.stop();
+    // executeScheduledOrdersJob.stop();
+    // expireOldEnquiries.stop();
+    // expireOldBids.stop();
+    // releaseExpiredBidStock.stop();
 
     console.log('✅ All scheduled jobs stopped');
 };

@@ -1,37 +1,25 @@
-import { supabase } from "../config/supabaseClient.js";
+import promoBannerDao from "../dao/promo-banner.dao.js";
 
 // Get all promo banners
 export const getAllPromoBanners = async (req, res) => {
   try {
     console.log('Fetching promo banners...');
-    
-    const { data, error } = await supabase
-      .from("promo_banners")
-      .select("*")
-      .eq("active", true)
-      .order("display_order", { ascending: true });
 
-    if (error) {
-      console.error('Supabase error:', error);
-      return res.status(500).json({ 
-        success: false,
-        error: error.message 
-      });
-    }
+    const banners = await promoBannerDao.list({ active: true });
 
-    console.log('Banners fetched successfully:', data?.length || 0);
-    
+    console.log('Banners fetched successfully:', banners?.length || 0);
+
     res.status(200).json({
       success: true,
-      banners: data || [],
-      count: data?.length || 0
+      banners: banners || [],
+      count: banners?.length || 0
     });
   } catch (error) {
     console.error('Server error in getAllPromoBanners:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: "Internal server error",
-      details: error.message 
+      details: error.message
     });
   }
 };
@@ -53,30 +41,23 @@ export const addPromoBanner = async (req, res) => {
       display_order
     } = req.body;
 
-    const { data, error } = await supabase
-      .from("promo_banners")
-      .insert({
-        title,
-        subtitle,
-        discount,
-        description,
-        button_text: button_text || 'SHOP NOW',
-        bg_color: bg_color || 'from-indigo-600 via-purple-600 to-pink-600',
-        accent_color: accent_color || 'from-pink-400 to-rose-400',
-        icon: icon || '💪',
-        category,
-        link,
-        display_order: display_order || 0
-      })
-      .select();
-
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
+    const banner = await promoBannerDao.create({
+      title,
+      subtitle,
+      discount,
+      description,
+      button_text: button_text || 'SHOP NOW',
+      bg_color: bg_color || 'from-indigo-600 via-purple-600 to-pink-600',
+      accent_color: accent_color || 'from-pink-400 to-rose-400',
+      icon: icon || '💪',
+      category,
+      link,
+      display_order: display_order || 0
+    });
 
     res.status(201).json({
       success: true,
-      banner: data[0],
+      banner,
     });
   } catch (error) {
     res.status(500).json({ error: "Internal server error" });
@@ -89,19 +70,11 @@ export const updatePromoBanner = async (req, res) => {
     const { id } = req.params;
     const updateData = req.body;
 
-    const { data, error } = await supabase
-      .from("promo_banners")
-      .update({ ...updateData, updated_at: new Date() })
-      .eq("id", id)
-      .select();
-
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
+    const banner = await promoBannerDao.update(id, updateData);
 
     res.status(200).json({
       success: true,
-      banner: data[0],
+      banner,
     });
   } catch (error) {
     res.status(500).json({ error: "Internal server error" });
@@ -113,14 +86,7 @@ export const deletePromoBanner = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const { error } = await supabase
-      .from("promo_banners")
-      .delete()
-      .eq("id", id);
-
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
+    await promoBannerDao.delete(id);
 
     res.status(200).json({
       success: true,
@@ -137,19 +103,11 @@ export const togglePromoBannerStatus = async (req, res) => {
     const { id } = req.params;
     const { active } = req.body;
 
-    const { data, error } = await supabase
-      .from("promo_banners")
-      .update({ active, updated_at: new Date() })
-      .eq("id", id)
-      .select();
-
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
+    const banner = await promoBannerDao.update(id, { active });
 
     res.status(200).json({
       success: true,
-      banner: data[0],
+      banner,
     });
   } catch (error) {
     res.status(500).json({ error: "Internal server error" });

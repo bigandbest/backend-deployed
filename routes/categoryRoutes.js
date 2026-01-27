@@ -12,6 +12,7 @@ import {
   addCategory,
   updateCategory,
   deleteCategory,
+  getAllCategories,
   addSubcategory,
   updateSubcategory,
   deleteSubcategory,
@@ -24,6 +25,7 @@ const router = express.Router();
 const upload = multer();
 
 // Category routes
+router.get("/", getAllCategories);
 router.post("/", upload.single("image_url"), addCategory);
 router.put("/:id", upload.single("image_url"), updateCategory);
 router.delete("/:id", deleteCategory);

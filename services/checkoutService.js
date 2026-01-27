@@ -4,7 +4,7 @@
 import { supabase } from "../config/supabaseClient.js";
 import { WalletCheckoutService } from "./walletService.js";
 import { executeWalletTransaction } from "../controller/walletController.js";
-import { createNotificationHelper } from "../controller/NotificationHelpers.js";
+// import { createNotificationHelper } from "../controller/NotificationHelpers.js";
 
 /**
  * Enhanced order creation that supports wallet + Razorpay mixed payments
@@ -137,9 +137,10 @@ export const createEnhancedOrder = async (orderData) => {
       use_wallet && externalPaymentAmount === 0
         ? "Paid via wallet"
         : use_wallet && finalWalletAmount > 0
-        ? `Wallet: ₹${finalWalletAmount}, Card: ₹${externalPaymentAmount}`
-        : `Paid via ${payment_method}`;
+          ? `Wallet: ₹${finalWalletAmount}, Card: ₹${externalPaymentAmount}`
+          : `Paid via ${payment_method}`;
 
+    /*
     await createNotificationHelper(
       user_id,
       "Order Placed Successfully",
@@ -148,6 +149,7 @@ export const createEnhancedOrder = async (orderData) => {
       order.id,
       "user"
     );
+    */
 
     return {
       success: true,

@@ -1,17 +1,12 @@
-import { supabase } from "../config/supabaseClient.js";
+import ChargeSettingDAO from "../dao/charge-setting.dao.js";
 
 /**
  * Get charge settings (singleton - always returns one row)
  */
 export const getChargeSettings = async (req, res) => {
-    try {
-        const { data, error } = await supabase
-            .from("charge_settings")
-            .select("*")
-            .eq("id", 1)
-            .single();
 
-        if (error) throw error;
+    try {
+        const data = await ChargeSettingDAO.get();
 
         // If no settings exist, return defaults
         if (!data) {
@@ -88,21 +83,10 @@ export const updateChargeSettings = async (req, res) => {
         if (platform_charge !== undefined) updateData.platform_charge = platform_charge;
 
         // Update or insert (upsert)
-        const { data, error } = await supabase
-            .from("charge_settings")
-            .upsert(
-                {
-                    id: 1,
-                    ...updateData,
-                },
-                {
-                    onConflict: "id",
-                }
-            )
-            .select()
-            .single();
+        // Update or insert (upsert) using DAO
+        const data = await ChargeSettingDAO.update(updateData);
 
-        if (error) throw error;
+
 
         res.status(200).json({
             success: true,

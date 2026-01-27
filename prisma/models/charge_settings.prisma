@@ -1,0 +1,8 @@
+model charge_settings {
+  id              Int      @id @default(1)
+  handling_charge Decimal  @default(0) @db.Decimal
+  surge_charge    Decimal  @default(0) @db.Decimal
+  discount_charge Decimal  @default(0) @db.Decimal
+  platform_charge Decimal  @default(0) @db.Decimal
+  updated_at      DateTime? @default(now()) @db.Timestamptz
+}

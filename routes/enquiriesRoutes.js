@@ -7,25 +7,38 @@ import {
   getAllEnquiries,
   updateEnquiryStatus,
   closeEnquiry,
+  getEnquiriesCount,
+  sendMessage,
+  getMessages,
+  markAsRead,
+  getUnreadCount
 } from "../controller/enquiryController.js";
-import { getEnquiriesCount } from "../controller/enquiriesController.js";
 
 const router = express.Router();
 
+// --- Product Enquiry Routes ---
+
 // User routes
-router.post("/", createEnquiry); // Create new enquiry
-router.get("/my", getUserEnquiries); // Get user's enquiries
+router.post("/", createEnquiry);
+router.get("/my", getUserEnquiries);
 
-// Admin routes (must come before /:id to avoid matching "admin" as an id)
-router.get("/admin/all", getAllEnquiries); // Get all enquiries (admin)
+// Admin routes
+router.get("/admin/all", getAllEnquiries);
 
-// Legacy route (keep for backward compatibility)
+// Legacy route
 router.get("/count", getEnquiriesCount);
 
-// Parameterized routes (must come after specific routes)
-router.get("/:id", getEnquiryDetails); // Get enquiry details
-router.post("/:id/accept-bid", acceptBid); // Accept a bid
-router.put("/:id/status", updateEnquiryStatus); // Update enquiry status
-router.post("/:id/close", closeEnquiry); // Close enquiry
+// Parameterized routes
+router.get("/:id", getEnquiryDetails);
+router.post("/:id/accept-bid", acceptBid);
+router.put("/:id/status", updateEnquiryStatus);
+router.post("/:id/close", closeEnquiry);
+
+// --- Enquiry Message Routes ---
+
+router.post("/messages", sendMessage);
+router.get("/:enquiry_id/messages", getMessages);
+router.put("/:enquiry_id/messages/read", markAsRead);
+router.get("/:enquiry_id/messages/unread-count", getUnreadCount);
 
 export default router;

@@ -1,0 +1,9 @@
+model about_us_content {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  banner_image_url String?
+  title            String?   @default("About Our Company") @db.VarChar
+  subtitle         String?   @default("About Big&Best") @db.VarChar
+  heading          String?   @default("Big&Best Mart") @db.VarChar
+  content          String?
+  updated_at       DateTime? @default(now()) @db.Timestamptz
+}

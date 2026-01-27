@@ -8,33 +8,32 @@ import {
   deleteUniqueSection,
   getAllUniqueSections,
   getSingleUniqueSection,
-  getUniqueSectionsByType
-} from '../controller/uniqueSectionController.js'; // Adjust path as needed
+  getUniqueSectionsByType,
+  mapProductToUniqueSection,
+  removeProductFromUniqueSection,
+  getUniqueSectionsForProduct,
+  getProductsForUniqueSection,
+  bulkMapUniqueSectionByNames
+} from '../controller/uniqueSectionController.js';
 
 const router = express.Router();
-// Configure multer to store files in memory for processing before uploading to Supabase
+// Configure multer to store files in memory for processing
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
 // === Unique Section Routes ===
-
-// GET all unique sections
-router.get("/list", getAllUniqueSections); // add in supabaseApi
-
-// GET a single unique section by ID
+router.get("/list", getAllUniqueSections);
 router.get("/:id", getSingleUniqueSection);
-
-// POST a new unique section (requires file upload for image)
-// 'image' is the field name expected in the form-data
 router.post("/", upload.single("image_url"), addUniqueSection);
-
-// PUT/PATCH to edit an existing unique section by ID (optional file upload)
-// 'image' is the field name expected in the form-data
 router.put("/:id", upload.single("image_url"), editUniqueSection);
-
-// DELETE a unique section by ID
 router.delete("/:id", deleteUniqueSection);
-
 router.get("/type/:section_type", getUniqueSectionsByType);
+
+// === Unique Section Product Mapping Routes (Merged) ===
+router.post('/map', mapProductToUniqueSection);
+router.delete('/remove', removeProductFromUniqueSection);
+router.get('/product/:product_id', getUniqueSectionsForProduct);
+router.get('/section/:unique_section_id', getProductsForUniqueSection);
+router.post('/bulk-map-by-names', bulkMapUniqueSectionByNames);
 
 export default router;

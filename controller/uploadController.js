@@ -1,4 +1,4 @@
-import { supabase } from "../config/supabaseClient.js";
+import { uploadToCloudinary } from "../services/uploadService.js";
 import multer from "multer";
 import { v4 as uuidv4 } from "uuid";
 
@@ -20,7 +20,7 @@ const upload = multer({
   },
 });
 
-// Upload image to Supabase Storage
+// Upload image to Cloudinary
 export const uploadImage = async (req, res) => {
   try {
     if (!req.file) {
@@ -40,100 +40,28 @@ export const uploadImage = async (req, res) => {
       });
     }
 
-    // Generate unique filename
-    const fileExtension = file.originalname.split(".").pop();
-    const fileName = `${Date.now()}_${uuidv4().substring(
-      0,
-      8
-    )}.${fileExtension}`;
-    const filePath = `variant-images/${fileName}`;
+    console.log("Uploading file to Cloudinary:", file.originalname);
 
-    console.log("Uploading file:", fileName, "to bucket: product-images");
+    // Upload to Cloudinary using the service
+    const result = await uploadToCloudinary(
+      file.buffer,
+      "product-images", // Using 'product-images' folder in Cloudinary
+      file.mimetype,
+    );
 
-    // Upload to Supabase Storage
-    const { data, error } = await supabase.storage
-      .from("product-images")
-      .upload(filePath, file.buffer, {
-        contentType: file.mimetype,
-        upsert: false,
-        cacheControl: "3600",
-      });
-
-    if (error) {
-      console.error("Supabase upload error:", error);
-
-      // If bucket doesn't exist, try to create it
-      if (error.message?.includes("Bucket not found")) {
-        console.log("Attempting to create product-images bucket...");
-
-        const { error: createError } = await supabase.storage.createBucket(
-          "product-images",
-          {
-            public: true,
-            allowedMimeTypes: [
-              "image/png",
-              "image/jpeg",
-              "image/jpg",
-              "image/webp",
-            ],
-            fileSizeLimit: 5242880, // 5MB
-          }
-        );
-
-        if (createError && !createError.message?.includes("already exists")) {
-          console.error("Failed to create bucket:", createError);
-          return res.status(500).json({
-            success: false,
-            message: "Storage bucket not available and failed to create",
-            error: createError.message,
-          });
-        }
-
-        console.log("Bucket created, retrying upload...");
-
-        // Retry upload after creating bucket
-        const { data: retryData, error: retryError } = await supabase.storage
-          .from("product-images")
-          .upload(filePath, file.buffer, {
-            contentType: file.mimetype,
-            upsert: false,
-            cacheControl: "3600",
-          });
-
-        if (retryError) {
-          console.error("Retry upload failed:", retryError);
-          return res.status(500).json({
-            success: false,
-            message: "Failed to upload image after bucket creation",
-            error: retryError.message,
-          });
-        }
-      } else {
-        return res.status(500).json({
-          success: false,
-          message: "Failed to upload image to storage",
-          error: error.message,
-        });
-      }
-    }
-
-    // Get public URL
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from("product-images").getPublicUrl(filePath);
-
-    if (!publicUrl) {
+    if (!result.success) {
       return res.status(500).json({
         success: false,
-        message: "Failed to generate public URL",
+        message: "Failed to upload image to Cloudinary",
+        error: result.error,
       });
     }
 
     res.status(200).json({
       success: true,
       message: "Image uploaded successfully",
-      imageUrl: publicUrl,
-      fileName: fileName,
+      imageUrl: result.secure_url,
+      fileName: result.public_id, // Using public_id as fileName
       fileSize: file.size,
     });
   } catch (error) {

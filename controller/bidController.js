@@ -1,5 +1,12 @@
 // controllers/bidController.js
-import { supabase } from "../config/supabaseClient.js";
+import EnquiryBidDAO from "../dao/enquiry-bid.dao.js";
+import EnquiryDAO from "../dao/enquiry.dao.js";
+import EnquiryMessageDAO from "../dao/enquiry-message.dao.js";
+import UserDAO from "../dao/user.dao.js";
+import ProductDAO from "../dao/product.dao.js";
+import BidProductDAO from "../dao/bid-product.dao.js";
+import LockedBidDAO from "../dao/locked-bid.dao.js";
+import CartDAO from "../dao/cart.dao.js";
 
 /**
  * Create a new bid offer (Admin only)
@@ -24,14 +31,10 @@ export const createBid = async (req, res) => {
       });
     }
 
-    // Verify enquiry exists and is in valid status
-    const { data: enquiry, error: enquiryError } = await supabase
-      .from("product_enquiries")
-      .select("*")
-      .eq("id", enquiry_id)
-      .single();
+    // Verify enquiry exists and is in valid status using DAO
+    const enquiry = await EnquiryDAO.getEnquiryById(enquiry_id);
 
-    if (enquiryError || !enquiry) {
+    if (!enquiry) {
       return res.status(404).json({
         success: false,
         error: "Enquiry not found",
@@ -56,45 +59,27 @@ export const createBid = async (req, res) => {
       quantity = products[0].quantity;
     }
 
-    // Create bid
-    const { data: bid, error: bidError } = await supabase
-      .from("enquiry_bids")
-      .insert([
-        {
-          enquiry_id,
-          bid_type,
-          base_price,
-          quantity,
-          validity_hours,
-          terms: terms || null,
-          notes: notes || null,
-          created_by: created_by || null,
-          status: "ACTIVE",
-        },
-      ])
-      .select()
-      .single();
+    // Create bid using DAO
+    const bid = await EnquiryBidDAO.create({
+      enquiry_id: enquiry_id,
+      bid_type,
+      base_price,
+      quantity,
+      validity_hours,
+      terms: terms || null,
+      notes: notes || null,
+      created_by: created_by || null,
+      status: "ACTIVE",
+    });
 
-    if (bidError) {
-      console.error("Error creating bid:", bidError);
-      return res.status(500).json({
-        success: false,
-        error: bidError.message,
-      });
-    }
-
-    // Create bid products
+    // Create bid products using DAO
     const bidProducts = [];
     for (const product of products) {
-      // Get product details
-      const { data: productData, error: productError } = await supabase
-        .from("products")
-        .select("name, gst_percentage")
-        .eq("id", product.product_id)
-        .single();
+      // Get product details using DAO
+      const productData = await ProductDAO.getProductById(product.product_id);
 
-      if (productError) {
-        console.error("Error fetching product:", productError);
+      if (!productData) {
+        console.error(`Product not found: ${product.product_id}`);
         continue;
       }
 
@@ -113,35 +98,23 @@ export const createBid = async (req, res) => {
       });
     }
 
-    const { error: productsError } = await supabase
-      .from("bid_products")
-      .insert(bidProducts);
+    await BidProductDAO.createBulk(bidProducts);
 
-    if (productsError) {
-      console.error("Error creating bid products:", productsError);
-      // Rollback bid creation
-      await supabase.from("enquiry_bids").delete().eq("id", bid.id);
-      return res.status(500).json({
-        success: false,
-        error: "Failed to create bid products",
-      });
-    }
-
-    // Send notification to user
-    await supabase.from("notifications").insert({
+    // Send notification to user using DAO
+    await UserDAO.createNotification({
       user_id: enquiry.user_id,
       type: "user",
       title: "New Bid Offer",
       message: `You have received a new bid offer for your enquiry`,
       related_type: "bid",
       related_id: bid.id,
-      read: false,
+      is_read: false,
     });
 
-    // Create message in chat
+    // Create message in chat using DAO
     const totalAmount = bidProducts.reduce((sum, p) => sum + p.total_price, 0);
-    await supabase.from("enquiry_messages").insert({
-      enquiry_id,
+    await EnquiryMessageDAO.create({
+      enquiry_id: parseInt(enquiry_id),
       sender_type: "ADMIN",
       sender_id: created_by || enquiry.user_id,
       sender_name: "Admin",
@@ -174,19 +147,10 @@ export const lockBid = async (req, res) => {
     const { id } = req.params; // bid_id
     const { admin_id } = req.body;
 
-    // Get bid details
-    const { data: bid, error: bidError } = await supabase
-      .from("enquiry_bids")
-      .select(
-        `
-        *,
-        product_enquiries!inner(user_id, status)
-      `
-      )
-      .eq("id", id)
-      .single();
+    // Get bid details using DAO
+    const bid = await EnquiryBidDAO.getById(id);
 
-    if (bidError || !bid) {
+    if (!bid) {
       return res.status(404).json({
         success: false,
         error: "Bid not found",
@@ -203,20 +167,15 @@ export const lockBid = async (req, res) => {
 
     // Check if bid has expired
     if (new Date(bid.expires_at) < new Date()) {
-      await supabase.from("enquiry_bids").update({ status: "EXPIRED" }).eq("id", id);
+      await EnquiryBidDAO.updateStatus(id, "EXPIRED");
       return res.status(400).json({
         success: false,
         error: "Bid has expired",
       });
     }
 
-    // Check if user already has an active locked bid
-    const { data: existingLockedBid } = await supabase
-      .from("locked_bids")
-      .select("id")
-      .eq("user_id", bid.product_enquiries.user_id)
-      .eq("status", "PENDING_PAYMENT")
-      .single();
+    // Check if user already has an active locked bid using DAO
+    const existingLockedBid = await LockedBidDAO.getActiveByUser(bid.enquiry.user_id);
 
     if (existingLockedBid) {
       return res.status(400).json({
@@ -225,13 +184,10 @@ export const lockBid = async (req, res) => {
       });
     }
 
-    // Get bid products
-    const { data: bidProducts, error: productsError } = await supabase
-      .from("bid_products")
-      .select("*")
-      .eq("bid_id", id);
+    // Get bid products using DAO
+    const bidProducts = await BidProductDAO.listByBidId(id);
 
-    if (productsError || !bidProducts || bidProducts.length === 0) {
+    if (!bidProducts || bidProducts.length === 0) {
       return res.status(500).json({
         success: false,
         error: "Failed to fetch bid products",
@@ -241,14 +197,10 @@ export const lockBid = async (req, res) => {
     // Reserve stock for all products
     let stockReserved = true;
     for (const product of bidProducts) {
-      // Check stock availability
-      const { data: productData, error: stockError } = await supabase
-        .from("products")
-        .select("stock_quantity")
-        .eq("id", product.product_id)
-        .single();
+      // Check stock availability using ProductDAO
+      const productData = await ProductDAO.getProductById(product.product_id);
 
-      if (stockError || !productData) {
+      if (!productData) {
         stockReserved = false;
         break;
       }
@@ -260,50 +212,32 @@ export const lockBid = async (req, res) => {
         });
       }
 
-      // Reserve stock (reduce from available)
-      const { error: updateError } = await supabase
-        .from("products")
-        .update({
-          stock_quantity: productData.stock_quantity - product.quantity,
-        })
-        .eq("id", product.product_id);
+      // Reserve stock (reduce from available) using ProductDAO
+      await ProductDAO.updateProduct(product.product_id, {
+        stock_quantity: productData.stock_quantity - product.quantity,
+      });
 
-      if (updateError) {
-        console.error("Error reserving stock:", updateError);
-        stockReserved = false;
-        break;
-      }
-
-      // If variant exists, reserve variant stock too
+      // If variant exists, reserve variant stock too using ProductDAO
       if (product.variant_id) {
-        const { data: variantData } = await supabase
-          .from("product_variants")
-          .select("stock_quantity")
-          .eq("id", product.variant_id)
-          .single();
+        const variants = await ProductDAO.getVariantsByProductId(product.product_id);
+        const variant = variants.find(v => v.id === product.variant_id);
 
-        if (variantData && variantData.stock_quantity >= product.quantity) {
-          await supabase
-            .from("product_variants")
-            .update({
-              stock_quantity: variantData.stock_quantity - product.quantity,
-            })
-            .eq("id", product.variant_id);
+        if (variant && variant.stock_quantity >= product.quantity) {
+          await ProductDAO.updateVariant(product.variant_id, {
+            stock_quantity: variant.stock_quantity - product.quantity,
+          });
         }
       }
     }
 
-    // Calculate pricing using database function
-    const { data: pricingData, error: pricingError } = await supabase.rpc(
-      "calculate_bid_gst",
-      { p_bid_id: id }
-    );
+    // Calculate pricing using DAO method (which calls RPC)
+    const pricingData = await EnquiryBidDAO.calculateGST(id);
 
     let subtotal = 0;
     let gst_amount = 0;
     let final_amount = 0;
 
-    if (pricingError || !pricingData || pricingData.length === 0) {
+    if (!pricingData || pricingData.length === 0) {
       // Fallback calculation
       subtotal = bidProducts.reduce((sum, p) => sum + parseFloat(p.total_price), 0);
       gst_amount = bidProducts.reduce(
@@ -318,76 +252,41 @@ export const lockBid = async (req, res) => {
       final_amount = parseFloat(pricingData[0].final_amount);
     }
 
-    // Create locked bid (30 minutes payment deadline)
+    // Create locked bid (30 minutes payment deadline) using DAO
     const payment_deadline = new Date();
     payment_deadline.setMinutes(payment_deadline.getMinutes() + 30);
 
-    const { data: lockedBid, error: lockedBidError } = await supabase
-      .from("locked_bids")
-      .insert([
-        {
-          bid_id: id,
-          enquiry_id: bid.enquiry_id,
-          user_id: bid.product_enquiries.user_id,
-          subtotal,
-          gst_amount,
-          final_amount,
-          stock_reserved: stockReserved,
-          stock_reserved_at: new Date().toISOString(),
-          payment_deadline: payment_deadline.toISOString(),
-          status: "PENDING_PAYMENT",
-        },
-      ])
-      .select()
-      .single();
+    const lockedBid = await LockedBidDAO.create({
+      bid_id: id,
+      enquiry_id: bid.enquiry_id,
+      user_id: bid.enquiry.user_id,
+      subtotal,
+      gst_amount,
+      final_amount,
+      stock_reserved: stockReserved,
+      stock_reserved_at: new Date().toISOString(),
+      payment_deadline: payment_deadline.toISOString(),
+      status: "PENDING_PAYMENT",
+    });
 
-    if (lockedBidError) {
-      console.error("Error creating locked bid:", lockedBidError);
-      // Rollback stock reservation
-      for (const product of bidProducts) {
-        await supabase.rpc("increment", {
-          table_name: "products",
-          column_name: "stock_quantity",
-          row_id: product.product_id,
-          increment_value: product.quantity,
-        });
-      }
-      return res.status(500).json({
-        success: false,
-        error: "Failed to lock bid",
+    // Update bid status to LOCKED using DAO
+    await EnquiryBidDAO.updateStatus(id, "LOCKED");
+
+    // Update enquiry status to LOCKED using DAO
+    await EnquiryDAO.updateEnquiry(bid.enquiry_id, { status: "LOCKED" });
+
+    // Add bid products to user's cart using DAO
+    for (const product of bidProducts) {
+      await CartDAO.addToCart(bid.enquiry.user_id, product.variant_id || null, product.quantity, {
+        isBidProduct: true,
+        lockedBidId: lockedBid.id,
+        bidUnitPrice: product.unit_price
       });
     }
 
-    // Update bid status to LOCKED
-    await supabase.from("enquiry_bids").update({ status: "LOCKED" }).eq("id", id);
-
-    // Update enquiry status to LOCKED
-    await supabase
-      .from("product_enquiries")
-      .update({ status: "LOCKED" })
-      .eq("id", bid.enquiry_id);
-
-    // Add bid products to user's cart
-    const cartItems = bidProducts.map((product) => ({
-      user_id: bid.product_enquiries.user_id,
-      product_id: product.product_id,
-      variant_id: product.variant_id,
-      quantity: product.quantity,
-      is_bid_product: true,
-      locked_bid_id: lockedBid.id,
-      bid_unit_price: product.unit_price,
-    }));
-
-    const { error: cartError } = await supabase.from("cart_items").insert(cartItems);
-
-    if (cartError) {
-      console.error("Error adding to cart:", cartError);
-      // Don't fail the entire operation for cart error
-    }
-
-    // Send notification to user
-    await supabase.from("notifications").insert({
-      user_id: bid.product_enquiries.user_id,
+    // Send notification to user using DAO
+    await UserDAO.createNotification({
+      user_id: bid.enquiry.user_id,
       type: "user",
       title: "Bid Locked - Ready for Payment",
       message: `Your bid has been locked. Complete payment within 30 minutes. Total: ₹${final_amount.toFixed(
@@ -395,14 +294,14 @@ export const lockBid = async (req, res) => {
       )}`,
       related_type: "locked_bid",
       related_id: lockedBid.id,
-      read: false,
+      is_read: false,
     });
 
-    // Create message in chat
-    await supabase.from("enquiry_messages").insert({
+    // Create message in chat using DAO
+    await EnquiryMessageDAO.create({
       enquiry_id: bid.enquiry_id,
       sender_type: "ADMIN",
-      sender_id: admin_id || bid.product_enquiries.user_id,
+      sender_id: admin_id || bid.enquiry.user_id,
       sender_name: "Admin",
       message: `Bid locked! Products added to your cart. Please complete payment within 30 minutes. Total: ₹${final_amount.toFixed(
         2
@@ -431,28 +330,25 @@ export const getBidDetails = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const { data: bid, error: bidError } = await supabase
-      .from("enquiry_bids")
-      .select(
-        `
-        *,
-        bid_products (*),
-        product_enquiries (*)
-      `
-      )
-      .eq("id", id)
-      .single();
+    // Get bid using DAO
+    const bid = await EnquiryBidDAO.getById(id);
 
-    if (bidError || !bid) {
+    if (!bid) {
       return res.status(404).json({
         success: false,
         error: "Bid not found",
       });
     }
 
+    // Fetch bid products using DAO
+    const products = await BidProductDAO.listByBidId(id);
+
     return res.json({
       success: true,
-      bid,
+      bid: {
+        ...bid,
+        products: products || [],
+      },
     });
   } catch (error) {
     console.error("Unexpected error in getBidDetails:", error);
@@ -472,18 +368,10 @@ export const validateBid = async (req, res) => {
     const { id } = req.params; // locked_bid_id
     const { user_id } = req.query;
 
-    const { data: lockedBid, error: bidError } = await supabase
-      .from("locked_bids")
-      .select(
-        `
-        *,
-        enquiry_bids!inner(status, expires_at)
-      `
-      )
-      .eq("id", id)
-      .single();
+    // Get locked bid using DAO
+    const lockedBid = await LockedBidDAO.getById(id);
 
-    if (bidError || !lockedBid) {
+    if (!lockedBid) {
       return res.status(404).json({
         success: false,
         valid: false,
@@ -502,10 +390,7 @@ export const validateBid = async (req, res) => {
 
     // Check if bid has expired
     if (new Date(lockedBid.payment_deadline) < new Date()) {
-      await supabase
-        .from("locked_bids")
-        .update({ status: "EXPIRED" })
-        .eq("id", id);
+      await LockedBidDAO.updateStatus(id, "EXPIRED");
 
       return res.json({
         success: true,
@@ -556,14 +441,10 @@ export const cancelLockedBid = async (req, res) => {
     const { id } = req.params; // locked_bid_id
     const { user_id, reason } = req.body;
 
-    // Get locked bid
-    const { data: lockedBid, error: bidError } = await supabase
-      .from("locked_bids")
-      .select("*, bid_products:enquiry_bids!inner(bid_products(*))")
-      .eq("id", id)
-      .single();
+    // Get locked bid using DAO
+    const lockedBid = await LockedBidDAO.getById(id);
 
-    if (bidError || !lockedBid) {
+    if (!lockedBid) {
       return res.status(404).json({
         success: false,
         error: "Locked bid not found",
@@ -587,34 +468,32 @@ export const cancelLockedBid = async (req, res) => {
     }
 
     // Release stock
-    const { data: bidProducts } = await supabase
-      .from("bid_products")
-      .select("*")
-      .eq("bid_id", lockedBid.bid_id);
+    const bidProducts = await BidProductDAO.listByBidId(lockedBid.bid_id);
 
     if (bidProducts && lockedBid.stock_reserved) {
       for (const product of bidProducts) {
-        await supabase
-          .from("products")
-          .update({
-            stock_quantity: supabase.raw(`stock_quantity + ${product.quantity}`),
-          })
-          .eq("id", product.product_id);
+        // Use ProductDAO to update stock
+        const pData = await ProductDAO.getProductById(product.product_id);
+        if (pData) {
+          await ProductDAO.updateProduct(product.product_id, {
+            stock_quantity: pData.stock_quantity + product.quantity
+          });
+        }
       }
     }
 
-    // Update locked bid status
-    await supabase
-      .from("locked_bids")
-      .update({
-        status: "CANCELLED",
-        cancelled_reason: reason || "Cancelled by user",
-        cancelled_by: "USER",
-      })
-      .eq("id", id);
+    // Update locked bid status using DAO
+    await LockedBidDAO.updateStatus(id, "CANCELLED", {
+      cancelled_reason: reason || "Cancelled by user",
+      cancelled_by: "USER"
+    });
 
-    // Remove from cart
-    await supabase.from("cart_items").delete().eq("locked_bid_id", id);
+    // Remove from cart using DAO
+    await CartDAO.removeByLockedBid(id);
+
+    // Reopen bid and enquiry using DAOs
+    await EnquiryBidDAO.updateStatus(lockedBid.bid_id, "ACCEPTED");
+    await EnquiryDAO.updateEnquiry(lockedBid.enquiry_id, { status: "NEGOTIATING" });
 
     return res.json({
       success: true,
@@ -638,47 +517,31 @@ export const rejectBid = async (req, res) => {
     const { id } = req.params; // bid_id
     const { reason } = req.body;
 
-    // Get bid
-    const { data: bid, error: bidError } = await supabase
-      .from("enquiry_bids")
-      .select("*, product_enquiries!inner(user_id)")
-      .eq("id", id)
-      .single();
+    // Update bid status using DAO
+    const bid = await EnquiryBidDAO.updateStatus(id, "REJECTED");
 
-    if (bidError || !bid) {
+    if (!bid) {
       return res.status(404).json({
         success: false,
         error: "Bid not found",
       });
     }
 
-    // Can only reject if ACTIVE or ACCEPTED
-    if (!["ACTIVE", "ACCEPTED"].includes(bid.status)) {
-      return res.status(400).json({
-        success: false,
-        error: "Can only reject active or accepted bids",
+    // Get enquiry details for notification using DAO
+    const enquiry = await EnquiryDAO.getEnquiryById(bid.enquiry_id);
+
+    // Notify user using DAO
+    if (enquiry) {
+      await UserDAO.createNotification({
+        user_id: enquiry.user_id,
+        type: "user",
+        title: "Bid Rejected",
+        message: reason || "Your bid has been rejected by admin",
+        related_type: "bid",
+        related_id: id,
+        is_read: false,
       });
     }
-
-    // Update bid status
-    await supabase
-      .from("enquiry_bids")
-      .update({
-        status: "REJECTED",
-        notes: reason || "Rejected by admin"
-      })
-      .eq("id", id);
-
-    // Notify user
-    await supabase.from("notifications").insert({
-      user_id: bid.product_enquiries.user_id,
-      type: "user",
-      title: "Bid Rejected",
-      message: reason || "Your bid has been rejected by admin",
-      related_type: "bid",
-      related_id: id,
-      read: false,
-    });
 
     return res.json({
       success: true,
@@ -702,14 +565,10 @@ export const updateBid = async (req, res) => {
     const { id } = req.params; // bid_id
     const { products, validity_hours, terms, notes } = req.body;
 
-    // Get bid
-    const { data: bid, error: bidError } = await supabase
-      .from("enquiry_bids")
-      .select("*")
-      .eq("id", id)
-      .single();
+    // Get bid using DAO
+    const bid = await EnquiryBidDAO.getById(id);
 
-    if (bidError || !bid) {
+    if (!bid) {
       return res.status(404).json({
         success: false,
         error: "Bid not found",
@@ -724,35 +583,25 @@ export const updateBid = async (req, res) => {
       });
     }
 
-    // Update bid details
+    // Update bid details using DAO
     const updateData = {};
-    if (validity_hours) updateData.validity_hours = validity_hours;
+    if (validity_hours) updateData.validity_hours = parseInt(validity_hours);
     if (terms) updateData.terms = terms;
     if (notes) updateData.notes = notes;
 
     if (Object.keys(updateData).length > 0) {
-      await supabase
-        .from("enquiry_bids")
-        .update(updateData)
-        .eq("id", id);
+      await EnquiryBidDAO.update(id, updateData);
     }
 
-    // Update products if provided
+    // Update products if provided using DAO
     if (products && products.length > 0) {
       // Delete existing products
-      await supabase
-        .from("bid_products")
-        .delete()
-        .eq("bid_id", id);
+      await BidProductDAO.deleteByBidId(id);
 
       // Insert new products
       const bidProducts = [];
       for (const product of products) {
-        const { data: productData } = await supabase
-          .from("products")
-          .select("name, gst_percentage")
-          .eq("id", product.product_id)
-          .single();
+        const productData = await ProductDAO.getProductById(product.product_id);
 
         if (productData) {
           bidProducts.push({
@@ -768,9 +617,9 @@ export const updateBid = async (req, res) => {
         }
       }
 
-      await supabase.from("bid_products").insert(bidProducts);
+      await BidProductDAO.createBulk(bidProducts);
 
-      // Update bid type and pricing
+      // Update bid type and pricing using DAO
       const bid_type = bidProducts.length === 1 ? "SINGLE_PRODUCT" : "MULTI_PRODUCT";
       const base_price = bid_type === "SINGLE_PRODUCT"
         ? bidProducts[0].total_price
@@ -779,10 +628,11 @@ export const updateBid = async (req, res) => {
         ? bidProducts[0].quantity
         : null;
 
-      await supabase
-        .from("enquiry_bids")
-        .update({ bid_type, base_price, quantity })
-        .eq("id", id);
+      await EnquiryBidDAO.update(id, {
+        bid_type,
+        base_price,
+        quantity
+      });
     }
 
     return res.json({

@@ -439,6 +439,10 @@ export const executeScheduledOrder = async (orderId, workerId = WORKER_ID) => {
  */
 export const executeScheduledOrders = async () => {
     try {
+        // KILL SWITCH: Permanently disabled by user request
+        console.log(`[${new Date().toISOString()}] Scheduled orders execution is DISABLED.`);
+        return;
+
         console.log(`[${new Date().toISOString()}] Checking for scheduled orders...`);
 
         // Fetch orders due for execution
