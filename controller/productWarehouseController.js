@@ -33,7 +33,6 @@ export const createProductWithWarehouse = async (req, res) => {
       shipping_amount,
       weight_value,
       weight_unit,
-      weight_display,
       brand_name,
       portion,
       quantity,
@@ -108,7 +107,6 @@ export const createProductWithWarehouse = async (req, res) => {
       shipping_amount: shipping_amount || 0,
       weight_value: weight_value || "",
       weight_unit: weight_unit || "kg",
-      weight_display: weight_display || "",
       brand_name: brand_name || "BigandBest",
       portion: portion || "",
       quantity: quantity || "",
@@ -143,7 +141,10 @@ export const createProductWithWarehouse = async (req, res) => {
 
     if (warehouse_mapping_type === "nationwide") {
       // Auto-assign to all zonal warehouses for nationwide coverage
-      const zonalWarehouses = await warehouseDao.list({ type: "zonal", active: true });
+      const zonalWarehouses = await warehouseDao.list({
+        type: "zonal",
+        active: true,
+      });
 
       if (zonalWarehouses) {
         warehouseAssignments = zonalWarehouses.map((warehouse) => ({
@@ -222,7 +223,7 @@ export const createProductWithWarehouse = async (req, res) => {
     if (auto_distribute_to_zones && warehouse_mapping_type === "central") {
       await autoDistributeToZonalWarehouses(
         product.id,
-        zone_distribution_quantity
+        zone_distribution_quantity,
       );
     }
 
@@ -272,7 +273,9 @@ export const mapProductToWarehouse = async (req, res) => {
 
     // Insert mapping via upsert (re-using productWarehouseStockDao if applicable or custom logic)
     // Note: The original code used a table 'product_warehouse' which seems to be replaced by 'product_warehouse_stock' in Prisma
-    await productWarehouseStockDao.upsertStock(product_id, warehouse_id, { stock_quantity });
+    await productWarehouseStockDao.upsertStock(product_id, warehouse_id, {
+      stock_quantity,
+    });
 
     res
       .status(201)
@@ -288,9 +291,14 @@ export const removeProductFromWarehouse = async (req, res) => {
   try {
     const { product_id, warehouse_id } = req.body;
 
-    const stockEntry = await productWarehouseStockDao.getByProductAndWarehouse(product_id, warehouse_id);
+    const stockEntry = await productWarehouseStockDao.getByProductAndWarehouse(
+      product_id,
+      warehouse_id,
+    );
     if (stockEntry) {
-      await productWarehouseStockDao.updateStock(stockEntry.id, { is_active: false });
+      await productWarehouseStockDao.updateStock(stockEntry.id, {
+        is_active: false,
+      });
     }
 
     res.status(200).json({ message: "Mapping removed successfully." });
@@ -313,9 +321,9 @@ export const getWarehousesForProduct = async (req, res) => {
         ...item,
         warehouses: item.warehouses
           ? {
-            ...item.warehouses,
-            pincode: item.warehouses.location,
-          }
+              ...item.warehouses,
+              pincode: item.warehouses.location,
+            }
           : null,
       })) || [];
 
@@ -331,10 +339,11 @@ export const getProductsForWarehouse = async (req, res) => {
   try {
     const { warehouse_id } = req.params;
 
-    const stockItems = await productWarehouseStockDao.listProductsInWarehouse(warehouse_id);
+    const stockItems =
+      await productWarehouseStockDao.listProductsInWarehouse(warehouse_id);
 
     // Transform to match previous response structure if needed, or return as is
-    // The previous structure was likely flat or nested. 
+    // The previous structure was likely flat or nested.
     // Supabase returns: [{ product_id, products: {...} }]
     // DAO returns: [{ product_id, products: {...}, ...stockFields }]
     // We can return the DAO result directly as it contains the necessary info.
@@ -373,7 +382,9 @@ export const bulkMapByNames = async (req, res) => {
 
     // 3. Map each product to warehouse
     for (const p of products) {
-      await productWarehouseStockDao.upsertStock(p.id, warehouseData.id, { stock_quantity: 0 });
+      await productWarehouseStockDao.upsertStock(p.id, warehouseData.id, {
+        stock_quantity: 0,
+      });
     }
 
     res.status(201).json({
@@ -400,7 +411,7 @@ export const distributeProductToZones = async (req, res) => {
       product_id,
       quantity_per_zone,
       specific_zones,
-      force_distribution
+      force_distribution,
     );
 
     if (result.success) {
@@ -527,8 +538,7 @@ export const getProductVisibilityMatrix = async (req, res) => {
       if (mapping.zone) {
         zonalToZoneMap.set(mapping.warehouse_id, {
           zone_id: mapping.zone.id,
-          zone_name:
-            mapping.zone.display_name || mapping.zone.name,
+          zone_name: mapping.zone.display_name || mapping.zone.name,
         });
       }
     });
@@ -606,7 +616,7 @@ export const getProductVisibilityMatrix = async (req, res) => {
     const zones = Array.from(zoneVisibility.values())
       .map((entry) => {
         const divisionAvailable = entry.division_assignments.filter(
-          (division) => division.available_quantity > 0
+          (division) => division.available_quantity > 0,
         );
 
         let visibility = "unavailable";
@@ -634,10 +644,10 @@ export const getProductVisibilityMatrix = async (req, res) => {
       summary: {
         total_zones: zones.length,
         zone_available: zones.filter(
-          (zone) => zone.visibility === "zone_available"
+          (zone) => zone.visibility === "zone_available",
         ).length,
         division_only: zones.filter(
-          (zone) => zone.visibility === "division_only"
+          (zone) => zone.visibility === "division_only",
         ).length,
       },
     });
@@ -684,8 +694,7 @@ export const getZoneProductVisibility = async (req, res) => {
       zoneWarehouseMappings
         ?.filter(
           (mapping) =>
-            mapping.warehouse?.type === "zonal" &&
-            mapping.warehouse?.is_active
+            mapping.warehouse?.type === "zonal" && mapping.warehouse?.is_active,
         )
         .map((mapping) => mapping.warehouse_id) || [];
 
@@ -706,10 +715,16 @@ export const getZoneProductVisibility = async (req, res) => {
       });
     }
 
-    const divisionWarehouses = await warehouseDao.list({ type: "division", active: true });
+    const divisionWarehouses = await warehouseDao.list({
+      type: "division",
+      active: true,
+    });
 
     // Manual filter for parent_warehouse_id since list doesn't take nested filters easily here
-    const filteredDivisions = divisionWarehouses?.filter(w => zonalWarehouseIds.includes(w.parent_warehouse_id)) || [];
+    const filteredDivisions =
+      divisionWarehouses?.filter((w) =>
+        zonalWarehouseIds.includes(w.parent_warehouse_id),
+      ) || [];
 
     if (!divisionWarehouses) {
       return res.status(500).json({
@@ -718,7 +733,8 @@ export const getZoneProductVisibility = async (req, res) => {
       });
     }
 
-    const divisionIds = filteredDivisions.map((warehouse) => warehouse.id) || [];
+    const divisionIds =
+      filteredDivisions.map((warehouse) => warehouse.id) || [];
     const warehouseIds = [...zonalWarehouseIds, ...divisionIds];
 
     if (warehouseIds.length === 0) {
@@ -738,7 +754,8 @@ export const getZoneProductVisibility = async (req, res) => {
       });
     }
 
-    const stockRows = await productWarehouseStockDao.listByWarehouses(warehouseIds);
+    const stockRows =
+      await productWarehouseStockDao.listByWarehouses(warehouseIds);
 
     if (!stockRows) {
       return res.status(500).json({
@@ -798,7 +815,7 @@ export const getZoneProductVisibility = async (req, res) => {
     const products = Array.from(productMap.values())
       .map((entry) => {
         const divisionAvailable = entry.division_assignments.filter(
-          (division) => division.available_quantity > 0
+          (division) => division.available_quantity > 0,
         );
 
         let visibility = "unavailable";
@@ -832,10 +849,10 @@ export const getZoneProductVisibility = async (req, res) => {
       summary: {
         total_products: products.length,
         zone_available: products.filter(
-          (product) => product.visibility === "zone_available"
+          (product) => product.visibility === "zone_available",
         ).length,
         division_only: products.filter(
-          (product) => product.visibility === "division_only"
+          (product) => product.visibility === "division_only",
         ).length,
       },
     });
@@ -864,14 +881,19 @@ async function autoDistributeToZonalWarehouses(
   productId,
   quantityPerZone = 50,
   specificZones = [],
-  forceDistribution = false
+  forceDistribution = false,
 ) {
   try {
     // Get all active zonal warehouses
-    let zonalWarehouses = await warehouseDao.list({ type: "zonal", active: true });
+    let zonalWarehouses = await warehouseDao.list({
+      type: "zonal",
+      active: true,
+    });
 
     if (specificZones.length > 0) {
-      zonalWarehouses = zonalWarehouses.filter(w => specificZones.includes(w.id));
+      zonalWarehouses = zonalWarehouses.filter((w) =>
+        specificZones.includes(w.id),
+      );
     }
 
     if (!zonalWarehouses) {
@@ -883,7 +905,11 @@ async function autoDistributeToZonalWarehouses(
 
     for (const warehouse of zonalWarehouses) {
       // Check if product already exists in this warehouse
-      const existingStock = await productWarehouseStockDao.getByProductAndWarehouse(productId, warehouse.id);
+      const existingStock =
+        await productWarehouseStockDao.getByProductAndWarehouse(
+          productId,
+          warehouse.id,
+        );
 
       if (existingStock && !forceDistribution) {
         distributions.push({
