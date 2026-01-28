@@ -17,7 +17,10 @@ class OrderItemDAO {
             where: { order_id: orderId },
             include: {
                 variant: {
-                    include: { product: { select: { name: true } } }
+                    include: {
+                        product: { select: { name: true, media: true } },
+                        media: true
+                    }
                 }
             }
         });
