@@ -96,11 +96,15 @@ export const createProduct = async (req, res) => {
     }
 
     // 2. Variants
-    if (
+    const hasVariants =
       product_variants &&
       Array.isArray(product_variants) &&
-      product_variants.length > 0
-    ) {
+      product_variants.length > 0;
+
+    // Override has_variants based on actual payload
+    productData.has_variants = hasVariants;
+
+    if (hasVariants) {
       productData.variants = {
         create: product_variants.map((v) => {
           const variantData = {
@@ -120,6 +124,7 @@ export const createProduct = async (req, res) => {
             shipping_amount: v.shipping_amount
               ? parseFloat(v.shipping_amount)
               : 0,
+            packaging_details: v.packaging_details, // Added packaging_details
 
             // Bulk Pricing
             is_bulk_enabled:
@@ -249,7 +254,7 @@ export const getAllProductsForAdmin = async (req, res) => {
   try {
     // Use Prisma through ProductDAO instead of Supabase
     const products = await ProductDAO.listProducts(
-      {},
+      { includeAllVariants: true },
       { limit: 1000, page: 1 },
     );
 
@@ -438,7 +443,7 @@ export const getProductForAdmin = async (req, res) => {
         : null;
     const storeObj =
       product.product_recommended_store &&
-      product.product_recommended_store.length > 0
+        product.product_recommended_store.length > 0
         ? product.product_recommended_store[0].recommended_store
         : null;
 
@@ -669,11 +674,10 @@ export const updateProduct = async (req, res) => {
     // Prioritize 'product_variants' from frontend (formatted for create/update) over 'variants' (which might be stale)
     const variantsPayload = updateData.product_variants || updateData.variants;
 
-    if (
-      variantsPayload &&
-      Array.isArray(variantsPayload) &&
-      variantsPayload.length > 0
-    ) {
+    if (variantsPayload && Array.isArray(variantsPayload)) {
+      // Automatically sync has_variants flag based on payload
+      fieldsToUpdate.has_variants = variantsPayload.length > 0;
+
       try {
         // Map payload to DB schema (similar to createProduct)
         const mappedVariants = variantsPayload.map((v) => {
@@ -702,6 +706,7 @@ export const updateProduct = async (req, res) => {
             shipping_amount: v.shipping_amount
               ? parseFloat(v.shipping_amount)
               : 0,
+            packaging_details: v.packaging_details || null, // Added packaging_details
 
             // Bulk Pricing
             is_bulk_enabled:
