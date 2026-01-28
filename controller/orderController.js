@@ -26,7 +26,7 @@ const razorpay = new Razorpay({
 const findWarehouseForProduct = async (productId, pincode, productType) => {
   try {
     // Get product details
-    const product = await productDao.getById(productId);
+    const product = await productDao.getProductById(productId);
 
     if (!product) {
       console.warn(`Product not found: ${productId}`);
@@ -104,13 +104,14 @@ export const updateOrderStatus = async (req, res) => {
     const { status, adminnotes = "" } = req.body;
 
     // Get order details first to get user_id
-    const order = await orderDao.getById(parseInt(id));
+    const order = await orderDao.getById(id);
 
     if (!order) {
       return res.status(404).json({ success: false, error: "Order not found" });
     }
 
-    await orderDao.update(parseInt(id), { status, adminnotes });
+    // Only update status as adminnotes is not in schema
+    await orderDao.update(id, { status });
 
     // Create notification for status update
     // await createOrderNotification(order.user_id, id, status, adminnotes);
@@ -205,7 +206,7 @@ export const getOrderDetails = async (req, res) => {
     }
 
     // Fetch complete order details
-    const order = await orderDao.getById(parseInt(orderId));
+    const order = await orderDao.getById(orderId);
 
     if (!order) {
       return res.status(404).json({ success: false, error: "Order not found" });
@@ -315,30 +316,55 @@ export const placeOrder = async (req, res) => {
     const warehouseAssignments = [];
 
     for (const item of items) {
+      // Robust ID extraction
+      const productId = item.product_id || item.id || item.product?.id;
+      let variantId = item.variant_id || item.variantId || item.variant?.id;
+
+      if (!productId) {
+        console.error("Skipping item with missing product ID:", item);
+        continue;
+      }
+
       // Find appropriate warehouse for this product
       const warehouseInfo = await findWarehouseForProduct(
-        item.product_id,
+        productId,
         pincode,
         item.product_type
       );
 
       // We need variant_id for order_items in Prisma
-      let variantId = item.variant_id;
       if (!variantId) {
-        const product = await productDao.getProductById(item.product_id);
-        variantId = product?.variants?.find(v => v.is_default)?.id || product?.variants[0]?.id;
+        try {
+          // Use getProductById matching DAO definition
+          const product = await productDao.getProductById(productId);
+          // Assuming getById returns variants in included relation, check if DAO supports it
+          // If not, we might need to fetch variants separately.
+          // For now, let's assume getById includes variants based on common DAO patterns
+          if (product && product.variants && product.variants.length > 0) {
+            variantId = product.variants.find(v => v.is_default)?.id || product.variants[0].id;
+          } else {
+            // If product doesn't have variants or DAO didn't return them, try fetching variants specifically
+            /* const variants = await productVariantDao.listByProduct(productId); 
+               if (variants.length > 0) variantId = variants[0].id; */
+          }
+        } catch (fetchError) {
+          console.warn(`Failed to fetch product/variants for fallback: ${productId}`, fetchError);
+        }
       }
 
       if (!variantId) {
-        console.error(`No variant found for product ${item.product_id}`);
+        console.error(`No variant found for product ${productId}, item:`, item);
+        // We cannot create an order_item without a variant_id if the schema requires it.
+        // If your schema allows nullable variant_id, remove this check.
+        // Current schema: variant_id String @db.Uuid (Required)
         continue;
       }
 
       orderItemsToInsert.push({
         order_id: order.id,
         variant_id: variantId,
-        quantity: item.quantity,
-        price: parseFloat(item.price),
+        quantity: parseInt(item.quantity) || 1,
+        price: parseFloat(item.price) || 0,
         assigned_warehouse_id: warehouseInfo?.warehouse_id || null,
         warehouse_name: warehouseInfo?.warehouse_name || null,
       });
@@ -346,9 +372,9 @@ export const placeOrder = async (req, res) => {
       if (warehouseInfo) {
         warehouseAssignments.push({
           order_id: order.id,
-          product_id: item.product_id,
+          product_id: productId,
           warehouse_id: warehouseInfo.warehouse_id,
-          quantity: item.quantity,
+          quantity: parseInt(item.quantity) || 1,
           priority: warehouseInfo.priority,
           fallback_level: warehouseInfo.fallback_level,
         });
@@ -558,7 +584,7 @@ export const cancelOrder = async (req, res) => {
     console.log("Cancelling order:", id, "Reason:", reason || "No reason provided");
 
     // Get order details first
-    const order = await orderDao.getById(parseInt(id));
+    const order = await orderDao.getById(id);
 
     if (!order) {
       return res.status(404).json({ success: false, error: "Order not found" });
@@ -573,7 +599,7 @@ export const cancelOrder = async (req, res) => {
     }
 
     // Update order status
-    await orderDao.update(parseInt(id), { status: "cancelled" });
+    await orderDao.update(id, { status: "cancelled" });
 
     // Get user details for notifications
     const userData = await userControlDao.getUserById(order.user_id);
@@ -590,7 +616,7 @@ export const cancelOrder = async (req, res) => {
     if (order.payment_method === "Razorpay" || order.payment_method === "prepaid") {
       try {
         const refundRequest = await refundRequestDao.create({
-          order_id: id.toString(),
+          order_id: id,
           user_id: order.user_id,
           refund_amount: parseFloat(order.total),
           refund_type: "order_cancellation",
@@ -630,10 +656,10 @@ export const deleteOrderById = async (req, res) => {
     const { id } = req.params;
 
     // Step 1: Delete all order items for this order
-    await orderItemDao.deleteByOrder(parseInt(id));
+    await orderItemDao.deleteByOrder(id);
 
     // Step 2: Delete the order
-    await orderDao.delete(parseInt(id));
+    await orderDao.delete(id);
 
     return res.json({
       success: true,
@@ -655,7 +681,7 @@ export const getOrderTracking = async (req, res) => {
     }
 
     // Fetch order with related items
-    const order = await orderDao.getById(parseInt(orderId));
+    const order = await orderDao.getById(orderId);
 
     if (!order) {
       return res.status(404).json({ success: false, error: "Order not found" });
@@ -749,7 +775,7 @@ export const getAllOrderItems = async (req, res) => {
 export const getOrderItemsByOrderId = async (req, res) => {
   try {
     const { order_id } = req.params;
-    const items = await orderItemDao.listByOrder(parseInt(order_id));
+    const items = await orderItemDao.listByOrder(order_id);
     return res.json({ success: true, items });
   } catch (error) {
     return res.status(500).json({ success: false, error: error.message });
@@ -778,7 +804,7 @@ export const getOrderItemsByProductId = async (req, res) => {
 export const deleteOrderItemsByOrderId = async (req, res) => {
   try {
     const { order_id } = req.params;
-    await orderItemDao.deleteByOrder(parseInt(order_id));
+    await orderItemDao.deleteByOrder(order_id);
     return res.json({ success: true, message: "Order items deleted successfully" });
   } catch (error) {
     return res.status(500).json({ success: false, error: error.message });

@@ -133,7 +133,21 @@ class OrderDAO {
                 },
                 include: {
                     user: {
-                        select: { name: true }
+                    },
+                    order_items: {
+                        include: {
+                            variant: {
+                                include: {
+                                    product: {
+                                        select: {
+                                            name: true,
+                                            media: true
+                                        }
+                                    },
+                                    media: true
+                                }
+                            }
+                        }
                     }
                 }
             }),
