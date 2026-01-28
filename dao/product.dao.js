@@ -101,6 +101,27 @@ class ProductDAO {
             ...filters,
             active: filters.active !== undefined ? filters.active : true,
         };
+        // Remove known non-DB filters from 'where' to avoid Prisma errors if strict
+        if (where.includeAllVariants !== undefined) delete where.includeAllVariants;
+
+        console.log("ProductDAO.listProducts filters:", filters);
+
+        const variantsInclude = filters.includeAllVariants
+            ? {
+                include: {
+                    inventory: true,
+                    attributes: true
+                }
+            }
+            : {
+                where: { is_default: true, active: true },
+                take: 1,
+                include: {
+                    inventory: true,
+                },
+            };
+
+        console.log("ProductDAO.listProducts variantsInclude:", JSON.stringify(variantsInclude, null, 2));
 
         const [items, total] = await Promise.all([
             prisma.products.findMany({
@@ -108,13 +129,7 @@ class ProductDAO {
                 skip,
                 take: limit,
                 include: {
-                    variants: {
-                        where: { is_default: true, active: true },
-                        take: 1,
-                        include: {
-                            inventory: true,
-                        },
-                    },
+                    variants: variantsInclude,
                     category: { select: { name: true } },
                     subcategory: { select: { name: true } },
                     group: { select: { name: true } },
