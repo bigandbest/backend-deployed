@@ -105,6 +105,7 @@ class ProductDAO {
         // Remove known non-DB filters from 'where' to avoid Prisma errors if strict
         if (where.includeAllVariants !== undefined) delete where.includeAllVariants;
 
+
         console.log("ProductDAO.listProducts filters:", filters);
 
         const variantsSelect = filters.includeAllVariants
