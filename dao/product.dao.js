@@ -102,13 +102,44 @@ class ProductDAO {
             ...filters,
             active: filters.active !== undefined ? filters.active : true,
         };
+        // Remove known non-DB filters from 'where' to avoid Prisma errors if strict
+        if (where.includeAllVariants !== undefined) delete where.includeAllVariants;
+
+
+        console.log("ProductDAO.listProducts filters:", filters);
+
+        const variantsSelect = filters.includeAllVariants
+            ? {
+                include: {
+                    inventory: true,
+                    attributes: true
+                }
+            }
+            : {
+                where: { is_default: true, active: true },
+                take: 1,
+                select: {
+                    id: true,
+                    sku: true,
+                    price: true,
+                    old_price: true,
+                    discount_percentage: true,
+                    is_default: true,
+                    active: true,
+                    shipping_amount: true,
+                    is_bulk_enabled: true,
+                    bulk_min_quantity: true,
+                    bulk_discount_percentage: true,
+                    bulk_price: true,
+                },
+            };
 
         // Optimized query with minimal includes - only fetch what's needed
         const [items, total] = await Promise.all([
             prisma.products.findMany({
                 where,
                 skip,
-                take: Math.min(limit, 100), // Cap at 100 to prevent excessive data transfer
+                take: limit,
                 select: {
                     id: true,
                     name: true,
@@ -130,28 +161,13 @@ class ProductDAO {
                     gst_rate: true,
                     cess_rate: true,
                     faq: true,
-                    // Only include essential relations
-                    variants: {
-                        where: { is_default: true, active: true },
-                        take: 1,
-                        select: {
-                            id: true,
-                            sku: true,
-                            price: true,
-                            old_price: true,
-                            discount_percentage: true,
-                            is_default: true,
-                            active: true,
-                            shipping_amount: true,
-                            is_bulk_enabled: true,
-                            bulk_min_quantity: true,
-                            bulk_discount_percentage: true,
-                            bulk_price: true,
-                        },
-                    },
+                    // Dynamic variants selection
+                    variants: variantsSelect,
+                    // Optimized relations
                     category: { select: { id: true, name: true } },
                     subcategory: { select: { id: true, name: true } },
                     group: { select: { id: true, name: true } },
+                    store: { select: { id: true, name: true } },
                     brands: {
                         select: {
                             brand: {
