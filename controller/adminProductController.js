@@ -4,12 +4,17 @@ import prisma from "../config/prisma.js";
 // Create new product
 export const createProduct = async (req, res) => {
   try {
+    console.log("\n=== BACKEND: Received Request Body ===");
+    console.log("Full req.body:", JSON.stringify(req.body, null, 2));
+    console.log("=== END Request Body ===");
+
     const {
       name,
       description,
       hsn_code,
       sac_code,
       gst_rate,
+      cess_rate,
       vertical,
       category_id,
       subcategory_id,
@@ -23,8 +28,76 @@ export const createProduct = async (req, res) => {
       images,
       media, // Accept both 'images' and 'media' from frontend
       brand_name, // Typically brand_id from frontend
+      brand_id,
+      faq,
       ...otherFields
     } = req.body;
+
+    console.log("\n=== BACKEND: Extracted Fields ===");
+    console.log("Product Fields:", {
+      name,
+      description,
+      hsn_code,
+      sac_code,
+      gst_rate,
+      cess_rate,
+      vertical,
+      return_applicable,
+      return_days,
+      active,
+      has_variants,
+    });
+    console.log("Category Fields:", {
+      category_id,
+      subcategory_id,
+      group_id,
+      store_id,
+    });
+    console.log("Brand:", { brand_name, brand_id });
+    console.log("Variants:", product_variants);
+    console.log("Media:", media);
+    console.log("FAQ:", faq);
+    console.log("Other Fields:", otherFields);
+    console.log("\n=== SCHEMA FIELD MAPPING CHECK ===");
+    console.log("PRODUCTS TABLE SCHEMA FIELDS:");
+    console.log("  ✓ name (String) ->", name);
+    console.log("  ✓ description (String?) ->", description);
+    console.log("  ✓ hsn_or_sac_code (String?) ->", hsn_code || sac_code);
+    console.log("  ✓ gst_rate (Decimal?) ->", gst_rate);
+    console.log("  ✓ cess_rate (Decimal?) ->", cess_rate);
+    console.log("  ✓ vertical (Vertical) ->", vertical);
+    console.log("  ✓ category_id (String?) ->", category_id);
+    console.log("  ✓ subcategory_id (String?) ->", subcategory_id);
+    console.log("  ✓ group_id (String?) ->", group_id);
+    console.log("  ✓ store_id (String?) ->", store_id);
+    console.log("  ✓ return_applicable (Boolean?) ->", return_applicable);
+    console.log("  ✓ return_days (Int?) ->", return_days);
+    console.log("  ✓ active (Boolean?) ->", active);
+    console.log("  ✓ has_variants (Boolean?) ->", has_variants);
+    console.log("  ✓ faq (Json?) ->", faq);
+    console.log("\nPRODUCT_VARIANTS TABLE SCHEMA FIELDS:");
+    if (product_variants && product_variants[0]) {
+      const v = product_variants[0];
+      console.log("  ✓ sku (String) ->", v.sku);
+      console.log("  ✓ title (String) ->", v.variant_name || v.title);
+      console.log("  ✓ price (Decimal) ->", v.variant_price || v.price);
+      console.log("  ✓ old_price (Decimal?) ->", v.variant_old_price || v.old_price);
+      console.log("  ✓ discount_percentage (Int?) ->", v.discount_percentage);
+      console.log("  ✓ packaging_details (String?) ->", v.packaging_details);
+      console.log("  ✓ gst_rate_override (Decimal?) ->", v.gst_rate_override);
+      console.log("  ✓ cess_rate_override (Decimal?) ->", v.cess_rate_override);
+      console.log("  ✓ features (String?) ->", v.features);
+      console.log("  ✓ is_default (Boolean?) ->", v.is_default);
+      console.log("  ✓ active (Boolean?) ->", v.active);
+      console.log("  ✓ shipping_amount (Decimal?) ->", v.shipping_amount);
+      console.log("  ✓ is_bulk_enabled (Boolean?) ->", v.is_bulk_enabled);
+      console.log("  ✓ bulk_price (Decimal?) ->", v.bulk_price);
+      console.log("  ✓ bulk_min_quantity (Int?) ->", v.bulk_min_quantity);
+      console.log("  ✓ bulk_discount_percentage (Int?) ->", v.bulk_discount_percentage);
+      console.log("  ✓ attributes (variant_attributes[]) ->", v.attributes);
+    }
+    console.log("=== END SCHEMA MAPPING ===");
+    console.log("=== END Extracted Fields ===");
 
     console.log("Creating product:", name);
 
@@ -45,7 +118,12 @@ export const createProduct = async (req, res) => {
       return_days: return_days ? parseInt(return_days) : 0,
       active: active !== undefined ? active : true,
       has_variants: !!has_variants,
+      faq: faq || null, // Save FAQ JSON
     };
+
+    console.log("\n=== BACKEND: Product Data Before Relations ===");
+    console.log(JSON.stringify(productData, null, 2));
+    console.log("=== END Product Data ===");
 
     // Handle Relations using Prisma's connect syntax
     if (category_id) {
@@ -57,6 +135,8 @@ export const createProduct = async (req, res) => {
     if (group_id) {
       productData.group = { connect: { id: group_id } };
     }
+    // Note: store_id from frontend refers to recommended_store, not stores table
+    // Do not connect it here - it will be handled via product_recommended_store join table below
 
     // If Brand ID passed as brand_name (frontend quirk mentioned in AddProduct.jsx)
     const brandId = brand_name;
@@ -157,7 +237,16 @@ export const createProduct = async (req, res) => {
     }
 
     // Create via DAO (Pass strict data)
+    console.log("\n=== BACKEND: Final Product Data to be Created ===");
+    console.log(JSON.stringify(productData, null, 2));
+    console.log("=== END Final Product Data ===");
+
     const newProduct = await ProductDAO.createProduct(productData);
+
+    console.log("\n=== BACKEND: Product Created Successfully ===");
+    console.log("Product ID:", newProduct.id);
+    console.log("Product Name:", newProduct.name);
+    console.log("=== END Product Created ===");
 
     // Handle Brand Relation (Join Table)
     if (brandId && newProduct) {
@@ -247,10 +336,30 @@ function priceInfoCheck(body) {
 // Get all products for admin with full details
 export const getAllProductsForAdmin = async (req, res) => {
   try {
-    // Use Prisma through ProductDAO instead of Supabase
+    // Extract pagination and filter params
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50; // Default to 50 instead of 1000
+    const categoryId = req.query.category_id;
+    const search = req.query.search;
+    const active = req.query.active;
+
+    // Build filters
+    const filters = {};
+    if (categoryId) filters.category_id = categoryId;
+    if (active !== undefined) filters.active = active === 'true';
+    
+    // Add search filter if provided
+    if (search) {
+      filters.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } }
+      ];
+    }
+
+    // Use Prisma through ProductDAO with pagination
     const products = await ProductDAO.listProducts(
-      {},
-      { limit: 1000, page: 1 },
+      filters,
+      { limit: Math.min(limit, 100), page }, // Cap at 100 for safety
     );
 
     // Flatten the response for frontend convenience (Brand & Store)
@@ -264,10 +373,27 @@ export const getAllProductsForAdmin = async (req, res) => {
 
       return {
         ...p,
-        brand_id: brandObj ? brandObj.id : null,
-        brand_name: brandObj ? brandObj.name : null,
-        store_id: storeObj ? storeObj.id : null,
-        store_name: storeObj ? storeObj.name : null,
+        brand_id: brandObj?.id || null,
+        brand_name: brandObj?.name || null,
+        // Include all variant info for admin panel
+        variants: p.variants?.map(v => ({
+          id: v.id,
+          sku: v.sku,
+          price: v.price,
+          old_price: v.old_price,
+          discount_percentage: v.discount_percentage,
+          stock_qty: v.stock_qty,
+          is_default: v.is_default,
+          active: v.active,
+          shipping_amount: v.shipping_amount,
+          is_bulk_enabled: v.is_bulk_enabled,
+          bulk_min_quantity: v.bulk_min_quantity,
+          bulk_discount_percentage: v.bulk_discount_percentage,
+          bulk_price: v.bulk_price
+        })) || [],
+        // Include store info from recommended_store join table
+        store_id: storeObj?.id || null,
+        store_name: storeObj?.name || null
       };
     });
 
@@ -275,6 +401,9 @@ export const getAllProductsForAdmin = async (req, res) => {
       success: true,
       products: flattenedProducts,
       total: products.total || 0,
+      page: products.page,
+      limit: products.limit,
+      totalPages: Math.ceil((products.total || 0) / products.limit)
     });
   } catch (err) {
     console.error("Error fetching products:", err);
@@ -506,6 +635,51 @@ export const updateProduct = async (req, res) => {
     const { productId } = req.params;
     const updateData = req.body;
 
+    console.log("\n=== BACKEND UPDATE: Received Request ===");
+    console.log("Product ID:", productId);
+    console.log("Full req.body:", JSON.stringify(updateData, null, 2));
+    console.log("\n=== SCHEMA MAPPING VALIDATION ===");
+    console.log("Products Table Fields from Schema:");
+    console.log("  - name:", updateData.name);
+    console.log("  - description:", updateData.description);
+    console.log("  - hsn_or_sac_code:", updateData.hsn_code || updateData.sac_code || updateData.hsn_or_sac_code);
+    console.log("  - gst_rate:", updateData.gst_rate);
+    console.log("  - cess_rate:", updateData.cess_rate);
+    console.log("  - vertical:", updateData.vertical);
+    console.log("  - category_id:", updateData.category_id);
+    console.log("  - subcategory_id:", updateData.subcategory_id);
+    console.log("  - group_id:", updateData.group_id);
+    console.log("  - store_id:", updateData.store_id);
+    console.log("  - rating:", updateData.rating);
+    console.log("  - review_count:", updateData.review_count);
+    console.log("  - return_applicable:", updateData.return_applicable);
+    console.log("  - return_days:", updateData.return_days);
+    console.log("  - active:", updateData.active);
+    console.log("  - has_variants:", updateData.has_variants);
+    console.log("  - faq:", updateData.faq);
+    console.log("\nProduct Variants Fields from Schema:");
+    if (updateData.product_variants && updateData.product_variants[0]) {
+      const v = updateData.product_variants[0];
+      console.log("  - sku:", v.sku);
+      console.log("  - title:", v.variant_name || v.title);
+      console.log("  - price:", v.variant_price || v.price);
+      console.log("  - old_price:", v.variant_old_price || v.old_price);
+      console.log("  - discount_percentage:", v.discount_percentage);
+      console.log("  - packaging_details:", v.packaging_details);
+      console.log("  - gst_rate_override:", v.gst_rate_override);
+      console.log("  - cess_rate_override:", v.cess_rate_override);
+      console.log("  - features:", v.features);
+      console.log("  - is_default:", v.is_default);
+      console.log("  - active:", v.active);
+      console.log("  - shipping_amount:", v.shipping_amount);
+      console.log("  - is_bulk_enabled:", v.is_bulk_enabled);
+      console.log("  - bulk_price:", v.bulk_price);
+      console.log("  - bulk_min_quantity:", v.bulk_min_quantity);
+      console.log("  - bulk_discount_percentage:", v.bulk_discount_percentage);
+    }
+    console.log("=== END SCHEMA VALIDATION ===");
+    console.log("=== END Request ===");
+
     console.log("Updating product:", productId, updateData);
 
     if (!productId) {
@@ -624,6 +798,10 @@ export const updateProduct = async (req, res) => {
       "Filtered fields to update (schema compliant):",
       fieldsToUpdate,
     );
+
+    console.log("\n=== BACKEND UPDATE: Fields to Update ===");
+    console.log(JSON.stringify(fieldsToUpdate, null, 2));
+    console.log("=== END Fields to Update ===");
 
     // Check if product exists
     const existingProduct = await ProductDAO.getProductById(productId);

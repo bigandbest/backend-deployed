@@ -7,19 +7,22 @@ import {
     updatePartner,
     deletePartner
 } from "../controller/partnerController.js";
+import { cacheMiddleware } from "../utils/cache.js";
+import { invalidateCacheMiddleware } from "../utils/cacheInvalidation.js";
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-router.get("/", getAllPartners);
-router.get("/active", getActivePartners);
+// Cache for 1 hour - partners rarely change
+router.get("/", cacheMiddleware(3600), getAllPartners);
+router.get("/active", cacheMiddleware(3600), getActivePartners);
 
 // Add with image
-router.post("/", upload.single("image"), addPartner);
+router.post("/", invalidateCacheMiddleware('partners'), upload.single("image"), addPartner);
 
 // Update with optional image
-router.put("/:id", upload.single("image"), updatePartner);
+router.put("/:id", invalidateCacheMiddleware('partners'), upload.single("image"), updatePartner);
 
-router.delete("/:id", deletePartner);
+router.delete("/:id", invalidateCacheMiddleware('partners'), deletePartner);
 
 export default router;

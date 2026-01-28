@@ -16,45 +16,36 @@ class InventoryDAO {
             return new Map();
         }
 
-        // Batch size limit to prevent query overload
-        const BATCH_SIZE = 100;
-        const batches = [];
-        for (let i = 0; i < variantIds.length; i += BATCH_SIZE) {
-            batches.push(variantIds.slice(i, i + BATCH_SIZE));
+        // Single optimized query instead of batching
+        // Supabase connection pooler handles large IN clauses efficiently
+        const where = {
+            variant_id: { in: variantIds.slice(0, 1000) }, // Safety limit
+        };
+
+        if (warehouseId) {
+            where.warehouse_id = warehouseId;
         }
 
-        const allResults = await Promise.all(
-            batches.map(async (batch) => {
-                const where = {
-                    variant_id: { in: batch },
-                };
-
-                if (warehouseId) {
-                    where.warehouse_id = warehouseId;
-                }
-
-                return await prisma.inventory.findMany({
-                    where,
+        const allResults = await prisma.inventory.findMany({
+            where,
+            select: {
+                variant_id: true,
+                stock_qty: true,
+                reserved_qty: true,
+                warehouse_id: true,
+                warehouse: {
                     select: {
-                        variant_id: true,
-                        stock_qty: true,
-                        reserved_qty: true,
-                        warehouse_id: true,
-                        warehouse: {
-                            select: {
-                                id: true,
-                                name: true,
-                                type: true,
-                            },
-                        },
+                        id: true,
+                        name: true,
+                        type: true,
                     },
-                });
-            })
-        );
+                },
+            },
+        });
 
-        // Flatten results and aggregate by variant
+        // Aggregate results by variant
         const stockMap = new Map();
-        allResults.flat().forEach((inv) => {
+        allResults.forEach((inv) => {
             const availableStock = inv.stock_qty - (inv.reserved_qty || 0);
 
             if (stockMap.has(inv.variant_id)) {

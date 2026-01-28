@@ -35,6 +35,7 @@ class ProductDAO {
                 category: true,
                 subcategory: true,
                 group: true,
+                store: true,
                 brands: {
                     include: {
                         brand: true,
@@ -102,39 +103,76 @@ class ProductDAO {
             active: filters.active !== undefined ? filters.active : true,
         };
 
+        // Optimized query with minimal includes - only fetch what's needed
         const [items, total] = await Promise.all([
             prisma.products.findMany({
                 where,
                 skip,
-                take: limit,
-                include: {
+                take: Math.min(limit, 100), // Cap at 100 to prevent excessive data transfer
+                select: {
+                    id: true,
+                    name: true,
+                    description: true,
+                    active: true,
+                    created_at: true,
+                    updated_at: true,
+                    category_id: true,
+                    subcategory_id: true,
+                    group_id: true,
+                    store_id: true,
+                    vertical: true,
+                    return_applicable: true,
+                    return_days: true,
+                    has_variants: true,
+                    rating: true,
+                    review_count: true,
+                    hsn_or_sac_code: true,
+                    gst_rate: true,
+                    cess_rate: true,
+                    faq: true,
+                    // Only include essential relations
                     variants: {
                         where: { is_default: true, active: true },
                         take: 1,
-                        include: {
-                            inventory: true,
+                        select: {
+                            id: true,
+                            sku: true,
+                            price: true,
+                            old_price: true,
+                            discount_percentage: true,
+                            is_default: true,
+                            active: true,
+                            shipping_amount: true,
+                            is_bulk_enabled: true,
+                            bulk_min_quantity: true,
+                            bulk_discount_percentage: true,
+                            bulk_price: true,
                         },
                     },
-                    category: { select: { name: true } },
-                    subcategory: { select: { name: true } },
-                    group: { select: { name: true } },
-                    store: { select: { name: true } },
+                    category: { select: { id: true, name: true } },
+                    subcategory: { select: { id: true, name: true } },
+                    group: { select: { id: true, name: true } },
                     brands: {
-                        include: {
+                        select: {
                             brand: {
                                 select: { id: true, name: true },
                             },
                         },
-                    },
-                    media: {
-                        orderBy: { sort_order: "asc" },
+                        take: 1,
                     },
                     product_recommended_store: {
-                        include: {
+                        select: {
                             recommended_store: {
                                 select: { id: true, name: true },
                             },
                         },
+                        take: 1,
+                    },
+                    media: {
+                        where: { is_primary: true },
+                        take: 1,
+                        select: { url: true, media_type: true },
+                        orderBy: { sort_order: "asc" },
                     },
                 },
                 orderBy: { created_at: "desc" },

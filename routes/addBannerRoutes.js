@@ -7,25 +7,27 @@ import {
   getBannerById,
   getBannersByType,
 } from "../controller/addBannerController.js";
+import { cacheMiddleware } from "../utils/cache.js";
+import { invalidateCacheMiddleware } from "../utils/cacheInvalidation.js";
 import multer from "multer";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Add a Banner with image upload
-router.post("/add", upload.single("image"), addBanner);
+router.post("/add", invalidateCacheMiddleware('banners'), upload.single("image"), addBanner);
 
 // Update a Banner with optional image upload
-router.put("/update/:id", upload.single("image"), updateBanner);
+router.put("/update/:id", invalidateCacheMiddleware('banners'), upload.single("image"), updateBanner);
 
 // Delete a Banner
-router.delete("/delete/:id", deleteBanner);
+router.delete("/delete/:id", invalidateCacheMiddleware('banners'), deleteBanner);
 
-// Get all Banners
-router.get("/all", getAllBanners);
+// Get all Banners (cache for 10 minutes - banners change occasionally)
+router.get("/all", cacheMiddleware(600), getAllBanners);
 
-// Get a single Banner by ID
-router.get("/:id", getBannerById);
+// Get a single Banner by ID (cache for 15 minutes)
+router.get("/:id", cacheMiddleware(900), getBannerById);
 
 // Get all Banners by a specific type (e.g., /api/banner/type/homepage)
 router.get("/type/:bannerType", getBannersByType);
