@@ -4,6 +4,7 @@ import os from "os";
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import compression from "compression";
 
 import prisma, { connectPrisma, disconnectPrisma } from "./config/prisma.js";
 
@@ -119,6 +120,17 @@ const getSystemInfo = () => {
 const createApp = () => {
   const app = express();
 
+  // Enable gzip compression for all responses
+  app.use(compression({
+    filter: (req, res) => {
+      if (req.headers['x-no-compression']) {
+        return false;
+      }
+      return compression.filter(req, res);
+    },
+    level: 6 // Compression level (0-9, 6 is default balance)
+  }));
+
   // Middleware
   app.use(
     cors({
@@ -139,8 +151,8 @@ const createApp = () => {
     }),
   );
 
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  app.use(express.json({ limit: '10mb' })); // Add size limit
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
   app.use(cookieParser());
 
   // API Routes

@@ -7,19 +7,22 @@ import {
     updateCertification,
     deleteCertification
 } from "../controller/certificationController.js";
+import { cacheMiddleware } from "../utils/cache.js";
+import { invalidateCacheMiddleware } from "../utils/cacheInvalidation.js";
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-router.get("/", getAllCertifications);
-router.get("/active", getActiveCertifications);
+// Cache for 1 hour - certifications rarely change
+router.get("/", cacheMiddleware(3600), getAllCertifications);
+router.get("/active", cacheMiddleware(3600), getActiveCertifications);
 
 // Add with image
-router.post("/", upload.single("image"), addCertification);
+router.post("/", invalidateCacheMiddleware('certifications'), upload.single("image"), addCertification);
 
 // Update with optional image
-router.put("/:id", upload.single("image"), updateCertification);
+router.put("/:id", invalidateCacheMiddleware('certifications'), upload.single("image"), updateCertification);
 
-router.delete("/:id", deleteCertification);
+router.delete("/:id", invalidateCacheMiddleware('certifications'), deleteCertification);
 
 export default router;

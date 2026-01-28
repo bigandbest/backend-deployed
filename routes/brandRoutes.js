@@ -7,16 +7,19 @@ import {
     getAllBrands,
     getSingleBrand
 } from '../controller/brandController.js'
+import { cacheMiddleware } from "../utils/cache.js";
+import { invalidateCacheMiddleware } from "../utils/cacheInvalidation.js";
 
 const router = express.Router();
 const upload = multer();
 
-router.post('/add', upload.single("image_url"), addBrand);
-router.put('/update/:id', upload.single("image_url"), editBrand);
-router.delete('/delete/:id', deleteBrand);
+router.post('/add', invalidateCacheMiddleware('brands'), upload.single("image_url"), addBrand);
+router.put('/update/:id', invalidateCacheMiddleware('brands'), upload.single("image_url"), editBrand);
+router.delete('/delete/:id', invalidateCacheMiddleware('brands'), deleteBrand);
 
-router.get('/', getAllBrands);
-router.get('/list', getAllBrands);
-router.get('/:id', getSingleBrand);
+// Cache for 1 hour - brands rarely change
+router.get('/', cacheMiddleware(3600), getAllBrands);
+router.get('/list', cacheMiddleware(3600), getAllBrands);
+router.get('/:id', cacheMiddleware(3600), getSingleBrand);
 
 export default router;

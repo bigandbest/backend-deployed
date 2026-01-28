@@ -94,6 +94,7 @@ model cart_items {
 
   @@index([user_id])
   @@index([variant_id])
+  @@index([user_id, added_at(sort: Desc)])
 }
 
 
@@ -112,6 +113,10 @@ model categories {
   
   product_section_categories product_section_categories[]
   products      products[]
+
+  @@index([active])
+  @@index([featured])
+  @@index([active, featured])
 }
 
 
@@ -403,6 +408,9 @@ model inventory {
 
   @@index([warehouse_id])
   @@index([stock_qty])
+  @@index([variant_id])
+  @@index([warehouse_id, variant_id])
+  @@index([warehouse_id, stock_qty])
   @@unique([variant_id, warehouse_id])
 }
 
@@ -492,6 +500,14 @@ model orders {
   order_items         order_items[]
   tracking            order_tracking[]
   coupon_usage        coupon_usage?
+
+  @@index([user_id])
+  @@index([status])
+  @@index([created_at(sort: Desc)])
+  @@index([user_id, status])
+  @@index([payment_method])
+  @@index([is_deleted])
+  @@index([razorpay_order_id])
 }
 
 
@@ -752,6 +768,9 @@ cess_rate_override   Decimal? @db.Decimal
   @@index([product_id])
   @@index([sku])
   @@index([active])
+  @@index([product_id, is_default])
+  @@index([product_id, active])
+  @@index([is_default, active])
 }
 
 
@@ -783,6 +802,10 @@ model product_warehouse_stock {
   @@index([product_id])
   @@index([warehouse_id])
   @@index([variant_id])
+  @@index([warehouse_id, is_active])
+  @@index([product_id, variant_id])
+  @@index([warehouse_id, product_id])
+  @@index([stock_quantity])
 }
 
 
@@ -856,6 +879,15 @@ cess_rate          Decimal?           @default(0) @db.Decimal
   @@index([vertical])
   @@index([category_id])
   @@index([active])
+  @@index([store_id])
+  @@index([has_variants])
+  @@index([active, category_id])
+  @@index([active, store_id])
+  @@index([category_id, subcategory_id])
+  @@index([created_at(sort: Desc)])
+  @@index([subcategory_id])
+  @@index([group_id])
+  @@index([rating(sort: Desc)])
 }
 
 // --- Model: promo_banners.prisma ---
@@ -1425,6 +1457,13 @@ model warehouses {
   warehouse_pincodes  warehouse_pincodes[]
   inventory           inventory[]
   warehouse_stock     product_warehouse_stock[]
+
+  // Performance Indexes
+  @@index([type])
+  @@index([is_active])
+  @@index([parent_warehouse_id])
+  @@index([type, is_active])
+  @@index([hierarchy_level])
 }
 
 
