@@ -81,7 +81,10 @@ export const createProduct = async (req, res) => {
       console.log("  ✓ sku (String) ->", v.sku);
       console.log("  ✓ title (String) ->", v.variant_name || v.title);
       console.log("  ✓ price (Decimal) ->", v.variant_price || v.price);
-      console.log("  ✓ old_price (Decimal?) ->", v.variant_old_price || v.old_price);
+      console.log(
+        "  ✓ old_price (Decimal?) ->",
+        v.variant_old_price || v.old_price,
+      );
       console.log("  ✓ discount_percentage (Int?) ->", v.discount_percentage);
       console.log("  ✓ packaging_details (String?) ->", v.packaging_details);
       console.log("  ✓ gst_rate_override (Decimal?) ->", v.gst_rate_override);
@@ -93,7 +96,10 @@ export const createProduct = async (req, res) => {
       console.log("  ✓ is_bulk_enabled (Boolean?) ->", v.is_bulk_enabled);
       console.log("  ✓ bulk_price (Decimal?) ->", v.bulk_price);
       console.log("  ✓ bulk_min_quantity (Int?) ->", v.bulk_min_quantity);
-      console.log("  ✓ bulk_discount_percentage (Int?) ->", v.bulk_discount_percentage);
+      console.log(
+        "  ✓ bulk_discount_percentage (Int?) ->",
+        v.bulk_discount_percentage,
+      );
       console.log("  ✓ attributes (variant_attributes[]) ->", v.attributes);
     }
     console.log("=== END SCHEMA MAPPING ===");
@@ -351,13 +357,13 @@ export const getAllProductsForAdmin = async (req, res) => {
     // Build filters
     const filters = {};
     if (categoryId) filters.category_id = categoryId;
-    if (active !== undefined) filters.active = active === 'true';
+    if (active !== undefined) filters.active = active === "true";
 
     // Add search filter if provided
     if (search) {
       filters.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } }
+        { name: { contains: search, mode: "insensitive" } },
+        { description: { contains: search, mode: "insensitive" } },
       ];
     }
 
@@ -381,24 +387,25 @@ export const getAllProductsForAdmin = async (req, res) => {
         brand_id: brandObj?.id || null,
         brand_name: brandObj?.name || null,
         // Include all variant info for admin panel
-        variants: p.variants?.map(v => ({
-          id: v.id,
-          sku: v.sku,
-          price: v.price,
-          old_price: v.old_price,
-          discount_percentage: v.discount_percentage,
-          stock_qty: v.stock_qty,
-          is_default: v.is_default,
-          active: v.active,
-          shipping_amount: v.shipping_amount,
-          is_bulk_enabled: v.is_bulk_enabled,
-          bulk_min_quantity: v.bulk_min_quantity,
-          bulk_discount_percentage: v.bulk_discount_percentage,
-          bulk_price: v.bulk_price
-        })) || [],
+        variants:
+          p.variants?.map((v) => ({
+            id: v.id,
+            sku: v.sku,
+            price: v.price,
+            old_price: v.old_price,
+            discount_percentage: v.discount_percentage,
+            stock_qty: v.stock_qty,
+            is_default: v.is_default,
+            active: v.active,
+            shipping_amount: v.shipping_amount,
+            is_bulk_enabled: v.is_bulk_enabled,
+            bulk_min_quantity: v.bulk_min_quantity,
+            bulk_discount_percentage: v.bulk_discount_percentage,
+            bulk_price: v.bulk_price,
+          })) || [],
         // Include store info from recommended_store join table
         store_id: storeObj?.id || null,
-        store_name: storeObj?.name || null
+        store_name: storeObj?.name || null,
       };
     });
 
@@ -408,7 +415,7 @@ export const getAllProductsForAdmin = async (req, res) => {
       total: products.total || 0,
       page: products.page,
       limit: products.limit,
-      totalPages: Math.ceil((products.total || 0) / products.limit)
+      totalPages: Math.ceil((products.total || 0) / products.limit),
     });
   } catch (err) {
     console.error("Error fetching products:", err);
@@ -568,7 +575,7 @@ export const getProductForAdmin = async (req, res) => {
         : null;
     const storeObj =
       product.product_recommended_store &&
-        product.product_recommended_store.length > 0
+      product.product_recommended_store.length > 0
         ? product.product_recommended_store[0].recommended_store
         : null;
 
@@ -617,6 +624,22 @@ export const deleteProductForAdmin = async (req, res) => {
       });
     }
 
+    // Delete related records first to avoid Foreign Key constraints
+    // 1. Product Brand
+    await prisma.product_brand.deleteMany({
+      where: { product_id: productId },
+    });
+
+    // 2. Product Recommended Store
+    await prisma.product_recommended_store.deleteMany({
+      where: { product_id: productId },
+    });
+
+    // 3. Product Media
+    await prisma.product_media.deleteMany({
+      where: { product_id: productId },
+    });
+
     // Delete the product
     await ProductDAO.deleteProduct(productId);
 
@@ -647,7 +670,10 @@ export const updateProduct = async (req, res) => {
     console.log("Products Table Fields from Schema:");
     console.log("  - name:", updateData.name);
     console.log("  - description:", updateData.description);
-    console.log("  - hsn_or_sac_code:", updateData.hsn_code || updateData.sac_code || updateData.hsn_or_sac_code);
+    console.log(
+      "  - hsn_or_sac_code:",
+      updateData.hsn_code || updateData.sac_code || updateData.hsn_or_sac_code,
+    );
     console.log("  - gst_rate:", updateData.gst_rate);
     console.log("  - cess_rate:", updateData.cess_rate);
     console.log("  - vertical:", updateData.vertical);
