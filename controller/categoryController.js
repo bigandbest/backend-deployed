@@ -91,11 +91,22 @@ export const updateCategory = async (req, res) => {
       imageUrl = uploadResult.secure_url;
     }
 
-    const data = await CategoryDAO.updateCategory(id, {
-      ...updates,
-      image_url: imageUrl,
-      updated_at: new Date(),
+    // Whitelist allowed fields to prevent unknown argument errors
+    const allowedFields = ["name", "description", "featured", "icon", "active"];
+    const updateData = {};
+
+    allowedFields.forEach((field) => {
+      if (updates[field] !== undefined) {
+        updateData[field] = updates[field];
+      }
     });
+
+    // Add image_url if processed
+    if (imageUrl) {
+      updateData.image_url = imageUrl;
+    }
+
+    const data = await CategoryDAO.updateCategory(id, updateData);
 
     res.status(200).json({
       success: true,
@@ -194,6 +205,11 @@ export const deleteCategory = async (req, res) => {
 
     if (subcategories && subcategories.length > 0) {
       const subcategoryIds = subcategories.map((sub) => sub.id);
+
+      // Delete related section mappings first
+      await prisma.section_subcategory_mappings.deleteMany({
+        where: { subcategory_id: { in: subcategoryIds } },
+      });
 
       // Bulk delete groups
       await prisma.groups.deleteMany({
@@ -347,11 +363,32 @@ export const updateSubcategory = async (req, res) => {
       imageUrl = uploadResult.secure_url;
     }
 
-    const data = await CategoryDAO.updateSubcategory(id, {
-      ...updates,
-      image_url: imageUrl,
-      updated_at: new Date(),
+    // Whitelist allowed fields
+    const allowedFields = [
+      "name",
+      "description",
+      "featured",
+      "icon",
+      "active",
+      "sort_order",
+      "category_id",
+    ];
+    const updateData = {};
+
+    allowedFields.forEach((field) => {
+      if (updates[field] !== undefined) {
+        updateData[field] = updates[field];
+      }
     });
+
+    if (imageUrl) {
+      updateData.image_url = imageUrl;
+    }
+
+    // Set updated_at manually since it exists in subcategories schema
+    updateData.updated_at = new Date();
+
+    const data = await CategoryDAO.updateSubcategory(id, updateData);
 
     res.status(200).json({
       success: true,
@@ -368,6 +405,11 @@ export const updateSubcategory = async (req, res) => {
 export const deleteSubcategory = async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Delete related section mappings first
+    await prisma.section_subcategory_mappings.deleteMany({
+      where: { subcategory_id: id },
+    });
 
     // Delete related groups first
     // Delete related groups first
@@ -519,11 +561,31 @@ export const updateGroup = async (req, res) => {
       imageUrl = uploadResult.secure_url;
     }
 
-    const data = await CategoryDAO.updateGroup(id, {
-      ...updates,
-      image_url: imageUrl,
-      updated_at: new Date(),
+    // Whitelist allowed fields
+    const allowedFields = [
+      "name",
+      "description",
+      "featured",
+      "icon",
+      "active",
+      "sort_order",
+      "subcategory_id",
+    ];
+    const updateData = {};
+
+    allowedFields.forEach((field) => {
+      if (updates[field] !== undefined) {
+        updateData[field] = updates[field];
+      }
     });
+
+    if (imageUrl) {
+      updateData.image_url = imageUrl;
+    }
+
+    updateData.updated_at = new Date();
+
+    const data = await CategoryDAO.updateGroup(id, updateData);
 
     res.status(200).json({
       success: true,
@@ -537,9 +599,28 @@ export const updateGroup = async (req, res) => {
 };
 
 // Delete group
+// Delete group
 export const deleteGroup = async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Check if group exists first to avoid P2025 errors
+    const existingGroup = await prisma.groups.findUnique({
+      where: { id },
+    });
+
+    if (!existingGroup) {
+      console.log(`Group ${id} already deleted (idempotent check)`);
+      return res.status(200).json({
+        success: true,
+        message: "Group deleted successfully",
+      });
+    }
+
+    // Delete related product section groups first (explicit cleanup)
+    await prisma.product_section_groups.deleteMany({
+      where: { group_id: id },
+    });
 
     await CategoryDAO.deleteGroup(id);
 
@@ -651,8 +732,8 @@ export const getSubcategoriesForSection = async (req, res) => {
         section_id: section.id,
         is_active: true,
         subcategory: {
-          active: true
-        }
+          active: true,
+        },
       },
       include: {
         subcategory: {
