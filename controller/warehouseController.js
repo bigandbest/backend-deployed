@@ -420,8 +420,11 @@ export const getWarehousePincodes = async (req, res) => {
 export const addWarehousePincodes = async (req, res) => {
   try {
     const { warehouseId } = req.params;
-    const { pincodes } = req.body;
-    if (!pincodes || !Array.isArray(pincodes)) return res.status(400).json({ error: "Invalid input" });
+    let pincodes = req.body.pincodes || req.body;
+
+    if (!pincodes || !Array.isArray(pincodes)) {
+      return res.status(400).json({ error: "Invalid input: pincodes must be an array" });
+    }
 
     await WarehouseDAO.addPincodes(warehouseId, pincodes);
     res.status(201).json({ success: true, message: "Pincodes added" });

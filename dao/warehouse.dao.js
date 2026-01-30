@@ -298,6 +298,7 @@ class WarehouseDAO {
             data: pincodeDataList.map(p => ({
                 warehouse_id: numericId,
                 ...p,
+                delivery_days: p.delivery_days ? parseInt(p.delivery_days, 10) : undefined,
                 is_active: true
             })),
             skipDuplicates: true
@@ -330,6 +331,9 @@ class WarehouseDAO {
             },
             data: {
                 ...data,
+                ...(data.delivery_days !== undefined && {
+                    delivery_days: data.delivery_days ? parseInt(data.delivery_days, 10) : null
+                }),
                 updated_at: new Date()
             }
         });
