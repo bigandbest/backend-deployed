@@ -8,12 +8,12 @@ class CategoryDAO {
     });
   }
 
-  async getCategoryById(id) {
+  async getCategoryById(id, activeOnly = false) {
     return await prisma.categories.findUnique({
       where: { id },
       include: {
         subcategories: {
-          where: { active: true },
+          where: activeOnly ? { active: true } : {},
           orderBy: { sort_order: "asc" },
         },
       },
@@ -33,7 +33,7 @@ class CategoryDAO {
     });
   }
 
-  async listCategories(activeOnly = true) {
+  async listCategories(activeOnly = false) {
     return await prisma.categories.findMany({
       where: activeOnly ? { active: true } : {},
       include: {
@@ -52,13 +52,13 @@ class CategoryDAO {
     });
   }
 
-  async getSubcategoryById(id) {
+  async getSubcategoryById(id, activeOnly = false) {
     return await prisma.subcategories.findUnique({
       where: { id },
       include: {
         category: true,
         groups: {
-          where: { active: true },
+          where: activeOnly ? { active: true } : {},
           orderBy: { sort_order: "asc" },
         },
       },
@@ -72,7 +72,7 @@ class CategoryDAO {
     });
   }
 
-  async listSubcategories(activeOnly = true) {
+  async listSubcategories(activeOnly = false) {
     return await prisma.subcategories.findMany({
       where: activeOnly ? { active: true } : {},
       include: {
@@ -116,7 +116,7 @@ class CategoryDAO {
     });
   }
 
-  async listGroups(activeOnly = true) {
+  async listGroups(activeOnly = false) {
     return await prisma.groups.findMany({
       where: activeOnly ? { active: true } : {},
       include: {
@@ -155,16 +155,16 @@ class CategoryDAO {
   }
 
   // --- Advanced Taxonomy Operations ---
-  async getFullHierarchy() {
+  async getFullHierarchy(activeOnly = false) {
     return await prisma.categories.findMany({
-      where: { active: true },
+      where: activeOnly ? { active: true } : {},
       include: {
         subcategories: {
-          where: { active: true },
+          where: activeOnly ? { active: true } : {},
           orderBy: { sort_order: "asc" },
           include: {
             groups: {
-              where: { active: true },
+              where: activeOnly ? { active: true } : {},
               orderBy: { sort_order: "asc" },
             },
           },
