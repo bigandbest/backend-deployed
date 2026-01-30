@@ -1,0 +1,14 @@
+# K6 Test Results
+results/*.json
+results/*.html
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
