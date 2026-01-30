@@ -2,6 +2,11 @@ import productSectionDao from "../dao/product-section.dao.js";
 import productSectionProductDao from "../dao/product-section-product.dao.js";
 import productSectionCategoryDao from "../dao/product-section-category.dao.js";
 import productGridSettingDao from "../dao/product-grid-setting.dao.js";
+import productSectionGroupDao from "../dao/product-section-group.dao.js";
+import storeSectionMappingDao from "../dao/store-section-mapping.dao.js";
+import videoCardDao from "../dao/video-card.dao.js";
+import brandDao from "../dao/brand.dao.js";
+import prisma from '../config/prisma.js';
 
 // Get all product sections
 export const getAllProductSections = async (req, res) => {
@@ -375,6 +380,148 @@ export const updateProductGridSettings = async (req, res) => {
     });
   } catch (error) {
     console.error("Error updating grid settings:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Get full content for a single section (Lazy Loading)
+export const getSectionWithContent = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { warehouse_id } = req.query;
+    const warehouseIdInt = warehouse_id ? parseInt(warehouse_id) : null;
+    const sectionId = parseInt(id);
+
+    // 1. Fetch Section Metadata
+    const section = await productSectionDao.getById(sectionId);
+    if (!section) {
+      return res.status(404).json({ error: "Section not found" });
+    }
+
+    // 2. Fetch skeleton data for mappings (parallel)
+    // Note: Use try-catch or safe listing if DAOs are missing methods
+    const [
+      groupMappings,
+      storeMappings,
+      categoryMappings
+    ] = await Promise.all([
+      productSectionGroupDao.listBySection(sectionId),
+      storeSectionMappingDao.getStoreMappingsBySection ? storeSectionMappingDao.getStoreMappingsBySection(sectionId) : [],
+      productSectionCategoryDao.listBySection(sectionId)
+    ]);
+
+    let products = [];
+    let mappedContent = {};
+
+    // 3. Fetch specific content based on mappings
+
+    // A. Groups
+    if (groupMappings && groupMappings.length > 0) {
+      const groupIds = groupMappings.map(m => m.group_id);
+      const groupProducts = await prisma.product_groups.findMany({
+        where: { group_id: { in: groupIds } },
+        include: {
+          product: {
+            include: {
+              variants: { where: { active: true, is_default: true } },
+              media: { where: { is_primary: true }, take: 1 }
+            }
+          }
+        },
+        take: 50
+      });
+
+      const groupProductsMap = {};
+      groupProducts.forEach(pg => {
+        if (!groupProductsMap[pg.group_id]) groupProductsMap[pg.group_id] = [];
+        groupProductsMap[pg.group_id].push(pg.product);
+      });
+
+      mappedContent.groups = groupMappings.map(m => ({
+        ...m.groups,
+        preview_products: groupProductsMap[m.group_id] || []
+      }));
+      mappedContent.groups.forEach(g => products.push(...g.preview_products));
+    }
+
+    // B. Stores
+    if (storeMappings && storeMappings.length > 0) {
+      const storeIds = storeMappings.map(m => m.store_id);
+      const storeProducts = await prisma.products.findMany({
+        where: { store_id: { in: storeIds }, is_active: true, is_deleted: false },
+        include: {
+          variants: { where: { active: true, is_default: true } },
+          media: { where: { is_primary: true }, take: 1 }
+        },
+        take: 20
+      });
+      products.push(...storeProducts);
+      mappedContent.stores = storeMappings.map(m => m.recommended_store);
+    }
+
+    // C. Categories
+    if (categoryMappings && categoryMappings.length > 0) {
+      const categoryIds = categoryMappings.map(m => m.category_id);
+      const categoryProducts = await prisma.products.findMany({
+        where: { category_id: { in: categoryIds }, is_active: true },
+        include: {
+          variants: { where: { active: true, is_default: true } },
+          media: { where: { is_primary: true }, take: 1 }
+        },
+        take: 20
+      });
+      products.push(...categoryProducts);
+    }
+
+    // D. Manual Products
+    if (section.section_products && section.section_products.length > 0) {
+      products.push(...section.section_products.map(item => item.product));
+    }
+
+    // E. Special Components
+    if (section.component_name === 'VideoCardSection') {
+      const videos = await videoCardDao.getActive();
+      products.push(...videos);
+    }
+    if (['PromoBanner', 'DynamicMegaSale'].includes(section.component_name) || section.section_key.includes('banner')) {
+      const banners = await prisma.promo_banners.findMany({ where: { active: true } });
+      products.push(...banners);
+    }
+    if (section.component_name === 'BrandVista') {
+      const brands = await brandDao.list({ active: true });
+      products.push(...brands);
+    }
+
+    // 4. Enrich Inventory
+    const productIds = products.filter(p => p.id).map(p => p.id);
+    if (productIds.length > 0 && warehouseIdInt) {
+      const stocks = await prisma.product_warehouse_stocks.findMany({
+        where: { product_id: { in: productIds }, warehouse_id: warehouseIdInt },
+        select: { product_id: true, quantity: true }
+      });
+      const stockMap = new Map();
+      stocks.forEach(s => stockMap.set(s.product_id, s.quantity));
+
+      products.forEach(p => {
+        if (p.id) {
+          const qty = stockMap.get(p.id) || 0;
+          p.stock = qty;
+          p.is_in_stock = qty > 0;
+        }
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        ...section,
+        products,
+        ...mappedContent
+      }
+    });
+
+  } catch (error) {
+    console.error("Error fetching section content:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
