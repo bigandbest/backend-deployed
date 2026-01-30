@@ -18,6 +18,7 @@ import {
   getSectionsForCategory,
   getProductGridSettings,
   updateProductGridSettings,
+  getSectionWithContent
 } from "../controller/productSectionController.js";
 
 const router = express.Router();
@@ -33,6 +34,9 @@ router.get("/active", getActiveProductSections);
 
 // Get single product section by ID
 router.get("/:id", getProductSectionById);
+
+// Get lazy-load content for single section
+router.get("/:id/content", getSectionWithContent);
 
 // Update product section
 router.put("/:id", updateProductSection);

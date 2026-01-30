@@ -119,9 +119,8 @@ export const checkReturnEligibility = async (req, res) => {
 
       if (daysSinceDelivery <= 7 && daysSinceDelivery >= 0) {
         eligibility.can_return = true;
-        eligibility.reason = `Product can be returned within 7 days of delivery. ${
-          7 - daysSinceDelivery
-        } days remaining.`;
+        eligibility.reason = `Product can be returned within 7 days of delivery. ${7 - daysSinceDelivery
+          } days remaining.`;
       } else if (daysSinceDelivery > 7) {
         eligibility.reason =
           "Return period has expired. Products can only be returned within 7 days of delivery.";

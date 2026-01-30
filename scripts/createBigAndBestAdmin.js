@@ -1,9 +1,10 @@
 import UserDAO from "../dao/user.dao.js";
 import { hashPassword } from "../utils/passwordUtils.js";
+import { randomUUID } from "crypto";
 
 async function createBigAndBestAdmin() {
   try {
-    const email = "bigandbestmart@gmail.com";
+    const email = "bigandbestmart1@gmail.com";
     const password = "vikas1234"; // Change this to your preferred password
     const name = "Big and Best Admin";
 
@@ -23,9 +24,9 @@ async function createBigAndBestAdmin() {
     // Hash the password
     const hashedPassword = await hashPassword(password);
 
-    // Create admin user with the specific ID that was in the token
+    // Create admin user with a new unique ID
     const adminUser = await UserDAO.createUser({
-      id: "4c8e1186-ebe9-4f17-b90b-7bb3251043bf", // The ID from your existing token
+      id: randomUUID(), // Generate a unique ID to avoid collisions
       email: email.toLowerCase(),
       password: hashedPassword,
       name,
