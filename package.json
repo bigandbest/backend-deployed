@@ -33,7 +33,7 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "author": "rudraksh",
+  "author": "Big and Best Mart",
   "license": "ISC",
   "dependencies": {
     "@supabase/supabase-js": "^2.50.4",
