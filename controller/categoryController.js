@@ -122,10 +122,10 @@ export const updateCategory = async (req, res) => {
 // Get all categories (simple list)
 export const getAllCategories = async (req, res) => {
   try {
-    const products = await CategoryDAO.listCategories({ limit: 1000 });
+    const categories = await CategoryDAO.listCategories(false);
     res.json({
       success: true,
-      categories: products.items || [],
+      categories: categories || [],
     });
   } catch (err) {
     console.error("Error fetching categories:", err);
@@ -238,8 +238,8 @@ export const deleteCategory = async (req, res) => {
 // Get all subcategories with their category info
 export const getAllSubcategories = async (req, res) => {
   try {
-    // Use Prisma through CategoryDAO
-    const subcategories = await CategoryDAO.listSubcategories(true);
+    // Use Prisma through CategoryDAO - false for activeOnly to show all in admin
+    const subcategories = await CategoryDAO.listSubcategories(false);
 
     res.status(200).json({
       success: true,
@@ -263,8 +263,8 @@ export const getSubcategoriesByCategory = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      subcategories: subcategories.filter((s) => s.active !== false),
-      total: subcategories.filter((s) => s.active !== false).length,
+      subcategories: subcategories,
+      total: subcategories.length,
     });
   } catch (error) {
     console.error("Server error in getSubcategoriesByCategory:", error);
@@ -437,8 +437,8 @@ export const deleteSubcategory = async (req, res) => {
 // Get all groups with their subcategory and category info
 export const getAllGroups = async (req, res) => {
   try {
-    // Use Prisma through CategoryDAO
-    const groups = await CategoryDAO.listGroups(true);
+    // Use Prisma through CategoryDAO - false for activeOnly to show all in admin
+    const groups = await CategoryDAO.listGroups(false);
 
     res.status(200).json({
       success: true,
@@ -461,8 +461,8 @@ export const getGroupsBySubcategory = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      groups: groups.filter((g) => g.active !== false),
-      total: groups.filter((g) => g.active !== false).length,
+      groups: groups,
+      total: groups.length,
     });
   } catch (error) {
     console.error("Server error in getGroupsBySubcategory:", error);
@@ -638,8 +638,8 @@ export const deleteGroup = async (req, res) => {
 export const getCategoriesHierarchy = async (req, res) => {
   try {
     // Get categories
-    // Use DAO's full hierarchy method
-    const categories = await CategoryDAO.getFullHierarchy();
+    // Use DAO's full hierarchy method - false for activeOnly to show all in admin
+    const categories = await CategoryDAO.getFullHierarchy(false);
     // DAO returns structure that matches controller's expected output?
     // DAO returns: categories -> subcategories -> groups
     // The controller response format: `categories: hierarchy`
