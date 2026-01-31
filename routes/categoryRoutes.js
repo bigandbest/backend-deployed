@@ -20,77 +20,29 @@ import {
   updateGroup,
   deleteGroup,
 } from "../controller/categoryController.js";
-import { cacheMiddleware } from "../utils/cache.js";
-import { invalidateCacheMiddleware } from "../utils/cacheInvalidation.js";
 
 const router = express.Router();
 const upload = multer();
 
-// Category routes (cache for 30 minutes - categories rarely change)
-router.get("/", cacheMiddleware(1800), getAllCategories);
-router.post(
-  "/",
-  invalidateCacheMiddleware("categories"),
-  upload.single("image_url"),
-  addCategory,
-);
-router.put(
-  "/:id",
-  invalidateCacheMiddleware("categories"),
-  upload.single("image_url"),
-  updateCategory,
-);
-router.delete("/:id", invalidateCacheMiddleware("categories"), deleteCategory);
+// Category routes
+router.get("/", getAllCategories);
+router.post("/", upload.single("image_url"), addCategory);
+router.put("/:id", upload.single("image_url"), updateCategory);
+router.delete("/:id", deleteCategory);
 
-// Subcategories routes (cache for 30 minutes)
-router.get("/subcategories", cacheMiddleware(1800), getAllSubcategories);
-router.get(
-  "/subcategories/category/:categoryId",
-  cacheMiddleware(1800),
-  getSubcategoriesByCategory,
-);
-router.post(
-  "/subcategories",
-  invalidateCacheMiddleware("categories"),
-  upload.single("image_url"),
-  addSubcategory,
-);
-router.put(
-  "/subcategories/:id",
-  invalidateCacheMiddleware("categories"),
-  upload.single("image_url"),
-  updateSubcategory,
-);
-router.delete(
-  "/subcategories/:id",
-  invalidateCacheMiddleware("categories"),
-  deleteSubcategory,
-);
+// Subcategories routes
+router.get("/subcategories", getAllSubcategories);
+router.get("/subcategories/category/:categoryId", getSubcategoriesByCategory);
+router.post("/subcategories", upload.single("image_url"), addSubcategory);
+router.put("/subcategories/:id", upload.single("image_url"), updateSubcategory);
+router.delete("/subcategories/:id", deleteSubcategory);
 
-// Groups routes (cache for 30 minutes)
-router.get("/groups", cacheMiddleware(1800), getAllGroups);
-router.get(
-  "/groups/subcategory/:subcategoryId",
-  cacheMiddleware(1800),
-  getGroupsBySubcategory,
-);
-router.post(
-  "/groups",
-  invalidateCacheMiddleware("categories"),
-  upload.single("image_url"),
-  addGroup,
-);
-router.put(
-  "/groups/:id",
-  invalidateCacheMiddleware("categories"),
-  upload.single("image_url"),
-  updateGroup,
-);
-router.delete(
-  "/groups/:id",
-  invalidateCacheMiddleware("categories"),
-  deleteGroup,
-);
+// Groups routes
+router.get("/groups", getAllGroups);
+router.get("/groups/subcategory/:subcategoryId", getGroupsBySubcategory);
+router.post("/groups", upload.single("image_url"), addGroup);
+router.put("/groups/:id", upload.single("image_url"), updateGroup);
+router.delete("/groups/:id", deleteGroup);
 
 // Subcategory details route
 router.get("/subcategory/:subcategoryId", getSubcategoryDetails);
