@@ -14,4 +14,5 @@ model wallets {
   user          users     @relation("UserWallet", fields: [user_id], references: [id])
   transactions  wallet_transactions[]
   admin_frozen_by users?  @relation("WalletFreezer", fields: [frozen_by], references: [id])
+  audit_logs    wallet_audit_logs[]
 }

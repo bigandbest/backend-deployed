@@ -57,7 +57,7 @@ export const getMilestoneById = async (req, res) => {
  */
 export const createMilestone = async (req, res) => {
     try {
-        const { min_order_value, delivery_charge, description, is_active } = req.body;
+        const { min_order_value, delivery_charge, discount, description, is_active } = req.body;
 
         // Validation
         if (min_order_value === undefined || min_order_value === null) {
@@ -91,6 +91,7 @@ export const createMilestone = async (req, res) => {
         const data = await deliveryChargeMilestoneDao.create({
             min_order_value,
             delivery_charge,
+            discount: discount || 0,
             description: description || null,
             is_active: is_active !== undefined ? is_active : true,
         });
@@ -122,7 +123,7 @@ export const createMilestone = async (req, res) => {
 export const updateMilestone = async (req, res) => {
     try {
         const { id } = req.params;
-        const { min_order_value, delivery_charge, description, is_active } = req.body;
+        const { min_order_value, delivery_charge, discount, description, is_active } = req.body;
 
         // Validation
         if (min_order_value !== undefined && min_order_value < 0) {
@@ -142,6 +143,7 @@ export const updateMilestone = async (req, res) => {
         const updateData = {};
         if (min_order_value !== undefined) updateData.min_order_value = min_order_value;
         if (delivery_charge !== undefined) updateData.delivery_charge = delivery_charge;
+        if (discount !== undefined) updateData.discount = discount;
         if (description !== undefined) updateData.description = description;
         if (is_active !== undefined) updateData.is_active = is_active;
 
@@ -282,6 +284,7 @@ export const getApplicableCharge = async (req, res) => {
             data: {
                 orderValue,
                 deliveryCharge: applicableMilestone.delivery_charge,
+                discount: applicableMilestone.discount,
                 milestone: applicableMilestone,
             },
         });

@@ -51,4 +51,5 @@ model users {
   created_txs      wallet_transactions[] @relation("TransactionCreator")
   service_bookings service_bookings[]
   addresses        user_addresses[]
+  audit_logs       wallet_audit_logs[] @relation("AdminAuditLogs")
 }

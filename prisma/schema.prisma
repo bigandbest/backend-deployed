@@ -261,6 +261,7 @@ model delivery_charge_milestones {
   id              Int       @id @default(autoincrement())
   min_order_value Decimal   @unique @db.Decimal
   delivery_charge Decimal   @db.Decimal
+  discount        Decimal?  @default(0.00) @db.Decimal
   description     String?
   is_active       Boolean?  @default(true)
   created_at      DateTime? @default(now()) @db.Timestamptz(6)
@@ -395,7 +396,9 @@ model inventory {
   bulk_reserved_qty    Int?      @default(0)
   warehouse_id Int
   updated_at   DateTime          @updatedAt @db.Timestamptz
+  updated_at   DateTime          @updatedAt @db.Timestamptz
   created_at   DateTime          @default(now()) @db.Timestamptz
+  status       String?
 
   // Relations
   variant      product_variants  @relation(fields: [variant_id], references: [id], onDelete: Cascade)
@@ -837,12 +840,6 @@ cess_rate          Decimal?           @default(0) @db.Decimal
   created_at         DateTime?          @default(now()) @db.Timestamptz
   updated_at         DateTime?          @updatedAt @db.Timestamptz
 
-  // Delivery Settings
-  delivery_type         String?            @default("nationwide") @db.VarChar
-  allowed_zone_ids      Int[]              @default([])
-  delivery_restrictions String?
-  delivery_notes        String?
-
   // Relations
   category           categories?        @relation(fields: [category_id], references: [id])
   subcategory        subcategories?     @relation(fields: [subcategory_id], references: [id])
@@ -863,7 +860,6 @@ cess_rate          Decimal?           @default(0) @db.Decimal
   store_section_mappings    store_section_mappings[]
   daily_deals_products      daily_deals_product[]
   warehouse_stock           product_warehouse_stock[]
-  stock_movements           stock_movements[]
 
   @@index([vertical])
   @@index([category_id])
@@ -1115,7 +1111,6 @@ model stock_movements {
 
   // Relations
   warehouse      warehouses @relation(fields: [warehouse_id], references: [id])
-  product        products   @relation(fields: [product_id], references: [id])
 }
 
 
@@ -1219,6 +1214,7 @@ model users {
   last_name        String?
   business_type    String?
   user_image       String?
+  registration_status String?
   
   // Relations
   notifications    user_notifications[]
@@ -1234,6 +1230,7 @@ model users {
   created_txs      wallet_transactions[] @relation("TransactionCreator")
   service_bookings service_bookings[]
   addresses        user_addresses[]
+  audit_logs       wallet_audit_logs[] @relation("AdminAuditLogs")
 }
 
 
@@ -1308,6 +1305,23 @@ model video_cards {
 }
 
 
+// --- Model: wallet_audit_logs.prisma ---
+model wallet_audit_logs {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  wallet_id     String    @db.Uuid
+  admin_id      String    @db.Uuid
+  action        String    @db.VarChar
+  old_data      Json?
+  new_data      Json?
+  description   String?
+  created_at    DateTime? @default(now()) @db.Timestamptz
+
+  // Relations
+  wallet        wallets   @relation(fields: [wallet_id], references: [id])
+  admin         users     @relation("AdminAuditLogs", fields: [admin_id], references: [id])
+}
+
+
 // --- Model: wallet_transactions.prisma ---
 model wallet_transactions {
   id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -1352,6 +1366,7 @@ model wallets {
   user          users     @relation("UserWallet", fields: [user_id], references: [id])
   transactions  wallet_transactions[]
   admin_frozen_by users?  @relation("WalletFreezer", fields: [frozen_by], references: [id])
+  audit_logs    wallet_audit_logs[]
 }
 
 
@@ -1425,6 +1440,7 @@ model warehouses {
   created_by          Int?
   parent_warehouse_id Int?
   hierarchy_level     Int?              @default(0)
+  is_seller_location  Boolean?          @default(false)
 
   // Relations
   parent_warehouse    warehouses?       @relation("WarehouseHierarchy", fields: [parent_warehouse_id], references: [id])
