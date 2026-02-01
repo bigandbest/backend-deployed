@@ -210,7 +210,7 @@ END $$;
 -- Create some sample products if they don't exist
 INSERT INTO products (name, description, price, old_price, category, brand_name, active, image)
 VALUES 
-  ('Sample Product 1', 'This is a sample product for testing delivery validation', 299.99, 399.99, 'Electronics', 'SampleBrand', true, '/prod1.png'),
+  ('Sample Product 1', 'This is a sample product for testing delivery validation', 299.99, 399.99, 'Electronics', 'SampleBrand', true, ''),
   ('Sample Product 2', 'Another sample product for testing', 199.99, 249.99, 'Health', 'SampleBrand', true, '/prod2.png'),
   ('Sample Product 3', 'Third sample product', 99.99, 129.99, 'Groceries', 'SampleBrand', true, '/prod3.png')
 ON CONFLICT DO NOTHING;

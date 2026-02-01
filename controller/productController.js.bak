@@ -391,7 +391,7 @@ export const getProductById = async (req, res) => {
         ...enrichedProduct,
         price: computedPrice,
         old_price: computedOldPrice,
-        image: enrichedProduct.media?.[0]?.media_url || '/prod1.png',
+        image: enrichedProduct.media?.[0]?.media_url || '',
         images: enrichedProduct.media?.map(m => m.media_url) || [],
         delivery_info: deliveryInfo,
         store_name: enrichedProduct.store?.name || null,
@@ -1735,7 +1735,7 @@ export const getRelatedProducts = async (req, res) => {
         ...p,
         price: defaultVariant?.price || 0,
         old_price: defaultVariant?.old_price || (defaultVariant?.price * 1.2) || 0,
-        image: p.media?.[0]?.media_url || '/prod1.png',
+        image: p.media?.[0]?.media_url || '',
         brand: p.brands?.[0]?.brand?.name || null
       };
     });
