@@ -284,28 +284,45 @@ export const addProductToWarehouse = async (req, res) => {
     const productIdParam = req.params.productId;
     let { product_id, stock_quantity, minimum_threshold, cost_per_unit, variant_id } = req.body;
 
+    console.log('🔵 addProductToWarehouse called');
+    console.log('  Warehouse ID:', id);
+    console.log('  Product ID (param):', productIdParam);
+    console.log('  Product ID (body):', product_id);
+    console.log('  Variant ID:', variant_id);
+    console.log('  Stock Quantity:', stock_quantity);
+    console.log('  Request body:', req.body);
+
     if (!product_id && productIdParam) {
       product_id = productIdParam;
+      console.log('  Using productId from params:', product_id);
     }
 
     if (!product_id || stock_quantity === undefined) {
+      console.log('❌ Missing required fields');
       return res.status(400).json({ success: false, error: "Product ID and stock quantity are required" });
     }
 
     // Check if variant_id is provided; if not, fetch product variants and pick default/first
     if (!variant_id) {
+      console.log('  No variant_id provided, fetching variants...');
       const variants = await ProductDAO.getVariantsByProductId(product_id); // Assuming ProductDAO has this or import it
       if (!variants || variants.length === 0) {
+        console.log('❌ Product has no variants');
         return res.status(400).json({ success: false, error: "Product has no variants. Cannot add to inventory." });
       }
       // Prefer default variant, else first
       const targetVariant = variants.find(v => v.is_default) || variants[0];
       variant_id = targetVariant.id;
+      console.log('  Auto-selected variant:', variant_id);
     }
 
     const warehouse = await WarehouseDAO.getById(id);
-    if (!warehouse) return res.status(404).json({ success: false, error: "Warehouse not found" });
+    if (!warehouse) {
+      console.log('❌ Warehouse not found');
+      return res.status(404).json({ success: false, error: "Warehouse not found" });
+    }
 
+    console.log('  Calling WarehouseDAO.updateProductStock...');
     // Using refactored updateProductStock which requires variantId
     await WarehouseDAO.updateProductStock(id, product_id, variant_id, {
       stock_quantity: parseInt(stock_quantity) || 0,
@@ -314,8 +331,10 @@ export const addProductToWarehouse = async (req, res) => {
       // is_active ignored in new inventory
     });
 
+    console.log('✅ Stock updated successfully');
     res.status(201).json({ success: true, message: "Product added/updated in warehouse successfully" });
   } catch (error) {
+    console.error('❌ Error in addProductToWarehouse:', error);
     res.status(500).json({ success: false, error: "Internal server error", message: error.message });
   }
 };

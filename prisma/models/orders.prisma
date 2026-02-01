@@ -18,6 +18,11 @@ model orders {
   gst_number          String?          @db.VarChar
   is_deleted          Boolean?         @default(false)
 
+  // Charge Breakdown (Snapshotted at order creation)
+  handling_charge     Decimal?         @default(0) @db.Decimal
+  surge_charge        Decimal?         @default(0) @db.Decimal
+  platform_charge     Decimal?         @default(0) @db.Decimal
+
   // Relations
   user                users?           @relation(fields: [user_id], references: [id])
   order_items         order_items[]

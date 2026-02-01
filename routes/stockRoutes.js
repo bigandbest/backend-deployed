@@ -22,4 +22,10 @@ router.post("/:productId/reduce", reduceStock);
 // Bulk update stock for multiple products
 router.post("/bulk-update", bulkUpdateStock);
 
+// Transfer stock between warehouses
+router.post("/transfer", transferStock);
+
+// Adjust stock (add/remove)
+router.post("/adjust", adjustStock);
+
 export default router;

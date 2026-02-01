@@ -17,19 +17,24 @@ const VARIANT_JOIN = "product_variants(*)";
 // Helper for consistency in transformations
 const transformProduct = (product, assignments = []) => {
   const activeVariants = (product.variants || []).filter(v => v.active !== false);
-  const defaultVariant = activeVariants.find(v => v.is_default === true);
+  const defaultVariant =
+    activeVariants.find((v) => v.is_default === true) || activeVariants[0];
 
   return {
     id: product.id,
     name: product.name,
     description: product.description,
-    price: product.price,
-    oldPrice: product.old_price,
-    rating: product.rating || 4.0,
+    price: product.price || defaultVariant?.price,
+    oldPrice: product.old_price || defaultVariant?.old_price,
+    rating: parseFloat(product.rating) || 4.0,
     reviews: product.review_count || 0,
     discount: product.discount || 0,
-    image: product.image,
-    images: product.images,
+    image:
+      product.image ||
+      product.media?.find((m) => m.is_primary)?.url ||
+      product.media?.[0]?.url,
+    images:
+      product.images || product.media?.map((m) => m.url) || [],
     inStock: (product.stock_quantity || product.stock || 0) > 0,
     stock: product.stock_quantity || product.stock || 0,
     stockQuantity: product.stock_quantity || product.stock || 0,
@@ -37,8 +42,10 @@ const transformProduct = (product, assignments = []) => {
     featured: product.featured,
     most_orders: product.most_orders,
     top_sale: product.top_sale,
-    category: product.category?.name || product.category_name || product.category,
-    weight: product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
+    category:
+      product.category?.name || product.category_name || product.category,
+    weight:
+      product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
     brand: product.brand_name || "BigandBest",
     shipping_amount: product.shipping_amount || 0,
     specifications: product.specifications,
@@ -50,7 +57,7 @@ const transformProduct = (product, assignments = []) => {
     hasVariants: activeVariants.length > 0,
     variants: activeVariants,
     defaultVariant: defaultVariant || null,
-    warehouse_assignments: assignments
+    warehouse_assignments: assignments,
   };
 };
 

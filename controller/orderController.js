@@ -15,6 +15,7 @@ import bulkProductSettingsDao from "../dao/bulk-product-settings.dao.js";
 import cartDao from "../dao/cart.dao.js";
 import refundRequestDao from "../dao/refund-request.dao.js";
 import userControlDao from "../dao/user.dao.js";
+import chargeSettingDao from "../dao/charge-setting.dao.js";
 import prisma from "../config/prisma.js";
 
 const razorpay = new Razorpay({
@@ -297,6 +298,21 @@ export const placeOrder = async (req, res) => {
     const { user_id, items, subtotal, shipping, total, address, payment_method } =
       req.body;
 
+    // Fetch active charge settings
+    let chargeSettings = { handling_charge: 0, surge_charge: 0, platform_charge: 0 };
+    try {
+      const settings = await chargeSettingDao.get();
+      if (settings) {
+        chargeSettings = {
+          handling_charge: parseFloat(settings.handling_charge || 0),
+          surge_charge: parseFloat(settings.surge_charge || 0),
+          platform_charge: parseFloat(settings.platform_charge || 0)
+        };
+      }
+    } catch (err) {
+      console.error("Error fetching charge settings for order:", err);
+    }
+
     // Extract pincode from address (assuming it's at the end)
     const addressParts = address.split(",");
     const pincode = addressParts[addressParts.length - 2]?.trim() || "000000";
@@ -308,7 +324,9 @@ export const placeOrder = async (req, res) => {
       total: parseFloat(total),
       address,
       payment_method,
-      status: "pending"
+      payment_method,
+      status: "pending",
+      ...chargeSettings
     });
 
     // Process order items with warehouse assignment
@@ -428,6 +446,21 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       gpsLocation,
     } = req.body;
 
+    // Fetch active charge settings
+    let chargeSettings = { handling_charge: 0, surge_charge: 0, platform_charge: 0 };
+    try {
+      const settings = await chargeSettingDao.get();
+      if (settings) {
+        chargeSettings = {
+          handling_charge: parseFloat(settings.handling_charge || 0),
+          surge_charge: parseFloat(settings.surge_charge || 0),
+          platform_charge: parseFloat(settings.platform_charge || 0)
+        };
+      }
+    } catch (err) {
+      console.error("Error fetching charge settings for order:", err);
+    }
+
     if (razorpay_signature) {
       const generatedSignature = crypto
         .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
@@ -464,7 +497,9 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       payment_method,
       status: razorpay_payment_id ? "confirmed" : "pending",
       razorpay_order_id,
+      razorpay_order_id,
       razorpay_payment_id,
+      ...chargeSettings
     };
 
     const order = await orderDao.create(orderData);

@@ -384,6 +384,8 @@ export const updateZone = async (req, res) => {
     const { id } = req.params;
     const { name, display_name, description, is_nationwide, is_active, pincodes } = req.body;
 
+    console.log(`Updating zone ${id}:`, { name, pincodesCount: pincodes?.length });
+
     if (name) {
       const zoneValidation = validateZoneNames([name]);
       if (!zoneValidation.isValid) return res.status(400).json({ success: false, error: "Invalid zone name" });
@@ -399,13 +401,15 @@ export const updateZone = async (req, res) => {
     const zone = await DeliveryZoneDAO.update(Number(id), updateData);
 
     if (pincodes !== undefined) {
+      // If nationwide or empty pincodes list, just delete all
       if (zone.is_nationwide || pincodes.length === 0) {
         await DeliveryZoneDAO.deletePincodesByZone(Number(id));
+        console.log(`Cleared pincodes for zone ${id}`);
       } else {
-        await DeliveryZoneDAO.deletePincodesByZone(Number(id));
+        // Map pincodes to correct structure
         const pincodesToInsert = pincodes.map((pincode) => ({
           zone_id: zone.id,
-          pincode: pincode.pincode,
+          pincode: String(pincode.pincode).trim(), // Ensure string format
           city: pincode.city || null,
           state: pincode.state || null,
           district: pincode.district || null,
@@ -414,14 +418,19 @@ export const updateZone = async (req, res) => {
           others: pincode.others || null,
           is_active: pincode.is_active !== undefined ? pincode.is_active : true,
         }));
-        await DeliveryZoneDAO.createPincodes(pincodesToInsert);
+
+        // Use transaction to replace pincodes safely
+        await DeliveryZoneDAO.replacePincodes(Number(id), pincodesToInsert);
+        console.log(`Replaced pincodes for zone ${id}. Count: ${pincodesToInsert.length}`);
       }
     }
 
-    // Return updated zone with pincodes? 
-    // Original returned just zone data.
-    res.status(200).json({ success: true, zone: zone, message: "Zone updated successfully" });
+    // Fetch updated zone with pincodes to return full state
+    const updatedZone = await DeliveryZoneDAO.getById(Number(id));
+
+    res.status(200).json({ success: true, zone: updatedZone, message: "Zone updated successfully" });
   } catch (error) {
+    console.error("Update zone failed:", error);
     res.status(500).json({ success: false, error: "Failed to update zone", message: error.message });
   }
 };

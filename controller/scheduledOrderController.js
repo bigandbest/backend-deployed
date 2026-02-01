@@ -1,6 +1,19 @@
-import { supabase } from "../config/supabaseClient.js";
+import { PrismaClient } from "@prisma/client";
 import moment from "moment-timezone";
 import crypto from "crypto";
+
+const prisma = new PrismaClient();
+
+/**
+ * Format Date object to HH:mm string
+ */
+const formatTimeToHHmm = (date) => {
+    if (!date) return null;
+    const d = new Date(date);
+    const hours = d.getHours().toString().padStart(2, '0');
+    const minutes = d.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+};
 
 /**
  * Validate scheduled time
@@ -94,14 +107,14 @@ export const createScheduledOrder = async (req, res) => {
 
         // Verify address belongs to user
         if (address_id) {
-            const { data: address, error: addressError } = await supabase
-                .from('user_addresses')
-                .select('id')
-                .eq('id', address_id)
-                .eq('user_id', userId)
-                .single();
+            const address = await prisma.user_addresses.findFirst({
+                where: {
+                    id: address_id,
+                    user_id: userId
+                }
+            });
 
-            if (addressError || !address) {
+            if (!address) {
                 return res.status(400).json({
                     success: false,
                     error: 'Invalid address'
@@ -113,9 +126,8 @@ export const createScheduledOrder = async (req, res) => {
         const idempotency_key = generateIdempotencyKey(userId);
 
         // Create scheduled order
-        const { data, error } = await supabase
-            .from('scheduled_orders')
-            .insert([{
+        const data = await prisma.scheduled_orders.create({
+            data: {
                 user_id: userId,
                 cart_items,
                 address_id,
@@ -128,11 +140,8 @@ export const createScheduledOrder = async (req, res) => {
                 metadata,
                 status: 'SCHEDULED',
                 payment_status: 'PENDING'
-            }])
-            .select()
-            .single();
-
-        if (error) throw error;
+            }
+        });
 
         res.status(201).json({
             success: true,
@@ -171,23 +180,29 @@ export const getUserScheduledOrders = async (req, res) => {
         }
 
         const { status, page = 1, limit = 20 } = req.query;
-        const offset = (page - 1) * limit;
+        const pageInt = parseInt(page);
+        const limitInt = parseInt(limit);
+        const offset = (pageInt - 1) * limitInt;
 
-        let query = supabase
-            .from('scheduled_orders')
-            .select('*', { count: 'exact' })
-            .eq('user_id', userId)
-            .order('scheduled_at', { ascending: true });
+        const where = {
+            user_id: userId
+        };
 
         if (status) {
-            query = query.eq('status', status);
+            where.status = status;
         }
 
-        query = query.range(offset, offset + limit - 1);
-
-        const { data, error, count } = await query;
-
-        if (error) throw error;
+        const [data, count] = await Promise.all([
+            prisma.scheduled_orders.findMany({
+                where,
+                orderBy: {
+                    scheduled_at: 'asc'
+                },
+                skip: offset,
+                take: limitInt
+            }),
+            prisma.scheduled_orders.count({ where })
+        ]);
 
         // Format response
         const formattedData = data.map(order => ({
@@ -205,9 +220,9 @@ export const getUserScheduledOrders = async (req, res) => {
             data: formattedData,
             pagination: {
                 total: count,
-                page: parseInt(page),
-                limit: parseInt(limit),
-                pages: Math.ceil(count / limit)
+                page: pageInt,
+                limit: limitInt,
+                pages: Math.ceil(count / limitInt)
             }
         });
 
@@ -237,14 +252,14 @@ export const getScheduledOrderById = async (req, res) => {
             });
         }
 
-        const { data, error } = await supabase
-            .from('scheduled_orders')
-            .select('*')
-            .eq('id', id)
-            .eq('user_id', userId)
-            .single();
+        const data = await prisma.scheduled_orders.findFirst({
+            where: {
+                id: parseInt(id),
+                user_id: userId
+            }
+        });
 
-        if (error || !data) {
+        if (!data) {
             return res.status(404).json({
                 success: false,
                 error: 'Scheduled order not found'
@@ -284,14 +299,14 @@ export const updateScheduledOrder = async (req, res) => {
         }
 
         // Check if order exists and belongs to user
-        const { data: existingOrder, error: fetchError } = await supabase
-            .from('scheduled_orders')
-            .select('*')
-            .eq('id', id)
-            .eq('user_id', userId)
-            .single();
+        const existingOrder = await prisma.scheduled_orders.findFirst({
+            where: {
+                id: parseInt(id),
+                user_id: userId
+            }
+        });
 
-        if (fetchError || !existingOrder) {
+        if (!existingOrder) {
             return res.status(404).json({
                 success: false,
                 error: 'Scheduled order not found'
@@ -335,15 +350,10 @@ export const updateScheduledOrder = async (req, res) => {
         }
 
         // Perform update
-        const { data, error } = await supabase
-            .from('scheduled_orders')
-            .update(updateData)
-            .eq('id', id)
-            .eq('user_id', userId)
-            .select()
-            .single();
-
-        if (error) throw error;
+        const data = await prisma.scheduled_orders.update({
+            where: { id: parseInt(id) },
+            data: updateData
+        });
 
         res.status(200).json({
             success: true,
@@ -378,14 +388,17 @@ export const cancelScheduledOrder = async (req, res) => {
         }
 
         // Check if order exists and belongs to user
-        const { data: existingOrder, error: fetchError } = await supabase
-            .from('scheduled_orders')
-            .select('status')
-            .eq('id', id)
-            .eq('user_id', userId)
-            .single();
+        const existingOrder = await prisma.scheduled_orders.findFirst({
+            where: {
+                id: parseInt(id),
+                user_id: userId
+            },
+            select: {
+                status: true
+            }
+        });
 
-        if (fetchError || !existingOrder) {
+        if (!existingOrder) {
             return res.status(404).json({
                 success: false,
                 error: 'Scheduled order not found'
@@ -394,14 +407,14 @@ export const cancelScheduledOrder = async (req, res) => {
 
         // Handle different statuses
         if (existingOrder.status === 'PROCESSING') {
-            // Mark as cancel pending if currently processing
-            await supabase
-                .from('scheduled_orders')
-                .update({
+            // Mark as cancelled if currently processing (will be caught by executor if possible)
+            await prisma.scheduled_orders.update({
+                where: { id: parseInt(id) },
+                data: {
                     status: 'CANCELLED',
                     failure_reason: 'Cancelled by user during processing'
-                })
-                .eq('id', id);
+                }
+            });
 
             return res.status(200).json({
                 success: true,
@@ -417,16 +430,13 @@ export const cancelScheduledOrder = async (req, res) => {
         }
 
         // Cancel the order
-        const { error } = await supabase
-            .from('scheduled_orders')
-            .update({
+        await prisma.scheduled_orders.update({
+            where: { id: parseInt(id) },
+            data: {
                 status: 'CANCELLED',
                 failure_reason: 'Cancelled by user'
-            })
-            .eq('id', id)
-            .eq('user_id', userId);
-
-        if (error) throw error;
+            }
+        });
 
         res.status(200).json({
             success: true,
@@ -450,39 +460,44 @@ export const cancelScheduledOrder = async (req, res) => {
 export const getAllScheduledOrders = async (req, res) => {
     try {
         const { status, page = 1, limit = 50, from_date, to_date } = req.query;
-        const offset = (page - 1) * limit;
+        const pageInt = parseInt(page);
+        const limitInt = parseInt(limit);
+        const offset = (pageInt - 1) * limitInt;
 
-        let query = supabase
-            .from('scheduled_orders')
-            .select('*, user_addresses(*)', { count: 'exact' })
-            .order('scheduled_at', { ascending: true });
-
+        const where = {};
         if (status) {
-            query = query.eq('status', status);
+            where.status = status;
         }
 
-        if (from_date) {
-            query = query.gte('scheduled_at', from_date);
+        if (from_date || to_date) {
+            where.scheduled_at = {};
+            if (from_date) where.scheduled_at.gte = new Date(from_date);
+            if (to_date) where.scheduled_at.lte = new Date(to_date);
         }
 
-        if (to_date) {
-            query = query.lte('scheduled_at', to_date);
-        }
-
-        query = query.range(offset, offset + limit - 1);
-
-        const { data, error, count } = await query;
-
-        if (error) throw error;
+        const [data, count] = await Promise.all([
+            prisma.scheduled_orders.findMany({
+                where,
+                include: {
+                    user_addresses: true
+                },
+                orderBy: {
+                    scheduled_at: 'asc'
+                },
+                skip: offset,
+                take: limitInt
+            }),
+            prisma.scheduled_orders.count({ where })
+        ]);
 
         res.status(200).json({
             success: true,
             data,
             pagination: {
                 total: count,
-                page: parseInt(page),
-                limit: parseInt(limit),
-                pages: Math.ceil(count / limit)
+                page: pageInt,
+                limit: limitInt,
+                pages: Math.ceil(count / limitInt)
             }
         });
 
@@ -535,6 +550,11 @@ export const createTimeSlot = async (req, res) => {
     try {
         const { start_time, end_time, display_name } = req.body;
 
+        console.log('🔵 createTimeSlot called');
+        console.log('  Start time:', start_time);
+        console.log('  End time:', end_time);
+        console.log('  Display name:', display_name);
+
         if (!start_time || !end_time || !display_name) {
             return res.status(400).json({
                 success: false,
@@ -542,31 +562,43 @@ export const createTimeSlot = async (req, res) => {
             });
         }
 
-        const { data, error } = await supabase
-            .from("scheduling_time_slots")
-            .insert([{ start_time, end_time, display_name }])
-            .select()
-            .single();
+        // Convert time strings (HH:mm) to DateTime objects for Prisma Time fields
+        // Prisma Time fields need full DateTime, but only the time portion is stored
+        const convertTimeToDateTime = (timeStr) => {
+            const [hours, minutes] = timeStr.split(':');
+            const date = new Date();
+            date.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+            return date;
+        };
 
-        if (error) {
-            console.error("Error creating time slot:", error);
-            return res.status(500).json({
-                success: false,
-                error: "Failed to create time slot",
-                details: error.message
-            });
-        }
+        const data = await prisma.scheduling_time_slots.create({
+            data: {
+                start_time: convertTimeToDateTime(start_time),
+                end_time: convertTimeToDateTime(end_time),
+                display_name,
+                is_active: true,
+                created_at: new Date(),
+                updated_at: new Date()
+            }
+        });
+
+        console.log('✅ Time slot created successfully:', data.id);
 
         res.status(201).json({
             success: true,
-            data,
+            data: {
+                ...data,
+                start_time: formatTimeToHHmm(data.start_time),
+                end_time: formatTimeToHHmm(data.end_time)
+            },
             message: "Time slot created successfully"
         });
     } catch (error) {
-        console.error("Server error:", error);
+        console.error("❌ Error creating time slot:", error);
         res.status(500).json({
             success: false,
-            error: "Internal server error"
+            error: "Failed to create time slot",
+            details: error.message
         });
     }
 };
@@ -581,8 +613,18 @@ export const updateTimeSlot = async (req, res) => {
         const { start_time, end_time, display_name, is_active } = req.body;
 
         const updates = {};
-        if (start_time !== undefined) updates.start_time = start_time;
-        if (end_time !== undefined) updates.end_time = end_time;
+        if (start_time !== undefined) {
+            const [hours, minutes] = start_time.split(':');
+            const date = new Date();
+            date.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+            updates.start_time = date;
+        }
+        if (end_time !== undefined) {
+            const [hours, minutes] = end_time.split(':');
+            const date = new Date();
+            date.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+            updates.end_time = date;
+        }
         if (display_name !== undefined) updates.display_name = display_name;
         if (is_active !== undefined) updates.is_active = is_active;
 
@@ -593,32 +635,28 @@ export const updateTimeSlot = async (req, res) => {
             });
         }
 
-        const { data, error } = await supabase
-            .from("scheduling_time_slots")
-            .update(updates)
-            .eq("id", id)
-            .select()
-            .single();
+        updates.updated_at = new Date();
 
-        if (error) {
-            console.error("Error updating time slot:", error);
-            return res.status(500).json({
-                success: false,
-                error: "Failed to update time slot",
-                details: error.message
-            });
-        }
+        const data = await prisma.scheduling_time_slots.update({
+            where: { id: parseInt(id) },
+            data: updates
+        });
 
         res.status(200).json({
             success: true,
-            data,
+            data: {
+                ...data,
+                start_time: formatTimeToHHmm(data.start_time),
+                end_time: formatTimeToHHmm(data.end_time)
+            },
             message: "Time slot updated successfully"
         });
     } catch (error) {
-        console.error("Server error:", error);
+        console.error("❌ Error updating time slot:", error);
         res.status(500).json({
             success: false,
-            error: "Internal server error"
+            error: "Failed to update time slot",
+            details: error.message
         });
     }
 };
@@ -631,21 +669,13 @@ export const deleteTimeSlot = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const { data, error } = await supabase
-            .from("scheduling_time_slots")
-            .update({ is_active: false })
-            .eq("id", id)
-            .select()
-            .single();
-
-        if (error) {
-            console.error("Error deleting time slot:", error);
-            return res.status(500).json({
-                success: false,
-                error: "Failed to delete time slot",
-                details: error.message
-            });
-        }
+        const data = await prisma.scheduling_time_slots.update({
+            where: { id: parseInt(id) },
+            data: {
+                is_active: false,
+                updated_at: new Date()
+            }
+        });
 
         res.status(200).json({
             success: true,
@@ -653,10 +683,11 @@ export const deleteTimeSlot = async (req, res) => {
             message: "Time slot deleted successfully"
         });
     } catch (error) {
-        console.error("Server error:", error);
+        console.error("❌ Error deleting time slot:", error);
         res.status(500).json({
             success: false,
-            error: "Internal server error"
+            error: "Failed to delete time slot",
+            details: error.message
         });
     }
 };
@@ -669,36 +700,33 @@ export const getAllTimeSlots = async (req, res) => {
     try {
         const { is_active } = req.query;
 
-        let query = supabase
-            .from("scheduling_time_slots")
-            .select("*")
-            .order("start_time", { ascending: true });
-
+        const where = {};
         if (is_active !== undefined) {
-            query = query.eq("is_active", is_active === "true");
+            where.is_active = is_active === "true";
         }
 
-        const { data, error } = await query;
+        const data = await prisma.scheduling_time_slots.findMany({
+            where,
+            orderBy: { start_time: 'asc' }
+        });
 
-        if (error) {
-            console.error("Error fetching time slots:", error);
-            return res.status(500).json({
-                success: false,
-                error: "Failed to fetch time slots",
-                details: error.message
-            });
-        }
+        const formattedData = data.map(slot => ({
+            ...slot,
+            start_time: formatTimeToHHmm(slot.start_time),
+            end_time: formatTimeToHHmm(slot.end_time)
+        }));
 
         res.status(200).json({
             success: true,
-            data,
+            data: formattedData,
             count: data.length
         });
     } catch (error) {
-        console.error("Server error:", error);
+        console.error("❌ Error fetching time slots:", error);
         res.status(500).json({
             success: false,
-            error: "Internal server error"
+            error: "Failed to fetch time slots",
+            details: error.message
         });
     }
 };
@@ -719,13 +747,11 @@ export const assignSlotToWarehouse = async (req, res) => {
         }
 
         // Verify warehouse exists
-        const { data: warehouse, error: warehouseError } = await supabase
-            .from("warehouses")
-            .select("id")
-            .eq("id", warehouse_id)
-            .single();
+        const warehouse = await prisma.warehouses.findUnique({
+            where: { id: parseInt(warehouse_id) }
+        });
 
-        if (warehouseError || !warehouse) {
+        if (!warehouse) {
             return res.status(404).json({
                 success: false,
                 error: "Warehouse not found"
@@ -733,13 +759,11 @@ export const assignSlotToWarehouse = async (req, res) => {
         }
 
         // Verify slot exists
-        const { data: slot, error: slotError } = await supabase
-            .from("scheduling_time_slots")
-            .select("id")
-            .eq("id", slot_id)
-            .single();
+        const slot = await prisma.scheduling_time_slots.findUnique({
+            where: { id: parseInt(slot_id) }
+        });
 
-        if (slotError || !slot) {
+        if (!slot) {
             return res.status(404).json({
                 success: false,
                 error: "Time slot not found"
@@ -747,30 +771,22 @@ export const assignSlotToWarehouse = async (req, res) => {
         }
 
         const insertData = {
-            warehouse_id,
-            slot_id,
-            max_capacity,
-            scheduling_window_hours: scheduling_window_hours || 24
+            warehouse_id: parseInt(warehouse_id),
+            slot_id: parseInt(slot_id),
+            max_capacity: parseInt(max_capacity),
+            scheduling_window_hours: scheduling_window_hours || 24,
+            is_active: true,
+            created_at: new Date(),
+            updated_at: new Date()
         };
 
         if (days_of_week) {
             insertData.days_of_week = days_of_week;
         }
 
-        const { data, error } = await supabase
-            .from("warehouse_scheduling_config")
-            .insert([insertData])
-            .select()
-            .single();
-
-        if (error) {
-            console.error("Error assigning slot to warehouse:", error);
-            return res.status(500).json({
-                success: false,
-                error: "Failed to assign slot to warehouse",
-                details: error.message
-            });
-        }
+        const data = await prisma.warehouse_scheduling_config.create({
+            data: insertData
+        });
 
         res.status(201).json({
             success: true,
@@ -778,10 +794,11 @@ export const assignSlotToWarehouse = async (req, res) => {
             message: "Slot assigned to warehouse successfully"
         });
     } catch (error) {
-        console.error("Server error:", error);
+        console.error("❌ Error assigning slot to warehouse:", error);
         res.status(500).json({
             success: false,
-            error: "Internal server error"
+            error: "Failed to assign slot to warehouse",
+            details: error.message
         });
     }
 };
@@ -796,10 +813,10 @@ export const updateWarehouseSlotConfig = async (req, res) => {
         const { max_capacity, is_active, days_of_week, scheduling_window_hours } = req.body;
 
         const updates = {};
-        if (max_capacity !== undefined) updates.max_capacity = max_capacity;
+        if (max_capacity !== undefined) updates.max_capacity = parseInt(max_capacity);
         if (is_active !== undefined) updates.is_active = is_active;
         if (days_of_week !== undefined) updates.days_of_week = days_of_week;
-        if (scheduling_window_hours !== undefined) updates.scheduling_window_hours = scheduling_window_hours;
+        if (scheduling_window_hours !== undefined) updates.scheduling_window_hours = parseInt(scheduling_window_hours);
 
         if (Object.keys(updates).length === 0) {
             return res.status(400).json({
@@ -808,21 +825,12 @@ export const updateWarehouseSlotConfig = async (req, res) => {
             });
         }
 
-        const { data, error } = await supabase
-            .from("warehouse_scheduling_config")
-            .update(updates)
-            .eq("id", id)
-            .select()
-            .single();
+        updates.updated_at = new Date();
 
-        if (error) {
-            console.error("Error updating warehouse slot config:", error);
-            return res.status(500).json({
-                success: false,
-                error: "Failed to update warehouse slot configuration",
-                details: error.message
-            });
-        }
+        const data = await prisma.warehouse_scheduling_config.update({
+            where: { id: parseInt(id) },
+            data: updates
+        });
 
         res.status(200).json({
             success: true,
@@ -830,10 +838,11 @@ export const updateWarehouseSlotConfig = async (req, res) => {
             message: "Warehouse slot configuration updated successfully"
         });
     } catch (error) {
-        console.error("Server error:", error);
+        console.error("❌ Error updating warehouse slot config:", error);
         res.status(500).json({
             success: false,
-            error: "Internal server error"
+            error: "Failed to update warehouse slot configuration",
+            details: error.message
         });
     }
 };
@@ -846,21 +855,9 @@ export const removeSlotFromWarehouse = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const { data, error } = await supabase
-            .from("warehouse_scheduling_config")
-            .update({ is_active: false })
-            .eq("id", id)
-            .select()
-            .single();
-
-        if (error) {
-            console.error("Error removing slot from warehouse:", error);
-            return res.status(500).json({
-                success: false,
-                error: "Failed to remove slot from warehouse",
-                details: error.message
-            });
-        }
+        const data = await prisma.warehouse_scheduling_config.delete({
+            where: { id: parseInt(id) }
+        });
 
         res.status(200).json({
             success: true,
@@ -868,10 +865,11 @@ export const removeSlotFromWarehouse = async (req, res) => {
             message: "Slot removed from warehouse successfully"
         });
     } catch (error) {
-        console.error("Server error:", error);
+        console.error("❌ Error removing slot from warehouse:", error);
         res.status(500).json({
             success: false,
-            error: "Internal server error"
+            error: "Failed to remove slot from warehouse",
+            details: error.message
         });
     }
 };
@@ -884,40 +882,38 @@ export const getWarehouseSlots = async (req, res) => {
     try {
         const { warehouseId } = req.params;
 
-        const { data, error } = await supabase
-            .from("warehouse_scheduling_config")
-            .select(`
-                *,
-                scheduling_time_slots (
-                    id,
-                    start_time,
-                    end_time,
-                    display_name,
-                    is_active
-                )
-            `)
-            .eq("warehouse_id", warehouseId)
-            .order("scheduling_time_slots(start_time)", { ascending: true });
-
-        if (error) {
-            console.error("Error fetching warehouse slots:", error);
-            return res.status(500).json({
-                success: false,
-                error: "Failed to fetch warehouse slots",
-                details: error.message
-            });
-        }
+        const data = await prisma.warehouse_scheduling_config.findMany({
+            where: {
+                warehouse_id: parseInt(warehouseId)
+            },
+            include: {
+                slot: true
+            },
+            orderBy: {
+                slot: {
+                    start_time: 'asc'
+                }
+            }
+        });
 
         res.status(200).json({
             success: true,
-            data,
+            data: data.map(config => ({
+                ...config,
+                scheduling_time_slots: {
+                    ...config.slot,
+                    start_time: formatTimeToHHmm(config.slot.start_time),
+                    end_time: formatTimeToHHmm(config.slot.end_time)
+                }
+            })),
             count: data.length
         });
     } catch (error) {
-        console.error("Server error:", error);
+        console.error("❌ Error fetching warehouse slots:", error);
         res.status(500).json({
             success: false,
-            error: "Internal server error"
+            error: "Failed to fetch warehouse slots",
+            details: error.message
         });
     }
 };
@@ -938,6 +934,8 @@ export const getAvailableSlotsForWarehouse = async (req, res) => {
             });
         }
 
+        const warehouseIdInt = parseInt(warehouseId);
+
         // Parse the requested date
         const requestedDate = new Date(date);
         const now = new Date();
@@ -946,28 +944,15 @@ export const getAvailableSlotsForWarehouse = async (req, res) => {
         const dayOfWeek = requestedDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
 
         // Get warehouse slot configurations
-        const { data: configs, error: configError } = await supabase
-            .from("warehouse_scheduling_config")
-            .select(`
-                *,
-                scheduling_time_slots (
-                    id,
-                    start_time,
-                    end_time,
-                    display_name
-                )
-            `)
-            .eq("warehouse_id", warehouseId)
-            .eq("is_active", true);
-
-        if (configError) {
-            console.error("Error fetching warehouse configs:", configError);
-            return res.status(500).json({
-                success: false,
-                error: "Failed to fetch warehouse configurations",
-                details: configError.message
-            });
-        }
+        const configs = await prisma.warehouse_scheduling_config.findMany({
+            where: {
+                warehouse_id: warehouseIdInt,
+                is_active: true
+            },
+            include: {
+                slot: true
+            }
+        });
 
         // Filter by day of week and scheduling window
         const availableConfigs = configs.filter(config => {
@@ -991,20 +976,16 @@ export const getAvailableSlotsForWarehouse = async (req, res) => {
         });
 
         // Get current slot usage for the date
-        const { data: slotUsage, error: usageError } = await supabase
-            .from("scheduled_order_slots")
-            .select("slot_id, current_count")
-            .eq("warehouse_id", warehouseId)
-            .eq("scheduled_date", date);
-
-        if (usageError) {
-            console.error("Error fetching slot usage:", usageError);
-            return res.status(500).json({
-                success: false,
-                error: "Failed to fetch slot usage",
-                details: usageError.message
-            });
-        }
+        const slotUsage = await prisma.scheduled_order_slots.findMany({
+            where: {
+                warehouse_id: warehouseIdInt,
+                scheduled_date: new Date(date)
+            },
+            select: {
+                slot_id: true,
+                current_count: true
+            }
+        });
 
         // Create usage map
         const usageMap = {};
@@ -1014,21 +995,27 @@ export const getAvailableSlotsForWarehouse = async (req, res) => {
 
         // Build response with availability
         const availableSlots = availableConfigs
-            .filter(config => config.scheduling_time_slots?.is_active)
+            .filter(config => config.slot?.is_active)
             .map(config => {
                 const currentCount = usageMap[config.slot_id] || 0;
                 const remainingCapacity = config.max_capacity - currentCount;
 
                 return {
                     slot_id: config.slot_id,
-                    start_time: config.scheduling_time_slots.start_time,
-                    end_time: config.scheduling_time_slots.end_time,
-                    display_name: config.scheduling_time_slots.display_name,
+                    start_time: formatTimeToHHmm(config.slot.start_time),
+                    end_time: formatTimeToHHmm(config.slot.end_time),
+                    display_name: config.slot.display_name,
                     max_capacity: config.max_capacity,
                     current_count: currentCount,
                     remaining_capacity: remainingCapacity,
                     scheduling_window_hours: config.scheduling_window_hours || 24,
-                    is_available: remainingCapacity > 0
+                    is_available: remainingCapacity > 0,
+                    // Also include as scheduling_time_slots for legacy compatibility
+                    scheduling_time_slots: {
+                        ...config.slot,
+                        start_time: formatTimeToHHmm(config.slot.start_time),
+                        end_time: formatTimeToHHmm(config.slot.end_time)
+                    }
                 };
             })
             .sort((a, b) => a.start_time.localeCompare(b.start_time));
@@ -1036,15 +1023,16 @@ export const getAvailableSlotsForWarehouse = async (req, res) => {
         res.status(200).json({
             success: true,
             data: availableSlots,
-            warehouse_id: parseInt(warehouseId),
+            warehouse_id: warehouseIdInt,
             date,
             day_of_week: dayOfWeek
         });
     } catch (error) {
-        console.error("Server error:", error);
+        console.error("❌ Error fetching available slots:", error);
         res.status(500).json({
             success: false,
-            error: "Internal server error"
+            error: "Internal server error",
+            details: error.message
         });
     }
 };
@@ -1064,16 +1052,22 @@ export const getSlotAvailability = async (req, res) => {
             });
         }
 
-        // Get warehouse slot config
-        const { data: config, error: configError } = await supabase
-            .from("warehouse_scheduling_config")
-            .select("max_capacity")
-            .eq("warehouse_id", warehouse_id)
-            .eq("slot_id", slot_id)
-            .eq("is_active", true)
-            .single();
+        const warehouseIdInt = parseInt(warehouse_id);
+        const slotIdInt = parseInt(slot_id);
 
-        if (configError || !config) {
+        // Get warehouse slot config
+        const config = await prisma.warehouse_scheduling_config.findFirst({
+            where: {
+                warehouse_id: warehouseIdInt,
+                slot_id: slotIdInt,
+                is_active: true
+            },
+            select: {
+                max_capacity: true
+            }
+        });
+
+        if (!config) {
             return res.status(404).json({
                 success: false,
                 error: "Slot not configured for this warehouse"
@@ -1081,13 +1075,16 @@ export const getSlotAvailability = async (req, res) => {
         }
 
         // Get current usage
-        const { data: usage, error: usageError } = await supabase
-            .from("scheduled_order_slots")
-            .select("current_count")
-            .eq("warehouse_id", warehouse_id)
-            .eq("slot_id", slot_id)
-            .eq("scheduled_date", date)
-            .single();
+        const usage = await prisma.scheduled_order_slots.findFirst({
+            where: {
+                warehouse_id: warehouseIdInt,
+                slot_id: slotIdInt,
+                scheduled_date: new Date(date)
+            },
+            select: {
+                current_count: true
+            }
+        });
 
         const currentCount = usage?.current_count || 0;
         const remainingCapacity = config.max_capacity - currentCount;
@@ -1095,8 +1092,8 @@ export const getSlotAvailability = async (req, res) => {
         res.status(200).json({
             success: true,
             data: {
-                warehouse_id: parseInt(warehouse_id),
-                slot_id: parseInt(slot_id),
+                warehouse_id: warehouseIdInt,
+                slot_id: slotIdInt,
                 date,
                 max_capacity: config.max_capacity,
                 current_count: currentCount,
@@ -1105,10 +1102,11 @@ export const getSlotAvailability = async (req, res) => {
             }
         });
     } catch (error) {
-        console.error("Server error:", error);
+        console.error("❌ Error checking slot availability:", error);
         res.status(500).json({
             success: false,
-            error: "Internal server error"
+            error: "Internal server error",
+            details: error.message
         });
     }
 };

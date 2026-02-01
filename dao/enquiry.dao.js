@@ -12,7 +12,7 @@ class EnquiryDAO {
       where: { id },
       include: {
         product: {
-          select: { id: true, name: true, images: true },
+          select: { id: true, name: true, media: true },
         },
         messages: {
           orderBy: { created_at: "asc" },
@@ -59,7 +59,7 @@ class EnquiryDAO {
         take: limit,
         include: {
           product: {
-            select: { id: true, name: true, images: true },
+            select: { id: true, name: true, media: true },
           },
         },
         orderBy: { created_at: "desc" },

@@ -488,7 +488,7 @@ export const getSectionWithContent = async (req, res) => {
       products.push(...banners);
     }
     if (section.component_name === 'BrandVista') {
-      const brands = await brandDao.list({ active: true });
+      const { items: brands } = await brandDao.listBrands({ limit: 50 }); // Fetch sufficient brands
       products.push(...brands);
     }
 

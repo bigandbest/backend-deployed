@@ -1,4 +1,5 @@
-import { supabase } from "../config/supabaseClient.js";
+import { PrismaClient } from '@prisma/client';
+const prisma = new PrismaClient();
 
 // Get products available in a specific pincode
 const getProductsByPincode = async (req, res) => {
@@ -6,26 +7,27 @@ const getProductsByPincode = async (req, res) => {
     const { pincode } = req.params;
     const { category, limit = 50 } = req.query;
 
-    // Get warehouses serving this pincode
-    const { data: warehouseMappings, error: mappingError } = await supabase
-      .from("pincode_warehouse_mapping")
-      .select(
-        `
-        warehouse_id,
-        priority,
-        delivery_time,
-        warehouses (
-          id,
-          name,
-          address
-        )
-      `
-      )
-      .eq("pincode", pincode)
-      .eq("is_active", true)
-      .order("priority", { ascending: true });
+    // Get warehouses serving this pincode using Prisma
+    const warehouseMappings = await prisma.pincode_warehouse_mapping.findMany({
+      where: {
+        pincode: pincode,
+        is_active: true
+      },
+      include: {
+        warehouses: {
+          select: {
+            id: true,
+            name: true,
+            address: true
+          }
+        }
+      },
+      orderBy: {
+        priority: 'asc'
+      }
+    });
 
-    if (mappingError || !warehouseMappings.length) {
+    if (!warehouseMappings.length) {
       return res.status(404).json({
         success: false,
         message: "No delivery available for this pincode",
@@ -34,54 +36,48 @@ const getProductsByPincode = async (req, res) => {
 
     const warehouseIds = warehouseMappings.map((m) => m.warehouse_id);
 
-    // Get products with inventory from these warehouses
-    let query = supabase
-      .from("warehouse_inventory")
-      .select(
-        `
-        product_id,
-        variant_id,
-        available_quantity,
-        warehouse_id,
-        products (
-          id,
-          name,
-          description,
-          price,
-          old_price,
-          image,
-          category,
-          brand_name,
-          active
-        ),
-        product_variants (
-          id,
-          variant_name,
-          variant_value,
-          price,
-          mrp,
-          weight
-        )
-      `
-      )
-      .in("warehouse_id", warehouseIds)
-      .gt("available_quantity", 0);
+    // Build where clause for products
+    const whereClause = {
+      warehouse_id: { in: warehouseIds },
+      available_quantity: { gt: 0 }
+    };
 
-    if (category) {
-      query = query.eq("products.category", category);
-    }
-
-    const { data: inventory, error: inventoryError } = await query.limit(
-      parseInt(limit)
-    );
-
-    if (inventoryError) {
-      return res.status(500).json({
-        success: false,
-        message: "Error fetching inventory",
-        error: inventoryError.message,
-      });
-    }
+    // Get products with inventory from these warehouses using Prisma
+    const inventory = await prisma.warehouse_inventory.findMany({
+      where: whereClause,
+      include: {
+        products: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            price: true,
+            old_price: true,
+            brand_name: true,
+            active: true,
+            category: {
+              select: {
+                name: true
+              }
+            },
+            media: {
+              where: { media_type: 'image' },
+              take: 1,
+              select: { url: true }
+            }
+          }
+        },
+        product_variants: {
+          select: {
+            id: true,
+            title: true,
+            price: true,
+            old_price: true
+          }
+        }
+      },
+      take: parseInt(limit)
+    });
 
     // Group by product and calculate total availability
     const productMap = new Map();
@@ -97,7 +93,15 @@ const getProductsByPincode = async (req, res) => {
         );
 
         productMap.set(key, {
-          ...item.products,
+          id: item.products?.id,
+          name: item.products?.name,
+          description: item.products?.description,
+          price: item.products?.price,
+          old_price: item.products?.old_price,
+          image: item.products?.media?.[0]?.url || null,
+          category: item.products?.category?.name,
+          brand_name: item.products?.brand_name,
+          active: item.products?.active,
           variant: item.product_variants,
           total_stock: item.available_quantity,
           delivery_time: warehouse?.delivery_time || "1-2 days",
@@ -127,6 +131,7 @@ const getProductsByPincode = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error("Error in getProductsByPincode:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -148,14 +153,17 @@ const checkProductAvailability = async (req, res) => {
       });
     }
 
-    // Get product details
-    const { data: product, error: productError } = await supabase
-      .from("products")
-      .select("id, name, delivery_type")
-      .eq("id", productId)
-      .single();
+    // Get product details using Prisma
+    const product = await prisma.products.findUnique({
+      where: { id: productId },
+      select: {
+        id: true,
+        name: true,
+        delivery_type: true
+      }
+    });
 
-    if (productError || !product) {
+    if (!product) {
       return res.json({
         success: true,
         data: {
@@ -166,36 +174,38 @@ const checkProductAvailability = async (req, res) => {
     }
 
     // Check if pincode exists in division warehouse (faster delivery)
-    const { data: divisionWarehouse, error: divisionError } = await supabase
-      .from("warehouse_pincodes")
-      .select(
-        `
-        pincode,
-        city,
-        state,
-        warehouses (
-          id,
-          name,
-          type,
-          parent_warehouse_id
-        )
-      `
-      )
-      .eq("pincode", pincode)
-      .eq("is_active", true)
-      .single();
+    const divisionWarehouse = await prisma.warehouse_pincodes.findFirst({
+      where: {
+        pincode: pincode,
+        is_active: true
+      },
+      include: {
+        warehouses: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            parent_warehouse_id: true
+          }
+        }
+      }
+    });
 
-    if (!divisionError && divisionWarehouse) {
+    if (divisionWarehouse) {
       // Check if product is available in this division warehouse
-      const { data: divisionStock, error: stockError } = await supabase
-        .from("product_warehouse_stock")
-        .select("stock_quantity, reserved_quantity")
-        .eq("product_id", productId)
-        .eq("warehouse_id", divisionWarehouse.warehouses.id)
-        .eq("is_active", true)
-        .single();
+      const divisionStock = await prisma.product_warehouse_stock.findFirst({
+        where: {
+          product_id: productId,
+          warehouse_id: divisionWarehouse.warehouses.id,
+          is_active: true
+        },
+        select: {
+          stock_quantity: true,
+          reserved_quantity: true
+        }
+      });
 
-      if (!stockError && divisionStock) {
+      if (divisionStock) {
         const availableQty =
           divisionStock.stock_quantity - (divisionStock.reserved_quantity || 0);
 
@@ -223,32 +233,30 @@ const checkProductAvailability = async (req, res) => {
     }
 
     // Check if pincode is served by any zonal warehouse
-    const { data: zonePincode, error: zoneError } = await supabase
-      .from("zone_pincodes")
-      .select(
-        `
-        pincode,
-        city,
-        state,
-        zone_id,
-        delivery_zones (
-          id,
-          name,
-          warehouse_zones (
-            warehouse_id,
-            warehouses (
-              id,
-              name,
-              type
-            )
-          )
-        )
-      `
-      )
-      .eq("pincode", pincode)
-      .single();
+    const zonePincode = await prisma.zone_pincodes.findFirst({
+      where: {
+        pincode: pincode
+      },
+      include: {
+        delivery_zones: {
+          include: {
+            warehouse_zones: {
+              include: {
+                warehouses: {
+                  select: {
+                    id: true,
+                    name: true,
+                    type: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
 
-    if (!zoneError && zonePincode && zonePincode.delivery_zones) {
+    if (zonePincode && zonePincode.delivery_zones) {
       // Get zonal warehouses serving this zone
       const zonalWarehouses =
         zonePincode.delivery_zones.warehouse_zones?.filter(
@@ -256,15 +264,19 @@ const checkProductAvailability = async (req, res) => {
         ) || [];
 
       for (const warehouseZone of zonalWarehouses) {
-        const { data: zonalStock, error: zonalStockError } = await supabase
-          .from("product_warehouse_stock")
-          .select("stock_quantity, reserved_quantity")
-          .eq("product_id", productId)
-          .eq("warehouse_id", warehouseZone.warehouse_id)
-          .eq("is_active", true)
-          .single();
+        const zonalStock = await prisma.product_warehouse_stock.findFirst({
+          where: {
+            product_id: productId,
+            warehouse_id: warehouseZone.warehouse_id,
+            is_active: true
+          },
+          select: {
+            stock_quantity: true,
+            reserved_quantity: true
+          }
+        });
 
-        if (!zonalStockError && zonalStock) {
+        if (zonalStock) {
           const availableQty =
             zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0);
 
@@ -319,30 +331,27 @@ const updateWarehouseInventory = async (req, res) => {
   try {
     const { warehouse_id, product_id, variant_id, stock_quantity } = req.body;
 
-    const { data, error } = await supabase
-      .from("warehouse_inventory")
-      .upsert(
-        {
+    // Use Prisma upsert for insert-or-update logic
+    const data = await prisma.warehouse_inventory.upsert({
+      where: {
+        warehouse_id_product_id_variant_id: {
           warehouse_id,
           product_id,
           variant_id: variant_id || null,
-          stock_quantity,
-          last_updated: new Date().toISOString(),
-        },
-        {
-          onConflict: "warehouse_id,product_id,variant_id",
         }
-      )
-      .select()
-      .single();
-
-    if (error) {
-      return res.status(500).json({
-        success: false,
-        message: "Error updating inventory",
-        error: error.message,
-      });
-    }
+      },
+      update: {
+        stock_quantity,
+        last_updated: new Date(),
+      },
+      create: {
+        warehouse_id,
+        product_id,
+        variant_id: variant_id || null,
+        stock_quantity,
+        last_updated: new Date(),
+      }
+    });
 
     res.json({
       success: true,
@@ -350,6 +359,7 @@ const updateWarehouseInventory = async (req, res) => {
       data,
     });
   } catch (error) {
+    console.error("Error updating inventory:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -362,41 +372,55 @@ const updateWarehouseInventory = async (req, res) => {
 const getWarehouseInventory = async (req, res) => {
   try {
     const { warehouseId } = req.params;
+    const warehouseIdInt = parseInt(warehouseId);
 
-    const { data, error } = await supabase
-      .from("warehouse_inventory")
-      .select(
-        `
-        *,
-        products (
-          id,
-          name,
-          image,
-          category
-        ),
-        product_variants (
-          id,
-          variant_name,
-          variant_value
-        )
-      `
-      )
-      .eq("warehouse_id", warehouseId)
-      .order("last_updated", { ascending: false });
+    console.log('🔍 Fetching inventory for warehouse ID:', warehouseIdInt);
 
-    if (error) {
-      return res.status(500).json({
-        success: false,
-        message: "Error fetching inventory",
-        error: error.message,
-      });
+    const inventory = await prisma.product_warehouse_stock.findMany({
+      where: { warehouse_id: warehouseIdInt, is_active: true },
+      include: {
+        products: {
+          select: {
+            id: true,
+            name: true,
+            category: { select: { name: true } },
+            media: {
+              where: { media_type: 'image' },
+              take: 1,
+              select: { url: true }
+            }
+          }
+        },
+        product_variants: {
+          select: {
+            id: true,
+            title: true
+          }
+        }
+      },
+      orderBy: { created_at: 'desc' }
+    });
+
+    console.log('📦 Found inventory items:', inventory.length);
+    if (inventory.length > 0) {
+      console.log('Sample item:', JSON.stringify(inventory[0], null, 2));
     }
+
+    // Map to frontend expected structure if necessary
+    const mappedData = inventory.map(item => ({
+      ...item,
+      product_name: item.products?.name,
+      product_image: item.products?.media?.[0]?.url || null,
+      category: item.products?.category,
+      variant_name: item.product_variants?.title
+    }));
 
     res.json({
       success: true,
-      data: data || [],
+      inventory: mappedData || [],
     });
   } catch (error) {
+    console.error('❌ Error in getWarehouseInventory:', error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -405,9 +429,149 @@ const getWarehouseInventory = async (req, res) => {
   }
 };
 
+// Get warehouse analytics
+const getWarehouseAnalytics = async (req, res) => {
+  try {
+    const { warehouseId } = req.params;
+    const warehouseIdInt = parseInt(warehouseId);
+
+    // Get total stock items count
+    const totalStockItems = await prisma.product_warehouse_stock.count({
+      where: { warehouse_id: warehouseIdInt, is_active: true }
+    });
+
+    // Get total available stock sum
+    const inventory = await prisma.product_warehouse_stock.aggregate({
+      where: { warehouse_id: warehouseIdInt, is_active: true },
+      _sum: {
+        stock_quantity: true
+      }
+    });
+
+    const totalAvailable = inventory._sum.stock_quantity || 0;
+    const inventoryValue = totalAvailable * 0; // Placeholder
+
+    const lowStockCount = await prisma.product_warehouse_stock.count({
+      where: {
+        warehouse_id: warehouseIdInt,
+        stock_quantity: { lt: 10 },
+        is_active: true
+      }
+    });
+
+    res.json({
+      success: true,
+      analytics: {
+        total_stock_items: totalStockItems,
+        total_available: totalAvailable,
+        inventory_value: inventoryValue,
+        low_stock_count: lowStockCount
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching analytics:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// Get low stock items for a specific warehouse
+const getWarehouseLowStock = async (req, res) => {
+  try {
+    const { warehouseId } = req.params;
+    const { threshold = 10 } = req.query;
+    const warehouseIdInt = parseInt(warehouseId);
+
+    const lowStockItems = await prisma.product_warehouse_stock.findMany({
+      where: {
+        warehouse_id: warehouseIdInt,
+        stock_quantity: { lt: parseInt(threshold) },
+        is_active: true
+      },
+      include: {
+        products: {
+          select: {
+            id: true,
+            name: true,
+            media: {
+              where: { media_type: 'image' },
+              take: 1,
+              select: { url: true }
+            }
+          }
+        },
+        product_variants: {
+          select: {
+            id: true,
+            title: true
+          }
+        }
+      }
+    });
+
+    res.json({
+      success: true,
+      data: lowStockItems.map(item => ({
+        ...item,
+        products: {
+          ...item.products,
+          image: item.products?.media?.[0]?.url || null
+        },
+        variant_name: item.product_variants?.title
+      }))
+    });
+  } catch (error) {
+    console.error("Error fetching low stock:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+
+// Get stock movements for a specific warehouse
+const getWarehouseMovements = async (req, res) => {
+  try {
+    const { warehouseId } = req.params;
+    const warehouseIdInt = parseInt(warehouseId);
+    const { limit = 50 } = req.query;
+
+    const movements = await prisma.stock_movements.findMany({
+      where: { warehouse_id: warehouseIdInt },
+      include: {
+        product: {
+          select: {
+            name: true
+          }
+        },
+        warehouse: {
+          select: {
+            name: true
+          }
+        }
+      },
+      orderBy: { created_at: 'desc' },
+      take: parseInt(limit)
+    });
+
+    res.json({
+      success: true,
+      data: movements.map(m => ({
+        ...m,
+        product_name: m.product?.name,
+        warehouse_name: m.warehouse?.name
+      }))
+    });
+  } catch (error) {
+    console.error("Error fetching stock movements:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+
 export {
   getProductsByPincode,
   checkProductAvailability,
   updateWarehouseInventory,
   getWarehouseInventory,
+  getWarehouseAnalytics,
+  getWarehouseLowStock,
+  getWarehouseMovements,
 };
