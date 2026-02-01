@@ -122,7 +122,7 @@ class UniqueSectionDAO {
           select: {
             id: true,
             name: true,
-            images: true,
+            media: true,
             rating: true,
           },
         },

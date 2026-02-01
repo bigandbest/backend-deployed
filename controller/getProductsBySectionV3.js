@@ -71,9 +71,6 @@ export async function getProductsBySectionV3(req, res) {
             id: true,
             name: true,
             description: true,
-            price: true,
-            old_price: true,
-            image: true,
             rating: true,
             review_count: true,
             uom: true,
@@ -102,7 +99,7 @@ export async function getProductsBySectionV3(req, res) {
                 take: 1,
                 select: {
                     id: true,
-                    media_url: true,
+                    url: true,
                     media_type: true
                 }
             },

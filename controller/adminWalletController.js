@@ -1,5 +1,5 @@
 // controllers/adminWalletController.js
-import { supabase } from "../config/supabaseClient.js";
+import prisma from "../config/prisma.js";
 /*
 import {
   createNotificationHelper,
@@ -19,14 +19,13 @@ const logAdminAction = async (
 ) => {
   try {
     // Get current wallet balance for logging
-    const { data: wallet } = await supabase
-      .from("wallets")
-      .select("balance")
-      .eq("id", walletId)
-      .single();
+    const wallet = await prisma.wallets.findUnique({
+      where: { id: walletId },
+      select: { balance: true }
+    });
 
-    await supabase.from("wallet_audit_logs").insert([
-      {
+    await prisma.wallet_audit_logs.create({
+      data: {
         wallet_id: walletId,
         admin_id: adminId,
         action,
@@ -37,7 +36,7 @@ const logAdminAction = async (
         ip_address: req?.ip,
         user_agent: req?.get("User-Agent"),
       },
-    ]);
+    });
   } catch (error) {
     console.error("Error logging admin action:", error);
   }
@@ -76,59 +75,58 @@ const executeAdminWalletTransaction = async (
 export const getAllWallets = async (req, res) => {
   try {
     const { page = 1, limit = 20, search, status } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const take = parseInt(limit);
 
-    let query = supabase
-      .from("wallets")
-      .select(
-        `
-        *,
-        users!wallets_user_id_fkey(
-          id, name, email, phone, created_at
-        )
-      `
-      )
-      .order("updated_at", { ascending: false })
-      .range(offset, offset + parseInt(limit) - 1);
+    const where = {};
 
-    // Filter by search term
+    // Filter by search term (name, email, phone)
     if (search) {
-      query = query.or(`
-        users.name.ilike.%${search}%,
-        users.email.ilike.%${search}%,
-        users.phone.ilike.%${search}%
-      `);
+      where.user = {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+          { phone: { contains: search, mode: 'insensitive' } },
+        ]
+      };
     }
 
     // Filter by status
     if (status === "frozen") {
-      query = query.eq("is_frozen", true);
+      where.is_frozen = true;
     } else if (status === "active") {
-      query = query.eq("is_frozen", false);
+      where.is_frozen = false;
     }
 
-    const { data: wallets, error, count } = await query;
-
-    if (error) {
-      console.error("Error fetching wallets:", error);
-      return res
-        .status(500)
-        .json({ success: false, error: "Failed to fetch wallets" });
-    }
-
-    // Get total count for pagination
-    const { count: totalCount } = await supabase
-      .from("wallets")
-      .select("*", { count: "exact", head: true });
+    const [wallets, totalCount] = await Promise.all([
+      prisma.wallets.findMany({
+        where,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              phone: true,
+              created_at: true
+            }
+          }
+        },
+        orderBy: { updated_at: 'desc' },
+        skip,
+        take
+      }),
+      prisma.wallets.count({ where })
+    ]);
 
     res.json({
       success: true,
       wallets,
       pagination: {
         page: parseInt(page),
-        limit: parseInt(limit),
+        limit: take,
         total: totalCount,
-        pages: Math.ceil(totalCount / parseInt(limit)),
+        pages: Math.ceil(totalCount / take),
       },
     });
   } catch (error) {
@@ -142,44 +140,57 @@ export const getUserWalletDetails = async (req, res) => {
   try {
     const { userId } = req.params;
     const { page = 1, limit = 50 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const take = parseInt(limit);
 
-    // Get wallet with user details
-    const { data: wallet, error: walletError } = await supabase
-      .from("wallets")
-      .select(
-        `
-        *,
-        users!wallets_user_id_fkey(
-          id, name, email, phone, created_at, account_type
-        )
-      `
-      )
-      .eq("user_id", userId)
-      .single();
+    // Get wallet with user details using Prisma
+    const wallet = await prisma.wallets.findUnique({
+      where: { user_id: userId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            created_at: true,
+            account_type: true
+          }
+        }
+      }
+    });
 
-    if (walletError) {
+    if (!wallet) {
       return res
         .status(404)
         .json({ success: false, error: "Wallet not found" });
     }
 
-    // Get recent transactions
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    const { data: transactions, error: transactionError } = await supabase
-      .from("wallet_transactions")
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .range(offset, offset + parseInt(limit) - 1);
+    // Get recent transactions and stats
+    const [transactions, transactionsCount] = await Promise.all([
+      prisma.wallet_transactions.findMany({
+        where: { user_id: userId },
+        orderBy: { created_at: 'desc' },
+        skip,
+        take
+      }),
+      prisma.wallet_transactions.count({ where: { user_id: userId } })
+    ]);
 
-    if (transactionError) {
-      console.error("Error fetching transactions:", transactionError);
-    }
-
-    // Get transaction statistics
-    const { data: stats } = await supabase.rpc("get_wallet_stats", {
-      wallet_user_id: userId,
-    });
+    // Transaction statistics using aggregate if necessary or just summary
+    // Original code used rpc 'get_wallet_stats', we can calculate manually or leave for now
+    // For now, let's provide basic counts
+    const stats = {
+      total_topups: await prisma.wallet_transactions.aggregate({
+        where: { user_id: userId, transaction_type: 'TOPUP', status: 'COMPLETED' },
+        _sum: { amount: true }
+      }).then(r => r._sum.amount || 0),
+      total_spent: await prisma.wallet_transactions.aggregate({
+        where: { user_id: userId, transaction_type: 'SPEND', status: 'COMPLETED' },
+        _sum: { amount: true }
+      }).then(r => r._sum.amount || 0),
+      transaction_count: transactionsCount
+    };
 
     // Log admin action
     if (req.user?.id) {
@@ -198,12 +209,13 @@ export const getUserWalletDetails = async (req, res) => {
       success: true,
       wallet,
       transactions: transactions || [],
-      stats: stats || {
-        total_topups: 0,
-        total_spent: 0,
-        total_refunds: 0,
-        transaction_count: 0,
-      },
+      stats,
+      pagination: {
+        page: parseInt(page),
+        limit: take,
+        total: transactionsCount,
+        pages: Math.ceil(transactionsCount / take)
+      }
     });
   } catch (error) {
     console.error("Error in getUserWalletDetails:", error);
@@ -249,13 +261,12 @@ export const manualCreditWallet = async (req, res) => {
     }
 
     // Get wallet
-    const { data: wallet, error: walletError } = await supabase
-      .from("wallets")
-      .select("id, user_id, balance")
-      .eq("user_id", userId)
-      .single();
+    const wallet = await prisma.wallets.findUnique({
+      where: { user_id: userId },
+      select: { id: true, user_id: true, balance: true }
+    });
 
-    if (walletError) {
+    if (!wallet) {
       return res
         .status(404)
         .json({ success: false, error: "Wallet not found" });
@@ -355,13 +366,12 @@ export const manualDebitWallet = async (req, res) => {
     const debitAmount = parseFloat(amount);
 
     // Get wallet
-    const { data: wallet, error: walletError } = await supabase
-      .from("wallets")
-      .select("id, user_id, balance, is_frozen")
-      .eq("user_id", userId)
-      .single();
+    const wallet = await prisma.wallets.findUnique({
+      where: { user_id: userId },
+      select: { id: true, user_id: true, balance: true, is_frozen: true }
+    });
 
-    if (walletError) {
+    if (!wallet) {
       return res
         .status(404)
         .json({ success: false, error: "Wallet not found" });
@@ -459,13 +469,11 @@ export const freezeWallet = async (req, res) => {
         });
     }
 
-    const { data: wallet, error: walletError } = await supabase
-      .from("wallets")
-      .select("*")
-      .eq("user_id", userId)
-      .single();
+    const wallet = await prisma.wallets.findUnique({
+      where: { user_id: userId }
+    });
 
-    if (walletError) {
+    if (!wallet) {
       return res
         .status(404)
         .json({ success: false, error: "Wallet not found" });
@@ -478,25 +486,16 @@ export const freezeWallet = async (req, res) => {
     }
 
     // Update wallet to frozen status
-    const { data: updatedWallet, error: updateError } = await supabase
-      .from("wallets")
-      .update({
+    const updatedWallet = await prisma.wallets.update({
+      where: { id: wallet.id },
+      data: {
         is_frozen: true,
         frozen_reason: reason,
         frozen_by: adminId,
-        frozen_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", wallet.id)
-      .select()
-      .single();
-
-    if (updateError) {
-      console.error("Error freezing wallet:", updateError);
-      return res
-        .status(500)
-        .json({ success: false, error: "Failed to freeze wallet" });
-    }
+        frozen_at: new Date(),
+        updated_at: new Date(),
+      }
+    });
 
     // Log admin action
     await logAdminAction(
@@ -568,13 +567,11 @@ export const unfreezeWallet = async (req, res) => {
         });
     }
 
-    const { data: wallet, error: walletError } = await supabase
-      .from("wallets")
-      .select("*")
-      .eq("user_id", userId)
-      .single();
+    const wallet = await prisma.wallets.findUnique({
+      where: { user_id: userId }
+    });
 
-    if (walletError) {
+    if (!wallet) {
       return res
         .status(404)
         .json({ success: false, error: "Wallet not found" });
@@ -587,25 +584,16 @@ export const unfreezeWallet = async (req, res) => {
     }
 
     // Update wallet to unfrozen status
-    const { data: updatedWallet, error: updateError } = await supabase
-      .from("wallets")
-      .update({
+    const updatedWallet = await prisma.wallets.update({
+      where: { id: wallet.id },
+      data: {
         is_frozen: false,
         frozen_reason: null,
         frozen_by: null,
         frozen_at: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", wallet.id)
-      .select()
-      .single();
-
-    if (updateError) {
-      console.error("Error unfreezing wallet:", updateError);
-      return res
-        .status(500)
-        .json({ success: false, error: "Failed to unfreeze wallet" });
-    }
+        updated_at: new Date(),
+      }
+    });
 
     // Log admin action
     await logAdminAction(
@@ -668,60 +656,33 @@ export const getWalletTransactionsAdmin = async (req, res) => {
     } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    let query = supabase
-      .from("wallet_transactions")
-      .select(
-        `
-        *,
-        wallets!wallet_transactions_wallet_id_fkey(
-          user_id,
-          users!wallets_user_id_fkey(
-            name, email, phone
-          )
-        )
-      `
-      )
-      .order("created_at", { ascending: false })
-      .range(offset, offset + parseInt(limit) - 1);
-
-    // Apply filters
-    if (user_id) {
-      query = query.eq("user_id", user_id);
+    const where = {};
+    if (user_id) where.user_id = user_id;
+    if (transaction_type) where.transaction_type = transaction_type;
+    if (start_date || end_date) {
+      where.created_at = {};
+      if (start_date) where.created_at.gte = new Date(start_date);
+      if (end_date) where.created_at.lte = new Date(end_date);
     }
 
-    if (transaction_type) {
-      query = query.eq("transaction_type", transaction_type);
-    }
-
-    if (start_date) {
-      query = query.gte("created_at", start_date);
-    }
-
-    if (end_date) {
-      query = query.lte("created_at", end_date);
-    }
-
-    const { data: transactions, error, count } = await query;
-
-    if (error) {
-      console.error("Error fetching transactions:", error);
-      return res
-        .status(500)
-        .json({ success: false, error: "Failed to fetch transactions" });
-    }
-
-    // Get total count for pagination
-    let countQuery = supabase
-      .from("wallet_transactions")
-      .select("*", { count: "exact", head: true });
-
-    if (user_id) countQuery = countQuery.eq("user_id", user_id);
-    if (transaction_type)
-      countQuery = countQuery.eq("transaction_type", transaction_type);
-    if (start_date) countQuery = countQuery.gte("created_at", start_date);
-    if (end_date) countQuery = countQuery.lte("created_at", end_date);
-
-    const { count: totalCount } = await countQuery;
+    const [transactions, totalCount] = await Promise.all([
+      prisma.wallet_transactions.findMany({
+        where,
+        include: {
+          wallet: {
+            include: {
+              user: {
+                select: { name: true, email: true, phone: true }
+              }
+            }
+          }
+        },
+        orderBy: { created_at: 'desc' },
+        skip: offset,
+        take: parseInt(limit)
+      }),
+      prisma.wallet_transactions.count({ where })
+    ]);
 
     res.json({
       success: true,
@@ -745,54 +706,29 @@ export const getWalletAuditLogs = async (req, res) => {
     const { page = 1, limit = 50, wallet_id, admin_id, action } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    let query = supabase
-      .from("wallet_audit_logs")
-      .select(
-        `
-        *,
-        wallets!wallet_audit_logs_wallet_id_fkey(
-          user_id,
-          users!wallets_user_id_fkey(
-            name, email
-          )
-        )
-      `
-      )
-      .order("created_at", { ascending: false })
-      .range(offset, offset + parseInt(limit) - 1);
+    const where = {};
+    if (wallet_id) where.wallet_id = wallet_id;
+    if (admin_id) where.admin_id = admin_id;
+    if (action) where.action = action;
 
-    // Apply filters
-    if (wallet_id) {
-      query = query.eq("wallet_id", wallet_id);
-    }
-
-    if (admin_id) {
-      query = query.eq("admin_id", admin_id);
-    }
-
-    if (action) {
-      query = query.eq("action", action);
-    }
-
-    const { data: logs, error } = await query;
-
-    if (error) {
-      console.error("Error fetching audit logs:", error);
-      return res
-        .status(500)
-        .json({ success: false, error: "Failed to fetch audit logs" });
-    }
-
-    // Get total count
-    let countQuery = supabase
-      .from("wallet_audit_logs")
-      .select("*", { count: "exact", head: true });
-
-    if (wallet_id) countQuery = countQuery.eq("wallet_id", wallet_id);
-    if (admin_id) countQuery = countQuery.eq("admin_id", admin_id);
-    if (action) countQuery = countQuery.eq("action", action);
-
-    const { count: totalCount } = await countQuery;
+    const [logs, totalCount] = await Promise.all([
+      prisma.wallet_audit_logs.findMany({
+        where,
+        include: {
+          wallet: {
+            include: {
+              user: {
+                select: { name: true, email: true }
+              }
+            }
+          }
+        },
+        orderBy: { created_at: 'desc' },
+        skip: offset,
+        take: parseInt(limit)
+      }),
+      prisma.wallet_audit_logs.count({ where })
+    ]);
 
     res.json({
       success: true,

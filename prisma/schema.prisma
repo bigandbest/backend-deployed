@@ -94,7 +94,6 @@ model cart_items {
 
   @@index([user_id])
   @@index([variant_id])
-  @@index([user_id, added_at(sort: Desc)])
 }
 
 
@@ -113,10 +112,6 @@ model categories {
   
   product_section_categories product_section_categories[]
   products      products[]
-
-  @@index([active])
-  @@index([featured])
-  @@index([active, featured])
 }
 
 
@@ -408,9 +403,6 @@ model inventory {
 
   @@index([warehouse_id])
   @@index([stock_qty])
-  @@index([variant_id])
-  @@index([warehouse_id, variant_id])
-  @@index([warehouse_id, stock_qty])
   @@unique([variant_id, warehouse_id])
 }
 
@@ -454,7 +446,6 @@ model order_items {
   variant               product_variants       @relation(fields: [variant_id], references: [id])
   warehouse             warehouses?            @relation(fields: [assigned_warehouse_id], references: [id])
   service_booking       service_bookings?
-  return_order_items    return_order_items[]
 
   @@index([order_id])
   @@index([variant_id])
@@ -496,21 +487,16 @@ model orders {
   gst_number          String?          @db.VarChar
   is_deleted          Boolean?         @default(false)
 
+  // Charge Breakdown (Snapshotted at order creation)
+  handling_charge     Decimal?         @default(0) @db.Decimal
+  surge_charge        Decimal?         @default(0) @db.Decimal
+  platform_charge     Decimal?         @default(0) @db.Decimal
+
   // Relations
   user                users?           @relation(fields: [user_id], references: [id])
   order_items         order_items[]
   tracking            order_tracking[]
   coupon_usage        coupon_usage?
-  return_orders       return_orders[]
-  refund_request      refund_requests?
-
-  @@index([user_id])
-  @@index([status])
-  @@index([created_at(sort: Desc)])
-  @@index([user_id, status])
-  @@index([payment_method])
-  @@index([is_deleted])
-  @@index([razorpay_order_id])
 }
 
 
@@ -771,9 +757,6 @@ cess_rate_override   Decimal? @db.Decimal
   @@index([product_id])
   @@index([sku])
   @@index([active])
-  @@index([product_id, is_default])
-  @@index([product_id, active])
-  @@index([is_default, active])
 }
 
 
@@ -805,10 +788,6 @@ model product_warehouse_stock {
   @@index([product_id])
   @@index([warehouse_id])
   @@index([variant_id])
-  @@index([warehouse_id, is_active])
-  @@index([product_id, variant_id])
-  @@index([warehouse_id, product_id])
-  @@index([stock_quantity])
 }
 
 
@@ -858,6 +837,12 @@ cess_rate          Decimal?           @default(0) @db.Decimal
   created_at         DateTime?          @default(now()) @db.Timestamptz
   updated_at         DateTime?          @updatedAt @db.Timestamptz
 
+  // Delivery Settings
+  delivery_type         String?            @default("nationwide") @db.VarChar
+  allowed_zone_ids      Int[]              @default([])
+  delivery_restrictions String?
+  delivery_notes        String?
+
   // Relations
   category           categories?        @relation(fields: [category_id], references: [id])
   subcategory        subcategories?     @relation(fields: [subcategory_id], references: [id])
@@ -878,19 +863,11 @@ cess_rate          Decimal?           @default(0) @db.Decimal
   store_section_mappings    store_section_mappings[]
   daily_deals_products      daily_deals_product[]
   warehouse_stock           product_warehouse_stock[]
+  stock_movements           stock_movements[]
 
   @@index([vertical])
   @@index([category_id])
   @@index([active])
-  @@index([store_id])
-  @@index([has_variants])
-  @@index([active, category_id])
-  @@index([active, store_id])
-  @@index([category_id, subcategory_id])
-  @@index([created_at(sort: Desc)])
-  @@index([subcategory_id])
-  @@index([group_id])
-  @@index([rating(sort: Desc)])
 }
 
 // --- Model: promo_banners.prisma ---
@@ -1138,6 +1115,7 @@ model stock_movements {
 
   // Relations
   warehouse      warehouses @relation(fields: [warehouse_id], references: [id])
+  product        products   @relation(fields: [product_id], references: [id])
 }
 
 
@@ -1256,9 +1234,6 @@ model users {
   created_txs      wallet_transactions[] @relation("TransactionCreator")
   service_bookings service_bookings[]
   addresses        user_addresses[]
-  return_orders    return_orders[]
-  refund_requests  refund_requests[]
-  processed_refunds refund_requests[] @relation("RefundProcessor")
 }
 
 
@@ -1463,13 +1438,6 @@ model warehouses {
   warehouse_pincodes  warehouse_pincodes[]
   inventory           inventory[]
   warehouse_stock     product_warehouse_stock[]
-
-  // Performance Indexes
-  @@index([type])
-  @@index([is_active])
-  @@index([parent_warehouse_id])
-  @@index([type, is_active])
-  @@index([hierarchy_level])
 }
 
 
@@ -1519,74 +1487,3 @@ model zone_pincodes {
 }
 
 
-
-// --- Model: return_orders.prisma ---
-model return_orders {
-  id                       String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  order_id                 String              @db.Uuid
-  user_id                  String              @db.Uuid
-  return_type              String              @db.VarChar
-  reason                   String              @db.VarChar
-  additional_details       String?
-  bank_account_holder_name String              @db.VarChar
-  bank_account_number      String              @db.VarChar
-  bank_ifsc_code           String              @db.VarChar
-  bank_name                String              @db.VarChar
-  refund_amount            Decimal             @db.Decimal
-  status                   String?             @default("pending") @db.VarChar
-  admin_notes              String?
-  admin_id                 String?             @db.Uuid
-  processed_at             DateTime?           @db.Timestamptz
-  created_at               DateTime?           @default(now()) @db.Timestamptz
-  updated_at               DateTime?           @default(now()) @db.Timestamptz
-
-  // Relations
-  order                    orders              @relation(fields: [order_id], references: [id])
-  user                     users               @relation(fields: [user_id], references: [id])
-  return_order_items       return_order_items[]
-
-  @@index([order_id])
-  @@index([user_id])
-}
-
-// --- Model: return_order_items.prisma ---
-model return_order_items {
-  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  return_order_id String         @db.Uuid
-  order_item_id   String         @db.Uuid
-  quantity        Int            @default(1)
-  return_reason   String?        @db.VarChar
-  created_at      DateTime?      @default(now()) @db.Timestamptz
-
-  // Relations
-  return_order    return_orders  @relation(fields: [return_order_id], references: [id], onDelete: Cascade)
-  order_item      order_items    @relation(fields: [order_item_id], references: [id])
-}
-
-// --- Model: refund_requests.prisma ---
-model refund_requests {
-  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  order_id                 String    @unique @db.Uuid 
-  user_id                  String    @db.Uuid
-  refund_amount            Decimal   @db.Decimal
-  refund_type              String    @db.VarChar
-  payment_method           String    @db.VarChar
-  original_payment_id      String?   @db.VarChar
-  bank_account_holder_name String?   @db.VarChar
-  bank_account_number      String?   @db.VarChar
-  bank_ifsc_code           String?   @db.VarChar
-  bank_name                String?   @db.VarChar
-  refund_mode              String?   @default("bank_transfer") @db.VarChar
-  status                   String?   @default("pending") @db.VarChar
-  admin_notes              String?
-  processed_by             String?   @db.Uuid 
-  processed_at             DateTime? @db.Timestamptz
-  razorpay_refund_id       String?   @db.VarChar
-  created_at               DateTime? @default(now()) @db.Timestamptz
-  updated_at               DateTime? @default(now()) @db.Timestamptz
-
-  // Relations
-  order                    orders    @relation(fields: [order_id], references: [id])
-  user                     users     @relation(fields: [user_id], references: [id])
-  processor                users?    @relation("RefundProcessor", fields: [processed_by], references: [id])
-}

@@ -24,7 +24,7 @@ class ServiceBookingDAO {
                         product: {
                             select: {
                                 name: true,
-                                images: true
+                                media: true
                             }
                         }
                     }

@@ -229,26 +229,40 @@ class WarehouseDAO {
             throw new Error('Variant ID is required for inventory updates');
         }
 
-        return await prisma.inventory.upsert({
+        // Check if stock record exists
+        const existing = await prisma.product_warehouse_stock.findFirst({
             where: {
-                variant_id_warehouse_id: {
-                    variant_id: variantId,
-                    warehouse_id: numericId
-                }
-            },
-            update: {
-                stock_qty: parseInt(data.stock_quantity) || 0,
-                bulk_stock_threshold: parseInt(data.minimum_threshold) || 0,
-                updated_at: new Date()
-            },
-            create: {
                 variant_id: variantId,
-                warehouse_id: numericId,
-                stock_qty: parseInt(data.stock_quantity) || 0,
-                reserved_qty: 0,
-                bulk_stock_threshold: parseInt(data.minimum_threshold) || 0
+                warehouse_id: numericId
             }
         });
+
+        if (existing) {
+            return await prisma.product_warehouse_stock.update({
+                where: { id: existing.id },
+                data: {
+                    stock_quantity: parseInt(data.stock_quantity) || 0,
+                    minimum_threshold: parseInt(data.minimum_threshold) || 0,
+                    cost_per_unit: parseFloat(data.cost_per_unit) || 0,
+                    updated_at: new Date()
+                }
+            });
+        } else {
+            return await prisma.product_warehouse_stock.create({
+                data: {
+                    product_id: productId,
+                    variant_id: variantId,
+                    warehouse_id: numericId,
+                    stock_quantity: parseInt(data.stock_quantity) || 0,
+                    minimum_threshold: parseInt(data.minimum_threshold) || 0,
+                    cost_per_unit: parseFloat(data.cost_per_unit) || 0,
+                    reserved_quantity: 0,
+                    is_active: true,
+                    created_at: new Date(),
+                    updated_at: new Date()
+                }
+            });
+        }
     }
 
     async deleteProductStock(warehouseId, productId) {

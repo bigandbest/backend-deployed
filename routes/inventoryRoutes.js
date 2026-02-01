@@ -3,7 +3,10 @@ import {
   getProductsByPincode,
   checkProductAvailability,
   updateWarehouseInventory,
-  getWarehouseInventory
+  getWarehouseInventory,
+  getWarehouseAnalytics,
+  getWarehouseLowStock,
+  getWarehouseMovements
 } from '../controller/inventoryController.js';
 import inventoryDAO from '../dao/inventory.dao.js';
 
@@ -18,7 +21,13 @@ router.get('/pincode/:pincode/product/:productId/availability', checkProductAvai
 // Update warehouse inventory (Admin)
 router.post('/warehouse/inventory/update', updateWarehouseInventory);
 
-// Get warehouse inventory (Admin)
+// Get warehouse inventory (Admin) - Supports /inventory/warehouse/:id URL structure
+router.get('/warehouse/:warehouseId', getWarehouseInventory); // Frontend uses this path
+router.get('/warehouse/:warehouseId/analytics', getWarehouseAnalytics);
+router.get('/warehouse/:warehouseId/low-stock', getWarehouseLowStock);
+router.get('/warehouse/:warehouseId/movements', getWarehouseMovements);
+
+// Legacy/Alternative route
 router.get('/warehouse/:warehouseId/inventory', getWarehouseInventory);
 
 // ========== NEW PRODUCTION-LEVEL INVENTORY ROUTES ==========

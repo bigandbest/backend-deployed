@@ -140,8 +140,17 @@ class ProductWarehouseStockDAO {
                 }
             });
         } else {
-            // UPDATE-ONLY: Do not create new records, only update existing ones
-            throw new Error(`No existing stock record found for product ${productId} in warehouse ${warehouseId}. Stock records must be created before updating.`);
+            // Create new stock record
+            return await prisma.product_warehouse_stock.create({
+                data: {
+                    product_id: productId,
+                    warehouse_id: parseInt(warehouseId),
+                    variant_id: null,
+                    ...stockData,
+                    created_at: new Date(),
+                    updated_at: new Date()
+                }
+            });
         }
     }
 
@@ -161,26 +170,34 @@ class ProductWarehouseStockDAO {
 
     async upsertVariantStock(productId, variantId, warehouseId, stockData) {
         const numericId = parseInt(warehouseId, 10);
-        return await prisma.inventory.upsert({
-            where: {
-                variant_id_warehouse_id: {
-                    variant_id: variantId,
-                    warehouse_id: numericId
+        const existing = await this.getByVariantAndWarehouse(variantId, numericId);
+
+        if (existing) {
+            return await prisma.product_warehouse_stock.update({
+                where: { id: existing.id },
+                data: {
+                    stock_quantity: stockData.stock_quantity,
+                    minimum_threshold: stockData.minimum_threshold || 0,
+                    cost_per_unit: stockData.cost_per_unit,
+                    updated_at: new Date()
                 }
-            },
-            update: {
-                stock_qty: stockData.stock_quantity,
-                bulk_stock_threshold: stockData.minimum_threshold || 0,
-                updated_at: new Date()
-            },
-            create: {
-                variant_id: variantId,
-                warehouse_id: numericId,
-                stock_qty: stockData.stock_quantity || 0,
-                bulk_stock_threshold: stockData.minimum_threshold || 0,
-                reserved_qty: 0
-            }
-        });
+            });
+        } else {
+            return await prisma.product_warehouse_stock.create({
+                data: {
+                    product_id: productId,
+                    variant_id: variantId,
+                    warehouse_id: numericId,
+                    stock_quantity: stockData.stock_quantity || 0,
+                    minimum_threshold: stockData.minimum_threshold || 0,
+                    cost_per_unit: stockData.cost_per_unit,
+                    reserved_quantity: 0,
+                    is_active: true,
+                    created_at: new Date(),
+                    updated_at: new Date()
+                }
+            });
+        }
     }
 
     async createMany(records) {
@@ -200,7 +217,7 @@ class ProductWarehouseStockDAO {
                     select: {
                         id: true,
                         name: true,
-                        images: true
+                        media: true
                     }
                 },
                 warehouses: {
@@ -249,7 +266,7 @@ class ProductWarehouseStockDAO {
                         id: true,
                         name: true,
                         rating: true,
-                        images: true,
+                        media: true,
                         category: {
                             select: {
                                 id: true,
