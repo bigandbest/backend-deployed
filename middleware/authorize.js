@@ -38,15 +38,7 @@ export function requireRole(...allowedRoles) {
  */
 export const requireAdmin = requireRole("ADMIN");
 
-/**
- * Middleware to require seller role
- */
-export const requireSeller = requireRole("SELLER");
 
-/**
- * Middleware to require either admin or seller role
- */
-export const requireAdminOrSeller = requireRole("ADMIN", "SELLER");
 
 /**
  * Middleware to require user role (customer)
@@ -78,22 +70,12 @@ export function hasPermission(user, permission) {
       "orders:read",
       "orders:update",
       "orders:delete",
-      "sellers:read",
-      "sellers:create",
-      "sellers:update",
-      "sellers:delete",
+
       "analytics:read",
       "settings:read",
       "settings:update",
     ],
-    SELLER: [
-      "products:read",
-      "products:create",
-      "products:update",
-      "orders:read",
-      "orders:update",
-      "analytics:read",
-    ],
+
     USER: [
       "products:read",
       "orders:read",

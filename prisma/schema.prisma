@@ -397,7 +397,6 @@ model inventory {
   warehouse_id Int
   updated_at   DateTime          @updatedAt @db.Timestamptz
   created_at   DateTime          @default(now()) @db.Timestamptz
-  status       String?
 
   // Relations
   variant      product_variants  @relation(fields: [variant_id], references: [id], onDelete: Cascade)
@@ -493,8 +492,6 @@ model orders {
   handling_charge     Decimal?         @default(0) @db.Decimal
   surge_charge        Decimal?         @default(0) @db.Decimal
   platform_charge     Decimal?         @default(0) @db.Decimal
-  coupon_code         String?          @db.VarChar
-  coupon_discount     Decimal?         @default(0) @db.Decimal
 
   // Relations
   user                users?           @relation(fields: [user_id], references: [id])
@@ -1180,7 +1177,6 @@ model team_members {
 enum UserRole {
   USER
   ADMIN
-  SELLER
 }
 
 model users {
@@ -1215,7 +1211,6 @@ model users {
   last_name        String?
   business_type    String?
   user_image       String?
-  registration_status String?
   
   // Relations
   notifications    user_notifications[]
@@ -1441,7 +1436,6 @@ model warehouses {
   created_by          Int?
   parent_warehouse_id Int?
   hierarchy_level     Int?              @default(0)
-  is_seller_location  Boolean?          @default(false)
 
   // Relations
   parent_warehouse    warehouses?       @relation("WarehouseHierarchy", fields: [parent_warehouse_id], references: [id])
