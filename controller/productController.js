@@ -16,7 +16,9 @@ const VARIANT_JOIN = "product_variants(*)";
 
 // Helper for consistency in transformations
 const transformProduct = (product, assignments = []) => {
-  const activeVariants = (product.variants || []).filter(v => v.active !== false);
+  const activeVariants = (product.variants || []).filter(
+    (v) => v.active !== false,
+  );
   const defaultVariant =
     activeVariants.find((v) => v.is_default === true) || activeVariants[0];
 
@@ -33,8 +35,7 @@ const transformProduct = (product, assignments = []) => {
       product.image ||
       product.media?.find((m) => m.is_primary)?.url ||
       product.media?.[0]?.url,
-    images:
-      product.images || product.media?.map((m) => m.url) || [],
+    images: product.images || product.media?.map((m) => m.url) || [],
     inStock: (product.stock_quantity || product.stock || 0) > 0,
     stock: product.stock_quantity || product.stock || 0,
     stockQuantity: product.stock_quantity || product.stock || 0,
@@ -72,7 +73,7 @@ export const getAllProducts = async (req, res) => {
     // CRITICAL: Enrich with inventory data
     const enrichedProducts = await productDao.enrichProductsWithInventory(
       products.items || [],
-      req.query.warehouse_id ? parseInt(req.query.warehouse_id) : null
+      req.query.warehouse_id ? parseInt(req.query.warehouse_id) : null,
     );
 
     res.status(200).json({
@@ -97,7 +98,7 @@ export const getProductsByCategory = async (req, res) => {
     // CRITICAL: Enrich with inventory data
     const enrichedProducts = await productDao.enrichProductsWithInventory(
       products,
-      req.query.warehouse_id ? parseInt(req.query.warehouse_id) : null
+      req.query.warehouse_id ? parseInt(req.query.warehouse_id) : null,
     );
 
     res.status(200).json({
@@ -141,17 +142,23 @@ export const getProductsCartData = async (req, res) => {
   try {
     const { product_ids } = req.body || {};
 
-    if (!product_ids || !Array.isArray(product_ids) || product_ids.length === 0) {
+    if (
+      !product_ids ||
+      !Array.isArray(product_ids) ||
+      product_ids.length === 0
+    ) {
       return res.status(200).json({ success: true, products: [] });
     }
 
     const products = await productDao.getProductsByIds(product_ids);
-    const transformed = products.map(product => transformProduct(product));
+    const transformed = products.map((product) => transformProduct(product));
 
     return res.status(200).json({ success: true, products: transformed });
   } catch (error) {
     console.error("getProductsCartData error:", error);
-    return res.status(500).json({ success: false, error: "Internal server error" });
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
   }
 };
 
@@ -163,7 +170,7 @@ export const getFeaturedProducts = async (req, res) => {
     // CRITICAL: Enrich with inventory data
     const enrichedProducts = await productDao.enrichProductsWithInventory(
       products,
-      req.query.warehouse_id ? parseInt(req.query.warehouse_id) : null
+      req.query.warehouse_id ? parseInt(req.query.warehouse_id) : null,
     );
 
     res.status(200).json({
@@ -184,7 +191,7 @@ export const getEverydayEssentials = async (req, res) => {
     // CRITICAL: Enrich with inventory data
     const enrichedProducts = await productDao.enrichProductsWithInventory(
       products,
-      req.query.warehouse_id ? parseInt(req.query.warehouse_id) : null
+      req.query.warehouse_id ? parseInt(req.query.warehouse_id) : null,
     );
 
     res.status(200).json({
@@ -205,7 +212,7 @@ export const getTopProducts = async (req, res) => {
     // CRITICAL: Enrich with inventory data
     const enrichedProducts = await productDao.enrichProductsWithInventory(
       products,
-      req.query.warehouse_id ? parseInt(req.query.warehouse_id) : null
+      req.query.warehouse_id ? parseInt(req.query.warehouse_id) : null,
     );
 
     res.status(200).json({
@@ -245,15 +252,19 @@ export const getProductsWithFilters = async (req, res) => {
       ...(top_sale === "true" && { top_sale: true }),
     };
 
-    const { items: products, total, totalPages } = await productDao.listProducts(
-      filters,
-      { page: parseInt(page), limit: parseInt(limit) }
-    );
+    const {
+      items: products,
+      total,
+      totalPages,
+    } = await productDao.listProducts(filters, {
+      page: parseInt(page),
+      limit: parseInt(limit),
+    });
 
     // CRITICAL: Enrich with inventory data
     const enrichedProducts = await productDao.enrichProductsWithInventory(
       products,
-      req.query.warehouse_id ? parseInt(req.query.warehouse_id) : null
+      req.query.warehouse_id ? parseInt(req.query.warehouse_id) : null,
     );
 
     res.status(200).json({
@@ -279,87 +290,8 @@ export const getProductById = async (req, res) => {
       return res.status(400).json({ error: "Product ID is required" });
     }
 
-    // Fetch product with optimized SELECT
-    const product = await prisma.products.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        rating: true,
-        review_count: true,
-        active: true,
-        created_at: true,
-        category_id: true,
-        subcategory_id: true,
-        group_id: true,
-        store_id: true,
-        return_applicable: true,
-        return_days: true,
-        has_variants: true,
-        hsn_or_sac_code: true,
-        gst_rate: true,
-        cess_rate: true,
-        faq: true,
-        variants: {
-          where: { active: true },
-          orderBy: { is_default: 'desc' },
-          select: {
-            id: true,
-            title: true,
-            price: true,
-            old_price: true,
-            discount_percentage: true,
-            is_default: true,
-            active: true,
-            sku: true,
-            packaging_details: true,
-            features: true,
-            is_bulk_enabled: true,
-            bulk_price: true,
-            bulk_min_quantity: true,
-            bulk_discount_percentage: true
-          }
-        },
-        media: {
-          orderBy: { is_primary: 'desc' },
-          select: {
-            id: true,
-            url: true,
-            media_type: true,
-            is_primary: true
-          }
-        },
-        brands: {
-          select: {
-            brand: {
-              select: {
-                id: true,
-                name: true
-              }
-            }
-          }
-        },
-        store: {
-          select: {
-            id: true,
-            name: true
-          }
-        },
-        category: {
-          select: {
-            id: true,
-            name: true
-          }
-        },
-        subcategory: {
-          select: {
-            id: true,
-            name: true
-          }
-        }
-      }
-    });
+    // Fetch product using DAO (same as admin endpoint for consistency)
+    const product = await productDao.getProductById(id);
 
     if (!product || !product.active) {
       return res.status(404).json({ error: "Product not found" });
@@ -368,7 +300,7 @@ export const getProductById = async (req, res) => {
     // CRITICAL: Enrich with inventory data
     const enrichedProducts = await productDao.enrichProductsWithInventory(
       [product],
-      warehouse_id ? parseInt(warehouse_id) : null
+      warehouse_id ? parseInt(warehouse_id) : null,
     );
     const enrichedProduct = enrichedProducts[0];
 
@@ -377,7 +309,7 @@ export const getProductById = async (req, res) => {
       delivery_type: "nationwide",
       delivery_available: true,
       delivery_zones: [],
-      delivery_notes: null
+      delivery_notes: null,
     };
 
     // Check pincode-specific delivery if pincode provided
@@ -388,7 +320,9 @@ export const getProductById = async (req, res) => {
     }
 
     // Compute price from default variant if available
-    const defaultVariant = enrichedProduct.variants?.find(v => v.is_default) || enrichedProduct.variants?.[0];
+    const defaultVariant =
+      enrichedProduct.variants?.find((v) => v.is_default) ||
+      enrichedProduct.variants?.[0];
     const computedPrice = defaultVariant?.price || 0;
     const computedOldPrice = defaultVariant?.old_price || computedPrice * 1.2;
 
@@ -396,19 +330,25 @@ export const getProductById = async (req, res) => {
       success: true,
       product: {
         ...enrichedProduct,
+        // Computed convenience fields
         price: computedPrice,
         old_price: computedOldPrice,
-        image: enrichedProduct.media?.[0]?.url || '',
-        images: enrichedProduct.media?.map(m => m.url) || [],
+        oldPrice: computedOldPrice,
+        image: enrichedProduct.media?.[0]?.url || "",
+        images: enrichedProduct.media?.map((m) => m.url) || [],
         delivery_info: deliveryInfo,
-        store_name: enrichedProduct.store?.name || null,
+        // Flattened convenience fields
+        store_name:
+          enrichedProduct.product_recommended_store?.[0]?.recommended_store
+            ?.name ||
+          enrichedProduct.store?.name ||
+          null,
         brand: enrichedProduct.brands?.[0]?.brand?.name || null,
         brand_name: enrichedProduct.brands?.[0]?.brand?.name || null,
         brand_id: enrichedProduct.brands?.[0]?.brand?.id || null,
-        category: enrichedProduct.category?.name || null,
-        subcategory: enrichedProduct.subcategory?.name || null,
-        faq: enrichedProduct.faq
-      }
+        // Keep original nested objects (don't override them)
+        // category, subcategory, group, brands, media, store, product_recommended_store are already in enrichedProduct
+      },
     });
   } catch (error) {
     console.error("Server error:", error);
@@ -416,7 +356,6 @@ export const getProductById = async (req, res) => {
   }
 };
 // --- Product Delivery Settings (Admin) ---
-
 
 /**
  * Create or update product with delivery settings (for admin)
@@ -441,8 +380,13 @@ export const updateProductDelivery = async (req, res) => {
       });
     }
 
-    if (delivery_type === "zonal" && (!allowed_zone_ids || allowed_zone_ids.length === 0)) {
-      return res.status(400).json({ error: "Zone IDs are required for zonal delivery" });
+    if (
+      delivery_type === "zonal" &&
+      (!allowed_zone_ids || allowed_zone_ids.length === 0)
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Zone IDs are required for zonal delivery" });
     }
 
     let finalZoneIds = delivery_type === "nationwide" ? [] : allowed_zone_ids;
@@ -450,7 +394,9 @@ export const updateProductDelivery = async (req, res) => {
     if (finalZoneIds.length > 0) {
       const zones = await deliveryZoneDao.listByIds(finalZoneIds);
       if (!zones || zones.length !== finalZoneIds.length) {
-        return res.status(400).json({ error: "One or more zone IDs are invalid or inactive" });
+        return res
+          .status(400)
+          .json({ error: "One or more zone IDs are invalid or inactive" });
       }
     }
 
@@ -480,22 +426,31 @@ export const checkProductsDelivery = async (req, res) => {
     const { pincode, product_items } = req.body;
 
     if (!pincode || !/^\d{6}$/.test(pincode)) {
-      return res.status(400).json({ error: "Valid 6-digit pincode is required" });
+      return res
+        .status(400)
+        .json({ error: "Valid 6-digit pincode is required" });
     }
 
-    if (!product_items || !Array.isArray(product_items) || product_items.length === 0) {
+    if (
+      !product_items ||
+      !Array.isArray(product_items) ||
+      product_items.length === 0
+    ) {
       return res.status(400).json({ error: "Product items are required" });
     }
 
     const results = await Promise.all(
       product_items.map(async (item) => {
-        const canDeliver = await productDao.canDeliverToPincode(parseInt(item.product_id), pincode);
+        const canDeliver = await productDao.canDeliverToPincode(
+          parseInt(item.product_id),
+          pincode,
+        );
         return {
           product_id: item.product_id,
           pincode,
           can_deliver: canDeliver,
         };
-      })
+      }),
     );
 
     res.status(200).json({
@@ -546,8 +501,8 @@ export const getProductsByDeliveryZone = async (req, res) => {
       .eq("active", true)
       .or(
         `delivery_type.eq.nationwide,and(delivery_type.eq.zonal,allowed_zone_ids.ov.{${zoneIds.join(
-          ","
-        )}})`
+          ",",
+        )}})`,
       )
       .range(offset, offset + limit - 1);
 
@@ -634,7 +589,7 @@ export const getQuickPicks = async (req, res) => {
             .select(
               `
             products!inner(*)
-          `
+          `,
             )
             .eq("section_id", sectionData.id)
             .eq("mapping_type", "section_product")
@@ -716,7 +671,7 @@ export const getQuickPicks = async (req, res) => {
               variant_image,
               is_default
             )
-          `
+          `,
           )
           .in("id", topSellingProductIds)
           .eq("active", true);
@@ -750,7 +705,7 @@ export const getQuickPicks = async (req, res) => {
           latestQuery = latestQuery.not(
             "id",
             "in",
-            `(${excludeIds.join(",")})`
+            `(${excludeIds.join(",")})`,
           );
         }
 
@@ -822,7 +777,7 @@ export const getQuickPicks = async (req, res) => {
           latestQuery = latestQuery.not(
             "id",
             "in",
-            `(${excludeIds.join(",")})`
+            `(${excludeIds.join(",")})`,
           );
         }
 
@@ -865,7 +820,7 @@ export const getQuickPicks = async (req, res) => {
     // Transform the data to match frontend expectations
     const transformedProducts = products.map((product) => {
       const defaultVariant = product.product_variants?.find(
-        (v) => v.is_default === true
+        (v) => v.is_default === true,
       );
 
       return {
@@ -923,14 +878,91 @@ export const getQuickPicks = async (req, res) => {
 export const getProductsBySubcategory = async (req, res) => {
   try {
     const { subcategoryId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
 
-    const products = await productDao.getProductsByFilter({ subcategoryId });
-    const transformedProducts = products.map(product => transformProduct(product));
+    // Use listProducts with includeAllVariants to get full product details
+    const products = await productDao.listProducts(
+      { subcategory_id: subcategoryId, includeAllVariants: true },
+      { page, limit },
+    );
+
+    // Flatten the response for frontend convenience (matching admin endpoint structure)
+    const flattenedProducts = (products.items || []).map((p) => {
+      const brandObj =
+        p.brands && p.brands.length > 0 ? p.brands[0].brand : null;
+      const storeObj =
+        p.product_recommended_store && p.product_recommended_store.length > 0
+          ? p.product_recommended_store[0].recommended_store
+          : null;
+
+      // Get default variant for price display
+      const defaultVariant =
+        p.variants?.find((v) => v.is_default) || p.variants?.[0];
+
+      return {
+        // Spread all original fields from DAO first
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        active: p.active,
+        created_at: p.created_at,
+        updated_at: p.updated_at,
+        category_id: p.category_id,
+        subcategory_id: p.subcategory_id,
+        group_id: p.group_id,
+        store_id: p.store_id,
+        vertical: p.vertical,
+        return_applicable: p.return_applicable,
+        return_days: p.return_days,
+        has_variants: p.has_variants,
+        rating: parseFloat(p.rating) || 0,
+        review_count: p.review_count,
+        hsn_or_sac_code: p.hsn_or_sac_code,
+        gst_rate: p.gst_rate,
+        cess_rate: p.cess_rate,
+        faq: p.faq,
+        // Include nested relation objects
+        category: p.category,
+        subcategory: p.subcategory,
+        group: p.group,
+        store: p.store,
+        brands: p.brands,
+        product_recommended_store: p.product_recommended_store,
+        media: p.media,
+        variants: p.variants,
+        // Flattened brand and store info for convenience
+        brand_id: brandObj?.id || null,
+        brand_name: brandObj?.name || null,
+        store_id: storeObj?.id || null,
+        store_name: storeObj?.name || null,
+        // Price from default variant
+        price: defaultVariant?.price || "0",
+        oldPrice: defaultVariant?.old_price || "0",
+        old_price: defaultVariant?.old_price || "0",
+        discount: defaultVariant?.discount_percentage || 0,
+        // Images from media for convenience
+        image: p.media?.[0]?.url || "",
+        images: p.media?.map((m) => m.url) || [],
+        // Stock info
+        inStock: defaultVariant?.stock_info?.in_stock || false,
+        stock: defaultVariant?.stock_info?.available_stock || 0,
+        stockQuantity: defaultVariant?.stock_info?.available_stock || 0,
+        // Variant info with all fields including attributes
+        hasVariants: p.variants && p.variants.length > 0,
+        defaultVariant: defaultVariant,
+        // Return rating as number
+        reviews: p.review_count || 0,
+      };
+    });
 
     res.status(200).json({
       success: true,
-      products: transformedProducts,
-      total: transformedProducts.length,
+      products: flattenedProducts,
+      total: products.total || 0,
+      page: products.page,
+      limit: products.limit,
+      totalPages: Math.ceil((products.total || 0) / products.limit),
       subcategoryId,
     });
   } catch (error) {
@@ -945,7 +977,9 @@ export const getProductsByGroup = async (req, res) => {
     const { groupId } = req.params;
 
     const products = await productDao.getProductsByFilter({ groupId });
-    const transformedProducts = products.map(product => transformProduct(product));
+    const transformedProducts = products.map((product) =>
+      transformProduct(product),
+    );
 
     res.status(200).json({
       success: true,
@@ -966,32 +1000,55 @@ export const assignProductToWarehouses = async (req, res) => {
     const { warehouse_assignments } = req.body;
 
     if (!warehouse_assignments || !Array.isArray(warehouse_assignments)) {
-      return res.status(400).json({ success: false, error: "Warehouse assignments array is required" });
+      return res.status(400).json({
+        success: false,
+        error: "Warehouse assignments array is required",
+      });
     }
 
     const product = await productDao.getProductById(product_id);
-    if (!product) return res.status(404).json({ success: false, error: "Product not found" });
+    if (!product)
+      return res
+        .status(404)
+        .json({ success: false, error: "Product not found" });
 
     const results = [];
     for (const assignment of warehouse_assignments) {
-      const { warehouse_id, stock_quantity, minimum_threshold = 0, maximum_capacity } = assignment;
+      const {
+        warehouse_id,
+        stock_quantity,
+        minimum_threshold = 0,
+        maximum_capacity,
+      } = assignment;
 
       try {
-        const existingStock = await productWarehouseStockDao.getByProductAndWarehouse(product_id, warehouse_id);
+        const existingStock =
+          await productWarehouseStockDao.getByProductAndWarehouse(
+            product_id,
+            warehouse_id,
+          );
         const stockData = {
           stock_quantity,
           minimum_threshold,
           maximum_capacity,
-          last_updated_by: req.user?.id
+          last_updated_by: req.user?.id,
         };
 
         let result;
         if (existingStock) {
-          result = await productWarehouseStockDao.upsertStock(product_id, warehouse_id, stockData);
+          result = await productWarehouseStockDao.upsertStock(
+            product_id,
+            warehouse_id,
+            stockData,
+          );
           results.push({ warehouse_id, action: "updated", data: result });
         } else {
           stockData.last_restocked_at = new Date();
-          result = await productWarehouseStockDao.upsertStock(product_id, warehouse_id, stockData);
+          result = await productWarehouseStockDao.upsertStock(
+            product_id,
+            warehouse_id,
+            stockData,
+          );
           results.push({ warehouse_id, action: "created", data: result });
 
           // Log stock movement
@@ -1004,7 +1061,7 @@ export const assignProductToWarehouses = async (req, res) => {
             new_stock: stock_quantity,
             reference_type: "assignment",
             reason: "Product assigned to warehouse",
-            performed_by: req.user?.id
+            performed_by: req.user?.id,
           });
         }
       } catch (error) {
@@ -1017,7 +1074,11 @@ export const assignProductToWarehouses = async (req, res) => {
       success: true,
       message: "Warehouse assignments processed",
       results,
-      product_info: { id: product.id, name: product.name, delivery_type: product.delivery_type }
+      product_info: {
+        id: product.id,
+        name: product.name,
+        delivery_type: product.delivery_type,
+      },
     });
   } catch (error) {
     console.error("Error in assignProductToWarehouses:", error);
@@ -1034,10 +1095,12 @@ export const getProductsByCategoryWithDiscount = async (req, res) => {
     const products = await productDao.getProductsByFilter({
       categoryId,
       minDiscount: parseFloat(minDiscount),
-      maxDiscount: parseFloat(maxDiscount)
+      maxDiscount: parseFloat(maxDiscount),
     });
 
-    const transformedProducts = products.slice(0, parseInt(limit)).map(product => transformProduct(product));
+    const transformedProducts = products
+      .slice(0, parseInt(limit))
+      .map((product) => transformProduct(product));
 
     res.status(200).json({
       success: true,
@@ -1059,10 +1122,12 @@ export const getProductsBySubcategoryWithDiscount = async (req, res) => {
     const products = await productDao.getProductsByFilter({
       subcategoryId,
       minDiscount: parseFloat(minDiscount),
-      maxDiscount: parseFloat(maxDiscount)
+      maxDiscount: parseFloat(maxDiscount),
     });
 
-    const transformedProducts = products.slice(0, parseInt(limit)).map(product => transformProduct(product));
+    const transformedProducts = products
+      .slice(0, parseInt(limit))
+      .map((product) => transformProduct(product));
 
     res.status(200).json({
       success: true,
@@ -1081,13 +1146,15 @@ export const getProductsByBrand = async (req, res) => {
     const { brandId } = req.params;
 
     const products = await productDao.getProductsByFilter({ brandId });
-    const transformedProducts = products.map(product => transformProduct(product));
+    const transformedProducts = products.map((product) =>
+      transformProduct(product),
+    );
 
     res.status(200).json({
       success: true,
       products: transformedProducts,
       total: transformedProducts.length,
-      brand_id: brandId
+      brand_id: brandId,
     });
   } catch (error) {
     console.error("Server error:", error);
@@ -1101,15 +1168,19 @@ export const getRelatedProducts = async (req, res) => {
     const { product_ids } = req.body;
 
     if (!product_ids || !Array.isArray(product_ids)) {
-      return res.status(400).json({ success: false, error: "product_ids array is required" });
+      return res
+        .status(400)
+        .json({ success: false, error: "product_ids array is required" });
     }
 
     const products = await productDao.getRelatedProducts(product_ids);
-    const transformedProducts = products.map(product => transformProduct(product));
+    const transformedProducts = products.map((product) =>
+      transformProduct(product),
+    );
 
     res.status(200).json({
       success: true,
-      products: transformedProducts
+      products: transformedProducts,
     });
   } catch (error) {
     console.error("getRelatedProducts error:", error);
@@ -1152,7 +1223,8 @@ export const addProductVariant = async (req, res) => {
 
     if (!variant_name || !variant_price || !variant_weight || !variant_unit) {
       return res.status(400).json({
-        error: "Required fields: variant_name, variant_price, variant_weight, variant_unit"
+        error:
+          "Required fields: variant_name, variant_price, variant_weight, variant_unit",
       });
     }
 
@@ -1165,7 +1237,9 @@ export const addProductVariant = async (req, res) => {
       product_id: productId,
       variant_name: variant_name.trim(),
       variant_price: parseFloat(variant_price),
-      variant_old_price: variant_old_price ? parseFloat(variant_old_price) : null,
+      variant_old_price: variant_old_price
+        ? parseFloat(variant_old_price)
+        : null,
       variant_discount: variant_discount ? parseInt(variant_discount) : 0,
       variant_stock: variant_stock ? parseInt(variant_stock) : 0,
       variant_weight: variant_weight.trim(),
@@ -1173,16 +1247,16 @@ export const addProductVariant = async (req, res) => {
       shipping_amount: shipping_amount ? parseFloat(shipping_amount) : 0,
       is_default: Boolean(is_default),
       variant_image_url: variant_image_url?.trim() || null,
-      active: true
+      active: true,
     });
 
     res.status(201).json({
       success: true,
       variant,
-      message: "Variant added successfully"
+      message: "Variant added successfully",
     });
   } catch (error) {
-    console.error('Server error in addProductVariant:', error);
+    console.error("Server error in addProductVariant:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -1204,33 +1278,38 @@ export const updateProductVariant = async (req, res) => {
 
     if (sanitizedData.variant_price !== undefined) {
       const price = parseFloat(sanitizedData.variant_price);
-      if (isNaN(price) || price <= 0) return res.status(400).json({ error: "Invalid variant price" });
+      if (isNaN(price) || price <= 0)
+        return res.status(400).json({ error: "Invalid variant price" });
       sanitizedData.variant_price = price;
     }
 
     if (sanitizedData.variant_old_price !== undefined) {
-      sanitizedData.variant_old_price = sanitizedData.variant_old_price ? parseFloat(sanitizedData.variant_old_price) : null;
+      sanitizedData.variant_old_price = sanitizedData.variant_old_price
+        ? parseFloat(sanitizedData.variant_old_price)
+        : null;
     }
 
     if (sanitizedData.variant_discount !== undefined) {
-      sanitizedData.variant_discount = parseInt(sanitizedData.variant_discount) || 0;
+      sanitizedData.variant_discount =
+        parseInt(sanitizedData.variant_discount) || 0;
     }
 
     if (sanitizedData.variant_stock !== undefined) {
       sanitizedData.variant_stock = parseInt(sanitizedData.variant_stock) || 0;
     }
 
-    if (sanitizedData.variant_name) sanitizedData.variant_name = sanitizedData.variant_name.trim();
+    if (sanitizedData.variant_name)
+      sanitizedData.variant_name = sanitizedData.variant_name.trim();
 
     const updated = await productVariantDao.update(variantId, sanitizedData);
 
     res.status(200).json({
       success: true,
       variant: updated,
-      message: "Variant updated successfully"
+      message: "Variant updated successfully",
     });
   } catch (error) {
-    console.error('Server error in updateProductVariant:', error);
+    console.error("Server error in updateProductVariant:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -1247,10 +1326,10 @@ export const deleteProductVariant = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "Variant deleted successfully"
+      message: "Variant deleted successfully",
     });
   } catch (error) {
-    console.error('Server error in deleteProductVariant:', error);
+    console.error("Server error in deleteProductVariant:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -1261,7 +1340,9 @@ export const updateVariantStock = async (req, res) => {
     const { variant_stock, active } = req.body;
 
     if (variant_stock === undefined && active === undefined) {
-      return res.status(400).json({ error: "variant_stock or active status is required" });
+      return res
+        .status(400)
+        .json({ error: "variant_stock or active status is required" });
     }
 
     const existingVariant = await productVariantDao.getById(variantId);
@@ -1272,7 +1353,8 @@ export const updateVariantStock = async (req, res) => {
     const updateData = {};
     if (variant_stock !== undefined) {
       const stock = parseInt(variant_stock);
-      if (isNaN(stock) || stock < 0) return res.status(400).json({ error: "Invalid stock quantity" });
+      if (isNaN(stock) || stock < 0)
+        return res.status(400).json({ error: "Invalid stock quantity" });
       updateData.variant_stock = stock;
     }
 
@@ -1287,10 +1369,10 @@ export const updateVariantStock = async (req, res) => {
     res.status(200).json({
       success: true,
       variant: updated,
-      message: "Variant stock updated successfully"
+      message: "Variant stock updated successfully",
     });
   } catch (error) {
-    console.error('Server error in updateVariantStock:', error);
+    console.error("Server error in updateVariantStock:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -1300,34 +1382,38 @@ export const getVariantWarehouseStock = async (req, res) => {
     const { variantId } = req.params;
     const variant = await productVariantDao.getById(variantId);
     if (!variant) {
-      return res.status(404).json({ success: false, error: "Variant not found" });
+      return res
+        .status(404)
+        .json({ success: false, error: "Variant not found" });
     }
 
-    const warehouseStock = await productWarehouseStockDao.listByVariant(variantId);
+    const warehouseStock =
+      await productWarehouseStockDao.listByVariant(variantId);
 
-    const stockData = warehouseStock?.map(item => ({
-      warehouse_id: item.warehouse_id,
-      warehouse_name: item.warehouses?.name,
-      warehouse_type: item.warehouses?.type,
-      parent_warehouse_id: item.warehouses?.parent_warehouse_id,
-      location: item.warehouses?.location,
-      stock_quantity: item.stock_quantity,
-      reserved_quantity: item.reserved_quantity || 0,
-      available_quantity: item.stock_quantity - (item.reserved_quantity || 0),
-      minimum_threshold: item.minimum_threshold || 0,
-      cost_per_unit: item.cost_per_unit,
-      last_restocked_at: item.last_restocked_at,
-      is_low_stock: item.stock_quantity <= (item.minimum_threshold || 0)
-    })) || [];
+    const stockData =
+      warehouseStock?.map((item) => ({
+        warehouse_id: item.warehouse_id,
+        warehouse_name: item.warehouses?.name,
+        warehouse_type: item.warehouses?.type,
+        parent_warehouse_id: item.warehouses?.parent_warehouse_id,
+        location: item.warehouses?.location,
+        stock_quantity: item.stock_quantity,
+        reserved_quantity: item.reserved_quantity || 0,
+        available_quantity: item.stock_quantity - (item.reserved_quantity || 0),
+        minimum_threshold: item.minimum_threshold || 0,
+        cost_per_unit: item.cost_per_unit,
+        last_restocked_at: item.last_restocked_at,
+        is_low_stock: item.stock_quantity <= (item.minimum_threshold || 0),
+      })) || [];
 
     res.status(200).json({
       success: true,
       variant,
       warehouse_stock: stockData,
-      total_warehouses: stockData.length
+      total_warehouses: stockData.length,
     });
   } catch (error) {
-    console.error('Server error in getVariantWarehouseStock:', error);
+    console.error("Server error in getVariantWarehouseStock:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
   }
 };
@@ -1338,22 +1424,33 @@ export const updateVariantWarehouseStock = async (req, res) => {
     const { stock_quantity, minimum_threshold, cost_per_unit } = req.body;
 
     const variant = await productVariantDao.getById(variantId);
-    if (!variant) return res.status(404).json({ success: false, error: "Variant not found" });
+    if (!variant)
+      return res
+        .status(404)
+        .json({ success: false, error: "Variant not found" });
 
     const warehouse = await warehouseDao.getById(warehouseId);
-    if (!warehouse) return res.status(404).json({ success: false, error: "Warehouse not found" });
+    if (!warehouse)
+      return res
+        .status(404)
+        .json({ success: false, error: "Warehouse not found" });
 
     const stockData = {
-      stock_quantity: stock_quantity !== undefined ? parseInt(stock_quantity) : undefined,
-      minimum_threshold: minimum_threshold !== undefined ? parseInt(minimum_threshold) : undefined,
-      cost_per_unit: cost_per_unit !== undefined ? parseFloat(cost_per_unit) : undefined,
+      stock_quantity:
+        stock_quantity !== undefined ? parseInt(stock_quantity) : undefined,
+      minimum_threshold:
+        minimum_threshold !== undefined
+          ? parseInt(minimum_threshold)
+          : undefined,
+      cost_per_unit:
+        cost_per_unit !== undefined ? parseFloat(cost_per_unit) : undefined,
     };
 
     const result = await productWarehouseStockDao.upsertVariantStock(
       variant.product_id,
       variantId,
       parseInt(warehouseId),
-      stockData
+      stockData,
     );
 
     res.status(200).json({
@@ -1362,12 +1459,13 @@ export const updateVariantWarehouseStock = async (req, res) => {
         ...result,
         warehouse_name: warehouse.name,
         warehouse_type: warehouse.type,
-        available_quantity: result.stock_quantity - (result.reserved_quantity || 0)
+        available_quantity:
+          result.stock_quantity - (result.reserved_quantity || 0),
       },
-      message: "Variant warehouse stock updated successfully"
+      message: "Variant warehouse stock updated successfully",
     });
   } catch (error) {
-    console.error('Server error in updateVariantWarehouseStock:', error);
+    console.error("Server error in updateVariantWarehouseStock:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
   }
 };
@@ -1386,21 +1484,28 @@ export const addProductVariantWithStock = async (req, res) => {
       shipping_amount,
       is_default,
       variant_image_url,
-      warehouse_stock
+      warehouse_stock,
     } = req.body;
 
     if (!variant_name || !variant_price || !variant_weight || !variant_unit) {
-      return res.status(400).json({ success: false, error: "Required fields missing" });
+      return res
+        .status(400)
+        .json({ success: false, error: "Required fields missing" });
     }
 
     const product = await productDao.getById(productId);
-    if (!product) return res.status(404).json({ success: false, error: "Product not found" });
+    if (!product)
+      return res
+        .status(404)
+        .json({ success: false, error: "Product not found" });
 
     const variant = await productVariantDao.create({
       product_id: productId,
       variant_name: variant_name.trim(),
       variant_price: parseFloat(variant_price),
-      variant_old_price: variant_old_price ? parseFloat(variant_old_price) : null,
+      variant_old_price: variant_old_price
+        ? parseFloat(variant_old_price)
+        : null,
       variant_discount: variant_discount ? parseInt(variant_discount) : 0,
       variant_stock: variant_stock ? parseInt(variant_stock) : 0,
       variant_weight: variant_weight.trim(),
@@ -1408,12 +1513,16 @@ export const addProductVariantWithStock = async (req, res) => {
       shipping_amount: shipping_amount ? parseFloat(shipping_amount) : 0,
       is_default: Boolean(is_default),
       variant_image_url: variant_image_url?.trim() || null,
-      active: true
+      active: true,
     });
 
     let warehouseStockResults = [];
-    if (warehouse_stock && Array.isArray(warehouse_stock) && warehouse_stock.length > 0) {
-      const stockRecords = warehouse_stock.map(ws => ({
+    if (
+      warehouse_stock &&
+      Array.isArray(warehouse_stock) &&
+      warehouse_stock.length > 0
+    ) {
+      const stockRecords = warehouse_stock.map((ws) => ({
         product_id: productId,
         warehouse_id: parseInt(ws.warehouse_id),
         variant_id: variant.id,
@@ -1423,17 +1532,19 @@ export const addProductVariantWithStock = async (req, res) => {
         cost_per_unit: parseFloat(ws.cost_per_unit) || 0,
       }));
       await productWarehouseStockDao.createMany(stockRecords);
-      warehouseStockResults = await productWarehouseStockDao.listByVariant(variant.id);
+      warehouseStockResults = await productWarehouseStockDao.listByVariant(
+        variant.id,
+      );
     }
 
     res.status(201).json({
       success: true,
       variant,
       warehouse_stock: warehouseStockResults,
-      message: "Variant added successfully with warehouse stock"
+      message: "Variant added successfully with warehouse stock",
     });
   } catch (error) {
-    console.error('Server error in addProductVariantWithStock:', error);
+    console.error("Server error in addProductVariantWithStock:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
   }
 };
@@ -1443,15 +1554,29 @@ export const addProductVariantWithStock = async (req, res) => {
 export const checkProductAvailability = async (req, res) => {
   try {
     const { product_id, pincode } = req.query;
-    if (!product_id || !pincode) return res.status(400).json({ success: false, error: "Missing parameters" });
+    if (!product_id || !pincode)
+      return res
+        .status(400)
+        .json({ success: false, error: "Missing parameters" });
 
     const product = await productDao.getById(product_id);
-    if (!product) return res.status(404).json({ success: false, error: "Product not found" });
+    if (!product)
+      return res
+        .status(404)
+        .json({ success: false, error: "Product not found" });
 
     const divisionWarehouse = await warehousePincodeDao.getByPincode(pincode);
     if (divisionWarehouse) {
-      const divisionStock = await productWarehouseStockDao.getByProductAndWarehouse(product_id, divisionWarehouse.warehouse_id);
-      if (divisionStock && (divisionStock.stock_quantity - (divisionStock.reserved_quantity || 0)) > 0) {
+      const divisionStock =
+        await productWarehouseStockDao.getByProductAndWarehouse(
+          product_id,
+          divisionWarehouse.warehouse_id,
+        );
+      if (
+        divisionStock &&
+        divisionStock.stock_quantity - (divisionStock.reserved_quantity || 0) >
+          0
+      ) {
         return res.json({
           success: true,
           available: true,
@@ -1460,18 +1585,33 @@ export const checkProductAvailability = async (req, res) => {
           warehouse_name: divisionWarehouse.warehouses?.name,
           delivery_days: 1,
           delivery_message: "Delivery in 1 day",
-          available_quantity: divisionStock.stock_quantity - (divisionStock.reserved_quantity || 0),
-          pincode_info: { pincode: divisionWarehouse.pincode, city: divisionWarehouse.city, state: divisionWarehouse.state },
+          available_quantity:
+            divisionStock.stock_quantity -
+            (divisionStock.reserved_quantity || 0),
+          pincode_info: {
+            pincode: divisionWarehouse.pincode,
+            city: divisionWarehouse.city,
+            state: divisionWarehouse.state,
+          },
         });
       }
     }
 
     const zonePincode = await zonePincodeDao.getByPincode(pincode);
     if (zonePincode) {
-      const zonalWarehouses = await deliveryZoneDao.getZonalWarehouses(zonePincode.zone_id);
+      const zonalWarehouses = await deliveryZoneDao.getZonalWarehouses(
+        zonePincode.zone_id,
+      );
       for (const warehouse of zonalWarehouses) {
-        const zonalStock = await productWarehouseStockDao.getByProductAndWarehouse(product_id, warehouse.id);
-        if (zonalStock && (zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0)) > 0) {
+        const zonalStock =
+          await productWarehouseStockDao.getByProductAndWarehouse(
+            product_id,
+            warehouse.id,
+          );
+        if (
+          zonalStock &&
+          zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0) > 0
+        ) {
           return res.json({
             success: true,
             available: true,
@@ -1480,8 +1620,13 @@ export const checkProductAvailability = async (req, res) => {
             warehouse_name: warehouse.name,
             delivery_days: 3,
             delivery_message: "Delivery in 3-4 working days",
-            available_quantity: zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0),
-            pincode_info: { pincode: zonePincode.pincode, city: zonePincode.city, state: zonePincode.state },
+            available_quantity:
+              zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0),
+            pincode_info: {
+              pincode: zonePincode.pincode,
+              city: zonePincode.city,
+              state: zonePincode.state,
+            },
           });
         }
       }
@@ -1502,7 +1647,8 @@ export const checkProductAvailability = async (req, res) => {
 export const checkCartAvailability = async (req, res) => {
   try {
     const { items, pincode } = req.body;
-    if (!items || !Array.isArray(items) || !pincode) return res.status(400).json({ success: false, error: "Invalid input" });
+    if (!items || !Array.isArray(items) || !pincode)
+      return res.status(400).json({ success: false, error: "Invalid input" });
 
     const divisionWarehouse = await warehousePincodeDao.getByPincode(pincode);
     const zonePincode = await zonePincodeDao.getByPincode(pincode);
@@ -1515,35 +1661,68 @@ export const checkCartAvailability = async (req, res) => {
       const { product_id, quantity } = item;
       const product = await productDao.getById(product_id);
       if (!product) {
-        results.push({ product_id, available: false, error: "Product not found" });
+        results.push({
+          product_id,
+          available: false,
+          error: "Product not found",
+        });
         allAvailable = false;
         continue;
       }
 
       let availabilityInfo = null;
       if (divisionWarehouse) {
-        const divisionStock = await productWarehouseStockDao.getByProductAndWarehouse(product_id, divisionWarehouse.warehouse_id);
-        const availableQty = divisionStock ? divisionStock.stock_quantity - (divisionStock.reserved_quantity || 0) : 0;
+        const divisionStock =
+          await productWarehouseStockDao.getByProductAndWarehouse(
+            product_id,
+            divisionWarehouse.warehouse_id,
+          );
+        const availableQty = divisionStock
+          ? divisionStock.stock_quantity -
+            (divisionStock.reserved_quantity || 0)
+          : 0;
         if (availableQty >= quantity) {
           availabilityInfo = {
-            product_id, product_name: product.name, available: true, warehouse_type: "division",
-            warehouse_id: divisionWarehouse.warehouse_id, warehouse_name: divisionWarehouse.warehouses?.name,
-            delivery_days: 1, delivery_message: "Delivery in 1 day", available_quantity: availableQty, requested_quantity: quantity,
+            product_id,
+            product_name: product.name,
+            available: true,
+            warehouse_type: "division",
+            warehouse_id: divisionWarehouse.warehouse_id,
+            warehouse_name: divisionWarehouse.warehouses?.name,
+            delivery_days: 1,
+            delivery_message: "Delivery in 1 day",
+            available_quantity: availableQty,
+            requested_quantity: quantity,
           };
           maxDeliveryDays = Math.max(maxDeliveryDays, 1);
         }
       }
 
       if (!availabilityInfo && zonePincode) {
-        const zonalWarehouses = await deliveryZoneDao.getZonalWarehouses(zonePincode.zone_id);
+        const zonalWarehouses = await deliveryZoneDao.getZonalWarehouses(
+          zonePincode.zone_id,
+        );
         for (const warehouse of zonalWarehouses) {
-          const zonalStock = await productWarehouseStockDao.getByProductAndWarehouse(product_id, warehouse.id);
-          const availableQty = zonalStock ? zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0) : 0;
+          const zonalStock =
+            await productWarehouseStockDao.getByProductAndWarehouse(
+              product_id,
+              warehouse.id,
+            );
+          const availableQty = zonalStock
+            ? zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0)
+            : 0;
           if (availableQty >= quantity) {
             availabilityInfo = {
-              product_id, product_name: product.name, available: true, warehouse_type: "zonal",
-              warehouse_id: warehouse.id, warehouse_name: warehouse.name,
-              delivery_days: 3, delivery_message: "Delivery in 3-4 working days", available_quantity: availableQty, requested_quantity: quantity,
+              product_id,
+              product_name: product.name,
+              available: true,
+              warehouse_type: "zonal",
+              warehouse_id: warehouse.id,
+              warehouse_name: warehouse.name,
+              delivery_days: 3,
+              delivery_message: "Delivery in 3-4 working days",
+              available_quantity: availableQty,
+              requested_quantity: quantity,
             };
             maxDeliveryDays = Math.max(maxDeliveryDays, 3);
             break;
@@ -1554,14 +1733,28 @@ export const checkCartAvailability = async (req, res) => {
       if (availabilityInfo) {
         results.push(availabilityInfo);
       } else {
-        results.push({ product_id, product_name: product.name, available: false, delivery_message: "Not available", requested_quantity: quantity });
+        results.push({
+          product_id,
+          product_name: product.name,
+          available: false,
+          delivery_message: "Not available",
+          requested_quantity: quantity,
+        });
         allAvailable = false;
       }
     }
 
     res.json({
-      success: true, all_available: allAvailable, pincode, max_delivery_days: maxDeliveryDays,
-      delivery_message: maxDeliveryDays === 1 ? "Delivery in 1 day" : maxDeliveryDays === 3 ? "Delivery in 3-4 working days" : "Delivery time varies",
+      success: true,
+      all_available: allAvailable,
+      pincode,
+      max_delivery_days: maxDeliveryDays,
+      delivery_message:
+        maxDeliveryDays === 1
+          ? "Delivery in 1 day"
+          : maxDeliveryDays === 3
+            ? "Delivery in 3-4 working days"
+            : "Delivery time varies",
       items: results,
     });
   } catch (error) {
@@ -1574,39 +1767,79 @@ export const autoTransferInventory = async (req, res) => {
   try {
     const { product_id, division_warehouse_id, quantity } = req.body;
     const divisionWarehouse = await warehouseDao.getById(division_warehouse_id);
-    if (!divisionWarehouse || divisionWarehouse.type !== 'division' || !divisionWarehouse.parent_warehouse_id) {
-      return res.status(400).json({ success: false, error: "Invalid warehouse" });
+    if (
+      !divisionWarehouse ||
+      divisionWarehouse.type !== "division" ||
+      !divisionWarehouse.parent_warehouse_id
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Invalid warehouse" });
     }
 
-    const divisionStock = await productWarehouseStockDao.getByProductAndWarehouse(product_id, division_warehouse_id);
-    const zonalStock = await productWarehouseStockDao.getByProductAndWarehouse(product_id, divisionWarehouse.parent_warehouse_id);
+    const divisionStock =
+      await productWarehouseStockDao.getByProductAndWarehouse(
+        product_id,
+        division_warehouse_id,
+      );
+    const zonalStock = await productWarehouseStockDao.getByProductAndWarehouse(
+      product_id,
+      divisionWarehouse.parent_warehouse_id,
+    );
 
-    if (!divisionStock || !zonalStock) return res.status(404).json({ success: false, error: "Stock record not found" });
+    if (!divisionStock || !zonalStock)
+      return res
+        .status(404)
+        .json({ success: false, error: "Stock record not found" });
 
-    const zonalAvailable = zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0);
+    const zonalAvailable =
+      zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0);
     const transferQty = quantity || divisionStock.minimum_threshold || 10;
 
-    if (zonalAvailable < transferQty) return res.status(400).json({ success: false, error: "Insufficient zonal stock" });
+    if (zonalAvailable < transferQty)
+      return res
+        .status(400)
+        .json({ success: false, error: "Insufficient zonal stock" });
 
     // Update stock via DAO
-    await productWarehouseStockDao.upsertStock(product_id, divisionWarehouse.parent_warehouse_id, {
-      stock_quantity: zonalStock.stock_quantity - transferQty
-    });
-    await productWarehouseStockDao.upsertStock(product_id, division_warehouse_id, {
-      stock_quantity: divisionStock.stock_quantity + transferQty,
-      last_restocked_at: new Date()
-    });
+    await productWarehouseStockDao.upsertStock(
+      product_id,
+      divisionWarehouse.parent_warehouse_id,
+      {
+        stock_quantity: zonalStock.stock_quantity - transferQty,
+      },
+    );
+    await productWarehouseStockDao.upsertStock(
+      product_id,
+      division_warehouse_id,
+      {
+        stock_quantity: divisionStock.stock_quantity + transferQty,
+        last_restocked_at: new Date(),
+      },
+    );
 
     // Log movements
     await stockMovementDao.create({
-      product_id, warehouse_id: divisionWarehouse.parent_warehouse_id, movement_type: "outbound",
-      quantity: transferQty, previous_stock: zonalStock.stock_quantity, new_stock: zonalStock.stock_quantity - transferQty,
-      reference_type: "auto_transfer", reference_id: division_warehouse_id.toString(), reason: `Auto transfer to ${divisionWarehouse.name}`
+      product_id,
+      warehouse_id: divisionWarehouse.parent_warehouse_id,
+      movement_type: "outbound",
+      quantity: transferQty,
+      previous_stock: zonalStock.stock_quantity,
+      new_stock: zonalStock.stock_quantity - transferQty,
+      reference_type: "auto_transfer",
+      reference_id: division_warehouse_id.toString(),
+      reason: `Auto transfer to ${divisionWarehouse.name}`,
     });
     await stockMovementDao.create({
-      product_id, warehouse_id: division_warehouse_id, movement_type: "inbound",
-      quantity: transferQty, previous_stock: divisionStock.stock_quantity, new_stock: divisionStock.stock_quantity + transferQty,
-      reference_type: "auto_transfer", reference_id: divisionWarehouse.parent_warehouse_id.toString(), reason: `Auto transfer from zonal`
+      product_id,
+      warehouse_id: division_warehouse_id,
+      movement_type: "inbound",
+      quantity: transferQty,
+      previous_stock: divisionStock.stock_quantity,
+      new_stock: divisionStock.stock_quantity + transferQty,
+      reference_type: "auto_transfer",
+      reference_id: divisionWarehouse.parent_warehouse_id.toString(),
+      reason: `Auto transfer from zonal`,
     });
 
     res.json({ success: true, message: "Inventory transferred successfully" });
@@ -1620,8 +1853,12 @@ export const monitorAndAutoTransfer = async (req, res) => {
   try {
     const lowStockThreshold = 2;
     const records = await prisma.product_warehouse_stock.findMany({
-      where: { is_active: true, stock_quantity: { lte: lowStockThreshold }, warehouses: { type: 'division' } },
-      include: { warehouses: true }
+      where: {
+        is_active: true,
+        stock_quantity: { lte: lowStockThreshold },
+        warehouses: { type: "division" },
+      },
+      include: { warehouses: true },
     });
 
     const transfers = [];
@@ -1629,28 +1866,63 @@ export const monitorAndAutoTransfer = async (req, res) => {
       const parentId = item.warehouses?.parent_warehouse_id;
       if (!parentId) continue;
 
-      const zonalStock = await productWarehouseStockDao.getByProductAndWarehouse(item.product_id, parentId);
+      const zonalStock =
+        await productWarehouseStockDao.getByProductAndWarehouse(
+          item.product_id,
+          parentId,
+        );
       const transferQty = item.minimum_threshold || 10;
 
-      if (zonalStock && (zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0)) >= transferQty) {
-        await productWarehouseStockDao.upsertStock(item.product_id, parentId, { stock_quantity: zonalStock.stock_quantity - transferQty });
-        await productWarehouseStockDao.upsertStock(item.product_id, item.warehouse_id, { stock_quantity: item.stock_quantity + transferQty, last_restocked_at: new Date() });
+      if (
+        zonalStock &&
+        zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0) >=
+          transferQty
+      ) {
+        await productWarehouseStockDao.upsertStock(item.product_id, parentId, {
+          stock_quantity: zonalStock.stock_quantity - transferQty,
+        });
+        await productWarehouseStockDao.upsertStock(
+          item.product_id,
+          item.warehouse_id,
+          {
+            stock_quantity: item.stock_quantity + transferQty,
+            last_restocked_at: new Date(),
+          },
+        );
 
         await stockMovementDao.create({
-          product_id: item.product_id, warehouse_id: parentId, movement_type: "outbound",
-          quantity: transferQty, previous_stock: zonalStock.stock_quantity, new_stock: zonalStock.stock_quantity - transferQty,
-          reference_type: "auto_transfer_monitor", reference_id: item.warehouse_id.toString(), reason: `Auto transfer low stock`
+          product_id: item.product_id,
+          warehouse_id: parentId,
+          movement_type: "outbound",
+          quantity: transferQty,
+          previous_stock: zonalStock.stock_quantity,
+          new_stock: zonalStock.stock_quantity - transferQty,
+          reference_type: "auto_transfer_monitor",
+          reference_id: item.warehouse_id.toString(),
+          reason: `Auto transfer low stock`,
         });
         await stockMovementDao.create({
-          product_id: item.product_id, warehouse_id: item.warehouse_id, movement_type: "inbound",
-          quantity: transferQty, previous_stock: item.stock_quantity, new_stock: item.stock_quantity + transferQty,
-          reference_type: "auto_transfer_monitor", reference_id: parentId.toString(), reason: `Auto transfer from zonal`
+          product_id: item.product_id,
+          warehouse_id: item.warehouse_id,
+          movement_type: "inbound",
+          quantity: transferQty,
+          previous_stock: item.stock_quantity,
+          new_stock: item.stock_quantity + transferQty,
+          reference_type: "auto_transfer_monitor",
+          reference_id: parentId.toString(),
+          reason: `Auto transfer from zonal`,
         });
-        transfers.push({ product_id: item.product_id, warehouse_id: item.warehouse_id });
+        transfers.push({
+          product_id: item.product_id,
+          warehouse_id: item.warehouse_id,
+        });
       }
     }
 
-    res.json({ success: true, message: `Processed ${transfers.length} transfers` });
+    res.json({
+      success: true,
+      message: `Processed ${transfers.length} transfers`,
+    });
   } catch (error) {
     console.error("Error in monitorAndAutoTransfer:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
@@ -1666,11 +1938,13 @@ export const getRelatedProductsBySubcategory = async (req, res) => {
     // Get the product to find its subcategory
     const product = await prisma.products.findUnique({
       where: { id: productId },
-      select: { subcategory_id: true }
+      select: { subcategory_id: true },
     });
 
     if (!product || !product.subcategory_id) {
-      return res.status(404).json({ success: false, error: "Product not found" });
+      return res
+        .status(404)
+        .json({ success: false, error: "Product not found" });
     }
 
     // Fetch related products from same subcategory
@@ -1678,7 +1952,7 @@ export const getRelatedProductsBySubcategory = async (req, res) => {
       where: {
         subcategory_id: product.subcategory_id,
         id: { not: productId }, // Exclude current product
-        active: true
+        active: true,
       },
       select: {
         id: true,
@@ -1694,15 +1968,15 @@ export const getRelatedProductsBySubcategory = async (req, res) => {
         has_variants: true,
         variants: {
           where: { active: true },
-          orderBy: { is_default: 'desc' },
+          orderBy: { is_default: "desc" },
           take: 3,
           select: {
             id: true,
             title: true,
             price: true,
             old_price: true,
-            is_default: true
-          }
+            is_default: true,
+          },
         },
         media: {
           where: { is_primary: true },
@@ -1710,8 +1984,8 @@ export const getRelatedProductsBySubcategory = async (req, res) => {
           select: {
             id: true,
             url: true,
-            media_type: true
-          }
+            media_type: true,
+          },
         },
         brands: {
           take: 1,
@@ -1719,38 +1993,40 @@ export const getRelatedProductsBySubcategory = async (req, res) => {
             brand: {
               select: {
                 id: true,
-                name: true
-              }
-            }
-          }
-        }
+                name: true,
+              },
+            },
+          },
+        },
       },
-      orderBy: { created_at: 'desc' },
-      take: parseInt(limit)
+      orderBy: { created_at: "desc" },
+      take: parseInt(limit),
     });
 
     // Enrich with inventory data
     const enrichedProducts = await productDao.enrichProductsWithInventory(
       relatedProducts,
-      warehouse_id ? parseInt(warehouse_id) : null
+      warehouse_id ? parseInt(warehouse_id) : null,
     );
 
     // Compute prices for each product
-    const productsWithPrices = enrichedProducts.map(p => {
-      const defaultVariant = p.variants?.find(v => v.is_default) || p.variants?.[0];
+    const productsWithPrices = enrichedProducts.map((p) => {
+      const defaultVariant =
+        p.variants?.find((v) => v.is_default) || p.variants?.[0];
       return {
         ...p,
         price: defaultVariant?.price || 0,
-        old_price: defaultVariant?.old_price || (defaultVariant?.price * 1.2) || 0,
-        image: p.media?.[0]?.url || '',
-        brand: p.brands?.[0]?.brand?.name || null
+        old_price:
+          defaultVariant?.old_price || defaultVariant?.price * 1.2 || 0,
+        image: p.media?.[0]?.url || "",
+        brand: p.brands?.[0]?.brand?.name || null,
       };
     });
 
     res.status(200).json({
       success: true,
       products: productsWithPrices,
-      total: productsWithPrices.length
+      total: productsWithPrices.length,
     });
   } catch (error) {
     console.error("Error fetching related products:", error);
