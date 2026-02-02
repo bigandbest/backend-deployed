@@ -1,7 +1,6 @@
 enum UserRole {
   USER
   ADMIN
-  SELLER
 }
 
 model users {
