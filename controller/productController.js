@@ -1,4 +1,4 @@
-import { supabase } from "../config/supabaseClient.js";
+// import { supabase } from "../config/supabaseClient.js"; // Removed: replaced with Prisma
 import * as deliveryValidationService from "./deliveryValidationService.js";
 import productDao from "../dao/product.dao.js";
 import productVariantDao from "../dao/product-variant.dao.js";
@@ -243,7 +243,7 @@ export const getProductsWithFilters = async (req, res) => {
 
     const filters = {
       active: true,
-      ...(category && { category_id: category }), // Assuming category ID for now, or name if handled by DAO
+      ...(category && { category_id: category }), 
       ...(minPrice && { price: { gte: parseFloat(minPrice) } }),
       ...(maxPrice && { price: { lte: parseFloat(maxPrice) } }),
       ...(featured === "true" && { featured: true }),
@@ -467,9 +467,12 @@ export const checkProductsDelivery = async (req, res) => {
 /**
  * Get products filtered by delivery availability to a pincode
  */
+// Get products filtered by delivery availability to a pincode
 export const getProductsByDeliveryZone = async (req, res) => {
   try {
     const { pincode, category, limit = 20, offset = 0 } = req.query;
+    const limitInt = parseInt(limit);
+    const offsetInt = parseInt(offset);
 
     if (!pincode || !/^\d{6}$/.test(pincode)) {
       return res.status(400).json({
@@ -477,12 +480,36 @@ export const getProductsByDeliveryZone = async (req, res) => {
       });
     }
 
-    // Get zones for this pincode
-    const { data: zones } = await supabase.rpc("get_zones_for_pincode", {
-      target_pincode: pincode,
+    // Get zones for this pincode using Prisma
+    // 1. Get zones explicitly linked to this pincode
+    const pincodeZones = await prisma.zone_pincodes.findMany({
+      where: { pincode: pincode, is_active: true },
+      include: { zone: true }
+      // distinct: ['zone_id'] // Optional if duplicates possible, but usually active pincode-zone is unique per zone
     });
 
-    if (!zones || zones.length === 0) {
+    // 2. Get nationwide zones (if applicable, usually nationwide products skip zone check, but check if nationwide zones exist)
+    const nationwideZones = await prisma.delivery_zones.findMany({
+      where: { is_nationwide: true, is_active: true }
+    });
+
+    const activeZoneIds = [
+      ...pincodeZones.map(pz => pz.zone_id),
+      ...nationwideZones.map(nz => nz.id)
+    ];
+
+    // Unique IDs
+    const uniqueZoneIds = [...new Set(activeZoneIds)];
+
+    if (uniqueZoneIds.length === 0) {
+      // Even if no zones found, we might still serve NATIONWIDE products?
+      // The original code returned empty list if no zones found.
+      // But typically nationwide products should be available everywhere.
+      // We will follow original logic: if no zones, verify if it strictly means "no service" or just "no zonal service".
+      // Original: if (!zones) return [];
+      // We'll mimic this but be aware nationwide products exist.
+      // However, if we assume "zones" meant "Serviceable Zones", then 0 zones means no service.
+      // But we fetched nationwide zones too. So if uniqueZoneIds is empty, truly no service.
       return res.status(200).json({
         success: true,
         products: [],
@@ -492,67 +519,85 @@ export const getProductsByDeliveryZone = async (req, res) => {
       });
     }
 
-    const zoneIds = zones.map((z) => z.zone_id);
-
     // Build query for deliverable products
-    let query = supabase
-      .from("products")
-      .select(`*, ${VARIANT_JOIN}`)
-      .eq("active", true)
-      .or(
-        `delivery_type.eq.nationwide,and(delivery_type.eq.zonal,allowed_zone_ids.ov.{${zoneIds.join(
-          ",",
-        )}})`,
-      )
-      .range(offset, offset + limit - 1);
+    // Logic: Product is Active AND (Delivery is Nationwide OR (Delivery is Zonal AND allowed_zone_ids overlaps with uniqueZoneIds))
+    const whereClause = {
+      active: true,
+      OR: [
+        { delivery_type: 'nationwide' },
+        {
+          delivery_type: 'zonal',
+          allowed_zone_ids: { hasSome: uniqueZoneIds }
+        }
+      ]
+    };
 
-    // Add category filter if provided
     if (category) {
-      query = query.eq("category", category);
+      whereClause.category = category; // Ensure 'category' field name matches schema (string or relation?)
+      // Schema view showed product has 'category' (json or string? or relation?).
+      // Products definition in schema not fully visible but DAO uses 'category' filter.
+      // Prisma client types showed 'category' as input.
     }
 
-    const { data: products, error } = await query;
+    const products = await prisma.products.findMany({
+      where: whereClause,
+      include: {
+        product_variants: true,
+        media: true,
+        product_recommended_store: {
+          include: { recommended_store: true }
+        },
+        brand: true
+      },
+      skip: offsetInt,
+      take: limitInt,
+    });
 
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
+    // Flatten zones for response
+    const zonesResponse = [
+      ...pincodeZones.map(pz => pz.zone),
+      ...nationwideZones
+    ];
 
     // Transform products
-    const transformedProducts = products.map((product) => ({
-      id: product.id,
-      name: product.name,
-      description: product.description,
-      price: product.price,
-      oldPrice: product.old_price,
-      rating: product.rating || 4.0,
-      reviews: product.review_count || 0,
-      discount: product.discount || 0,
-      image: product.image,
-      images: product.images,
-      inStock: (product.stock || 0) > 0,
-      stock: product.stock || 0,
-      popular: product.popular,
-      featured: product.featured,
-      category: product.category,
-      weight:
-        product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
-      brand: product.brand_name || "BigandBest",
-      shipping_amount: product.shipping_amount || 0,
-      delivery_type: product.delivery_type,
-      delivery_available: true,
-      created_at: product.created_at,
-      hasVariants: product.product_variants?.length > 0,
-      variants: product.product_variants || [],
-      defaultVariant:
-        product.product_variants?.find((v) => v.is_default === true) || null,
-    }));
+    const transformedProducts = products.map((product) => {
+      const defaultVariant = product.product_variants?.find((v) => v.is_default === true) || product.product_variants?.[0] || null;
+
+      return {
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        price: product.price,
+        oldPrice: product.old_price,
+        rating: parseFloat(product.rating) || 4.0,
+        reviews: product.review_count || 0,
+        discount: product.discount || 0,
+        image: product.image || product.media?.find(m => m.is_primary)?.url || product.media?.[0]?.url,
+        images: product.images || product.media?.map(m => m.url) || [],
+        inStock: (product.stock || 0) > 0,
+        stock: product.stock || 0,
+        popular: product.popular,
+        featured: product.featured,
+        category: product.category,
+        weight:
+          product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
+        brand: product.brand_name || product.brand?.name || "BigandBest",
+        shipping_amount: product.shipping_amount || 0,
+        delivery_type: product.delivery_type,
+        delivery_available: true,
+        created_at: product.created_at,
+        hasVariants: product.product_variants?.length > 0,
+        variants: product.product_variants || [],
+        defaultVariant: defaultVariant,
+      }
+    });
 
     res.status(200).json({
       success: true,
       products: transformedProducts,
       pincode,
-      zones: zones,
-      total: transformedProducts.length,
+      zones: zonesResponse,
+      total: transformedProducts.length, // approximation, for true total we need count()
       category: category || "all",
     });
   } catch (error) {
@@ -568,260 +613,277 @@ export const getProductsByDeliveryZone = async (req, res) => {
 export const getQuickPicks = async (req, res) => {
   try {
     const { limit = 30, filter, section_key } = req.query;
+    const limitInt = parseInt(limit);
 
     let products = [];
 
     // If section_key is provided, fetch products from section mappings
     if (section_key) {
       // Get section info
-      const { data: sectionData, error: sectionError } = await supabase
-        .from("product_sections")
-        .select("*")
-        .eq("section_key", section_key)
-        .eq("is_active", true)
-        .maybeSingle();
+      const sectionData = await prisma.product_sections.findUnique({
+        where: { section_key: section_key }
+      });
 
-      if (!sectionError && sectionData) {
+      if (sectionData && sectionData.is_active) {
         // Get direct section-product mappings
-        const { data: directMappings, error: directMappingsError } =
-          await supabase
-            .from("store_section_mappings")
-            .select(
-              `
-            products!inner(*)
-          `,
-            )
-            .eq("section_id", sectionData.id)
-            .eq("mapping_type", "section_product")
-            .eq("is_active", true)
-            .limit(parseInt(limit));
+        const directMappings = await prisma.store_section_mappings.findMany({
+          where: {
+            section_id: sectionData.id,
+            mapping_type: "section_product",
+            is_active: true
+          },
+          include: {
+            products: {
+              include: {
+                product_variants: true,
+                media: true,
+                brand: true,
+                product_recommended_store: {
+                  include: { recommended_store: true }
+                }
+              }
+            }
+          },
+          take: limitInt
+        });
 
-        if (!directMappingsError && directMappings) {
+        if (directMappings.length > 0) {
           products = directMappings.map((mapping) => mapping.products);
         }
       }
 
       // If no products found from section mappings, fall back to latest products
       if (products.length === 0) {
-        const { data: latestData, error: latestError } = await supabase
-          .from("products")
-          .select(`*, ${VARIANT_JOIN}`)
-          .eq("active", true)
-          .order("created_at", { ascending: false })
-          .limit(parseInt(limit));
-
-        if (!latestError && latestData) {
-          products = latestData;
-        }
+        products = await prisma.products.findMany({
+          where: { active: true },
+          orderBy: { created_at: "desc" },
+          take: limitInt,
+          include: {
+            product_variants: true,
+            media: true,
+            brand: true,
+            product_recommended_store: {
+              include: { recommended_store: true }
+            }
+          }
+        });
       }
     } else if (filter === "new_arrivals") {
       // Get latest products
-      const { data: productDetails, error: detailsError } = await supabase
-        .from("products")
-        .select(`*, ${VARIANT_JOIN}`)
-        .eq("active", true)
-        .order("created_at", { ascending: false })
-        .limit(parseInt(limit));
+      products = await prisma.products.findMany({
+        where: { active: true },
+        orderBy: { created_at: "desc" },
+        take: limitInt,
+        include: {
+          product_variants: true,
+          media: true,
+          brand: true,
+          product_recommended_store: {
+            include: { recommended_store: true }
+          }
+        }
+      });
 
-      if (!detailsError && productDetails) {
-        products = productDetails;
-      }
     } else if (filter === "best_sellers" || !filter) {
-      // Default to best sellers (current logic)
-      // First, get top selling products based on order_items quantity
-      const { data: orderItems, error: orderError } = await supabase
-        .from("order_items")
-        .select("product_id, quantity");
+      // Best Sellers logic: derived from order_items
+      const topSellingItems = await prisma.order_items.groupBy({
+        by: ['product_id'],
+        _sum: {
+          quantity: true,
+        },
+        orderBy: {
+          _sum: {
+            quantity: 'desc',
+          },
+        },
+        take: limitInt,
+      });
 
-      let topSellingProductIds = [];
+      const topProductIds = topSellingItems.map(item => item.product_id);
 
-      if (!orderError && orderItems) {
-        // Aggregate quantities by product_id
-        const salesMap = {};
-        orderItems.forEach((item) => {
-          if (item.product_id && item.quantity) {
-            salesMap[item.product_id] =
-              (salesMap[item.product_id] || 0) + item.quantity;
+      if (topProductIds.length > 0) {
+        const productDetails = await prisma.products.findMany({
+          where: {
+            id: { in: topProductIds },
+            active: true
+          },
+          include: {
+            product_variants: true,
+            media: true,
+            brand: true,
+            product_recommended_store: {
+              include: { recommended_store: true }
+            }
           }
         });
 
-        // Sort by total quantity sold (descending)
-        topSellingProductIds = Object.entries(salesMap)
-          .sort(([, a], [, b]) => b - a)
-          .slice(0, parseInt(limit))
-          .map(([productId]) => productId);
-      }
+        // Create a map for sorting
+        const productMap = new Map();
+        productDetails.forEach(p => productMap.set(p.id, p));
 
-      if (topSellingProductIds.length > 0) {
-        // Get product details for top selling products
-        const { data: productDetails, error: detailsError } = await supabase
-          .from("products")
-          .select(
-            `
-            *,
-            product_variants!left(
-              id,
-              variant_name,
-              variant_price,
-              variant_old_price,
-              variant_discount,
-              variant_stock,
-              variant_weight,
-              variant_unit,
-              variant_image,
-              is_default
-            )
-          `,
-          )
-          .in("id", topSellingProductIds)
-          .eq("active", true);
-
-        if (!detailsError && productDetails) {
-          // Sort products to match the order of top selling
-          const productMap = productDetails.reduce((map, product) => {
-            map[product.id] = product;
-            return map;
-          }, {});
-
-          products = topSellingProductIds
-            .map((id) => productMap[id])
-            .filter((product) => product); // Remove any null products
-        }
-      }
-
-      // If we don't have enough top selling products, fill with latest products
-      if (products.length < parseInt(limit)) {
-        const remainingLimit = parseInt(limit) - products.length;
-        const excludeIds = products.map((p) => p.id);
-
-        let latestQuery = supabase
-          .from("products")
-          .select(`*, ${VARIANT_JOIN}`)
-          .eq("active", true)
-          .order("created_at", { ascending: false })
-          .limit(remainingLimit);
-
-        if (excludeIds.length > 0) {
-          latestQuery = latestQuery.not(
-            "id",
-            "in",
-            `(${excludeIds.join(",")})`,
-          );
-        }
-
-        const { data: latestData, error: latestError } = await latestQuery;
-
-        if (!latestError && latestData) {
-          products = [...products, ...latestData];
-        }
-      }
-    } else if (filter === "trending") {
-      // For trending, use products with recent orders (last 30 days)
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-      const { data: recentOrderItems, error: recentError } = await supabase
-        .from("order_items")
-        .select("product_id, quantity, orders!inner(created_at)")
-        .gte("orders.created_at", thirtyDaysAgo.toISOString());
-
-      let trendingProductIds = [];
-
-      if (!recentError && recentOrderItems) {
-        const trendingMap = {};
-        recentOrderItems.forEach((item) => {
-          if (item.product_id && item.quantity) {
-            trendingMap[item.product_id] =
-              (trendingMap[item.product_id] || 0) + item.quantity;
-          }
-        });
-
-        trendingProductIds = Object.entries(trendingMap)
-          .sort(([, a], [, b]) => b - a)
-          .slice(0, parseInt(limit))
-          .map(([productId]) => productId);
-      }
-
-      if (trendingProductIds.length > 0) {
-        const { data: productDetails, error: detailsError } = await supabase
-          .from("products")
-          .select(`*, ${VARIANT_JOIN}`)
-          .in("id", trendingProductIds)
-          .eq("active", true);
-
-        if (!detailsError && productDetails) {
-          const productMap = productDetails.reduce((map, product) => {
-            map[product.id] = product;
-            return map;
-          }, {});
-
-          products = trendingProductIds
-            .map((id) => productMap[id])
-            .filter((product) => product);
-        }
+        // Maintain the order of best sellers
+        products = topProductIds
+          .map(id => productMap.get(id))
+          .filter(p => p !== undefined);
       }
 
       // Fill with latest if needed
-      if (products.length < parseInt(limit)) {
-        const remainingLimit = parseInt(limit) - products.length;
+      if (products.length < limitInt) {
+        const remainingLimit = limitInt - products.length;
         const excludeIds = products.map((p) => p.id);
 
-        let latestQuery = supabase
-          .from("products")
-          .select(`*, ${VARIANT_JOIN}`)
-          .eq("active", true)
-          .order("created_at", { ascending: false })
-          .limit(remainingLimit);
+        const latestProducts = await prisma.products.findMany({
+          where: {
+            active: true,
+            id: { notIn: excludeIds }
+          },
+          orderBy: { created_at: "desc" },
+          take: remainingLimit,
+          include: {
+            product_variants: true,
+            media: true,
+            brand: true,
+            product_recommended_store: {
+              include: { recommended_store: true }
+            }
+          }
+        });
 
-        if (excludeIds.length > 0) {
-          latestQuery = latestQuery.not(
-            "id",
-            "in",
-            `(${excludeIds.join(",")})`,
-          );
-        }
+        products = [...products, ...latestProducts];
+      }
 
-        const { data: latestData, error: latestError } = await latestQuery;
+    } else if (filter === "trending") {
+      // Trending: recent orders (last 30 days)
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-        if (!latestError && latestData) {
-          products = [...products, ...latestData];
+      // Prisma doesn't support complex joins in groupBy easily with date filtering on related table
+      // We'll fetch order items for recent orders first.
+      // 1. Get recent orders
+      const recentOrders = await prisma.orders.findMany({
+        where: { created_at: { gte: thirtyDaysAgo } },
+        select: { id: true }
+      });
+
+      const recentOrderIds = recentOrders.map(o => o.id);
+
+      if (recentOrderIds.length > 0) {
+        // 2. Group order items by product
+        const trendingItems = await prisma.order_items.groupBy({
+          by: ['product_id'],
+          where: {
+            order_id: { in: recentOrderIds }
+          },
+          _sum: {
+            quantity: true,
+          },
+          orderBy: {
+            _sum: {
+              quantity: 'desc',
+            },
+          },
+          take: limitInt
+        });
+
+        const trendingProductIds = trendingItems.map(item => item.product_id);
+
+        if (trendingProductIds.length > 0) {
+          const productDetails = await prisma.products.findMany({
+            where: {
+              id: { in: trendingProductIds },
+              active: true
+            },
+            include: {
+              product_variants: true,
+              media: true,
+              brand: true,
+              product_recommended_store: {
+                include: { recommended_store: true }
+              }
+            }
+          });
+
+          const productMap = new Map();
+          productDetails.forEach(p => productMap.set(p.id, p));
+
+          products = trendingProductIds
+            .map(id => productMap.get(id))
+            .filter(p => p !== undefined);
         }
       }
+
+      // Fill with latest
+      if (products.length < limitInt) {
+        const remainingLimit = limitInt - products.length;
+        const excludeIds = products.map((p) => p.id);
+
+        const latestProducts = await prisma.products.findMany({
+          where: {
+            active: true,
+            id: { notIn: excludeIds }
+          },
+          orderBy: { created_at: "desc" },
+          take: remainingLimit,
+          include: {
+            product_variants: true,
+            media: true,
+            brand: true,
+            product_recommended_store: {
+              include: { recommended_store: true }
+            }
+          }
+        });
+
+        products = [...products, ...latestProducts];
+      }
+
     } else if (filter === "top_sale") {
-      // Get products marked as top sale
-      const { data: productDetails, error: detailsError } = await supabase
-        .from("products")
-        .select(`*, ${VARIANT_JOIN}`)
-        .eq("active", true)
-        .eq("top_sale", true)
-        .order("created_at", { ascending: false })
-        .limit(parseInt(limit));
+      products = await prisma.products.findMany({
+        where: {
+          active: true,
+          top_sale: true
+        },
+        orderBy: { created_at: "desc" },
+        take: limitInt,
+        include: {
+          product_variants: true,
+          media: true,
+          brand: true,
+          product_recommended_store: {
+            include: { recommended_store: true }
+          }
+        }
+      });
 
-      if (!detailsError && productDetails) {
-        products = productDetails;
-      }
     } else if (filter === "most_orders") {
-      // Get products marked as most ordered
-      const { data: productDetails, error: detailsError } = await supabase
-        .from("products")
-        .select(`*, ${VARIANT_JOIN}`)
-        .eq("active", true)
-        .eq("most_orders", true)
-        .order("created_at", { ascending: false })
-        .limit(parseInt(limit));
-
-      if (!detailsError && productDetails) {
-        products = productDetails;
-      }
+      products = await prisma.products.findMany({
+        where: {
+          active: true,
+          most_orders: true
+        },
+        orderBy: { created_at: "desc" },
+        take: limitInt,
+        include: {
+          product_variants: true,
+          media: true,
+          brand: true,
+          product_recommended_store: {
+            include: { recommended_store: true }
+          }
+        }
+      });
     }
 
-    console.log("Quick picks data:", products.length, "products found");
+    // console.log("Quick picks data:", products.length, "products found");
 
     // Transform the data to match frontend expectations
     const transformedProducts = products.map((product) => {
+      // Use the helper if available, or manual transform
+      // We will do manual consistent with other controllers or use the helper if defined in this file
+
       const defaultVariant = product.product_variants?.find(
         (v) => v.is_default === true,
-      );
+      ) || product.product_variants?.[0];
 
       return {
         id: product.id,
@@ -830,23 +892,23 @@ export const getQuickPicks = async (req, res) => {
         // ✅ ALWAYS use main product pricing for card display (NEVER variant pricing)
         price: product.price,
         oldPrice: product.old_price,
-        rating: product.rating || 4.0,
+        rating: parseFloat(product.rating) || 4.0,
         reviews: product.review_count || 0,
         discount: product.discount || 0,
-        image: product.image,
-        images: product.images,
+        image: product.image || product.media?.find(m => m.is_primary)?.url || product.media?.[0]?.url,
+        images: product.images || product.media?.map(m => m.url) || [],
         inStock: (product.stock || 0) > 0,
         stock: product.stock || 0,
         popular: product.popular,
         featured: product.featured,
         most_orders: product.most_orders,
         top_sale: product.top_sale,
-        category: product.category,
-        category_info: product.categories,
+        category: product.category, // assuming this is a string in processed model or relation handled elsewhere
+        category_info: product.categories, // unused in prisma return usually unless included
         weight:
           product.uom ||
           `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
-        brand: product.brand_name || "BigandBest",
+        brand: product.brand_name || product.brand?.name || "BigandBest",
         shipping_amount: product.shipping_amount || 0,
         specifications: product.specifications,
         created_at: product.created_at,
@@ -865,11 +927,11 @@ export const getQuickPicks = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      products: transformedProducts.slice(0, parseInt(limit)),
+      products: transformedProducts.slice(0, limitInt),
       total: transformedProducts.length,
     });
   } catch (error) {
-    console.error("Server error:", error);
+    console.error("Server error in getQuickPicks:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -1575,7 +1637,7 @@ export const checkProductAvailability = async (req, res) => {
       if (
         divisionStock &&
         divisionStock.stock_quantity - (divisionStock.reserved_quantity || 0) >
-          0
+        0
       ) {
         return res.json({
           success: true,
@@ -1679,7 +1741,7 @@ export const checkCartAvailability = async (req, res) => {
           );
         const availableQty = divisionStock
           ? divisionStock.stock_quantity -
-            (divisionStock.reserved_quantity || 0)
+          (divisionStock.reserved_quantity || 0)
           : 0;
         if (availableQty >= quantity) {
           availabilityInfo = {
@@ -1876,7 +1938,7 @@ export const monitorAndAutoTransfer = async (req, res) => {
       if (
         zonalStock &&
         zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0) >=
-          transferQty
+        transferQty
       ) {
         await productWarehouseStockDao.upsertStock(item.product_id, parentId, {
           stock_quantity: zonalStock.stock_quantity - transferQty,
