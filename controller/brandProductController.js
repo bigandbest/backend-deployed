@@ -64,11 +64,37 @@ export const getProductsForBrand = async (req, res) => {
 
     const data = await ProductBrandDAO.listProductsByBrand(brand_id);
 
-    // Transforming to match expected response format
-    const formattedData = data.map(item => ({
-      product_id: item.product_id,
-      products: item.product
-    }));
+    // Extract products array
+    const products = data.map(item => item.product).filter(p => p !== null);
+
+    // Enrich with inventory
+    const enrichedProducts = await ProductDAO.enrichProductsWithInventory(products);
+
+    // Transform to match expected response format with frontend-friendly fields
+    const formattedData = data.map((item, index) => {
+      const product = enrichedProducts[index];
+      if (!product) return null;
+
+      const defaultVariant = product.variants?.find(v => v.is_default) || product.variants?.[0] || null;
+
+      // Map necessary fields
+      const mappedProduct = {
+        ...product,
+        image: product.image || product.media?.find(m => m.is_primary)?.url || product.media?.[0]?.url || "",
+        images: product.media?.map(m => m.url) || [],
+        price: defaultVariant ? defaultVariant.price : product.price,
+        oldPrice: defaultVariant ? defaultVariant.old_price : product.old_price,
+        stock: product.stock_info?.available_stock || 0,
+        inStock: product.stock_info?.in_stock || false,
+        weight: defaultVariant?.title || product.uom || "1 Unit",
+        discount: defaultVariant?.discount_percentage || product.discount || 0,
+      };
+
+      return {
+        product_id: item.product_id,
+        products: mappedProduct
+      };
+    }).filter(item => item !== null);
 
     res.status(200).json(formattedData);
   } catch (err) {
