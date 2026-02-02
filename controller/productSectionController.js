@@ -418,23 +418,19 @@ export const getSectionWithContent = async (req, res) => {
     // A. Groups
     if (groupMappings && groupMappings.length > 0) {
       const groupIds = groupMappings.map(m => m.group_id);
-      const groupProducts = await prisma.product_groups.findMany({
-        where: { group_id: { in: groupIds } },
+      const groupProducts = await prisma.products.findMany({
+        where: { group_id: { in: groupIds }, active: true },
         include: {
-          product: {
-            include: {
-              variants: { where: { active: true, is_default: true } },
-              media: { where: { is_primary: true }, take: 1 }
-            }
-          }
+          variants: { where: { active: true, is_default: true } },
+          media: { where: { is_primary: true }, take: 1 }
         },
         take: 50
       });
 
       const groupProductsMap = {};
-      groupProducts.forEach(pg => {
-        if (!groupProductsMap[pg.group_id]) groupProductsMap[pg.group_id] = [];
-        groupProductsMap[pg.group_id].push(pg.product);
+      groupProducts.forEach(product => {
+        if (!groupProductsMap[product.group_id]) groupProductsMap[product.group_id] = [];
+        groupProductsMap[product.group_id].push(product);
       });
 
       mappedContent.groups = groupMappings.map(m => ({
