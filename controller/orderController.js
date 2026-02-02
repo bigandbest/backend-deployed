@@ -295,22 +295,42 @@ export const getOrderDetails = async (req, res) => {
 /** Place order with a flat address string */
 export const placeOrder = async (req, res) => {
   try {
-    const { user_id, items, subtotal, shipping, total, address, payment_method } =
-      req.body;
+    const {
+      user_id,
+      items,
+      subtotal,
+      shipping,
+      total,
+      address,
+      payment_method,
+      handling_charge,
+      surge_charge,
+      platform_charge,
+      coupon_code,
+      coupon_discount,
+      mobile
+    } = req.body;
 
-    // Fetch active charge settings
-    let chargeSettings = { handling_charge: 0, surge_charge: 0, platform_charge: 0 };
-    try {
-      const settings = await chargeSettingDao.get();
-      if (settings) {
-        chargeSettings = {
-          handling_charge: parseFloat(settings.handling_charge || 0),
-          surge_charge: parseFloat(settings.surge_charge || 0),
-          platform_charge: parseFloat(settings.platform_charge || 0)
-        };
+    // Use charges from request (snapshot) or fetch current settings as fallback
+    let finalChargeSettings = {
+      handling_charge: handling_charge !== undefined ? parseFloat(handling_charge) : 0,
+      surge_charge: surge_charge !== undefined ? parseFloat(surge_charge) : 0,
+      platform_charge: platform_charge !== undefined ? parseFloat(platform_charge) : 0
+    };
+
+    if (handling_charge === undefined) {
+      try {
+        const settings = await chargeSettingDao.get();
+        if (settings) {
+          finalChargeSettings = {
+            handling_charge: parseFloat(settings.handling_charge || 0),
+            surge_charge: parseFloat(settings.surge_charge || 0),
+            platform_charge: parseFloat(settings.platform_charge || 0)
+          };
+        }
+      } catch (err) {
+        console.error("Error fetching charge settings for order:", err);
       }
-    } catch (err) {
-      console.error("Error fetching charge settings for order:", err);
     }
 
     // Extract pincode from address (assuming it's at the end)
@@ -324,9 +344,11 @@ export const placeOrder = async (req, res) => {
       total: parseFloat(total),
       address,
       payment_method,
-      payment_method,
       status: "pending",
-      ...chargeSettings
+      coupon_code: coupon_code || null,
+      coupon_discount: coupon_discount ? parseFloat(coupon_discount) : 0,
+      mobile: mobile || null,
+      ...finalChargeSettings
     });
 
     // Process order items with warehouse assignment
@@ -444,21 +466,34 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       razorpay_payment_id,
       razorpay_signature,
       gpsLocation,
+      handling_charge,
+      surge_charge,
+      platform_charge,
+      coupon_code,
+      coupon_discount,
+      mobile
     } = req.body;
 
-    // Fetch active charge settings
-    let chargeSettings = { handling_charge: 0, surge_charge: 0, platform_charge: 0 };
-    try {
-      const settings = await chargeSettingDao.get();
-      if (settings) {
-        chargeSettings = {
-          handling_charge: parseFloat(settings.handling_charge || 0),
-          surge_charge: parseFloat(settings.surge_charge || 0),
-          platform_charge: parseFloat(settings.platform_charge || 0)
-        };
+    // Use charges from request (snapshot) or fetch current settings as fallback
+    let finalChargeSettings = {
+      handling_charge: handling_charge !== undefined ? parseFloat(handling_charge) : 0,
+      surge_charge: surge_charge !== undefined ? parseFloat(surge_charge) : 0,
+      platform_charge: platform_charge !== undefined ? parseFloat(platform_charge) : 0
+    };
+
+    if (handling_charge === undefined) {
+      try {
+        const settings = await chargeSettingDao.get();
+        if (settings) {
+          finalChargeSettings = {
+            handling_charge: parseFloat(settings.handling_charge || 0),
+            surge_charge: parseFloat(settings.surge_charge || 0),
+            platform_charge: parseFloat(settings.platform_charge || 0)
+          };
+        }
+      } catch (err) {
+        console.error("Error fetching charge settings for order:", err);
       }
-    } catch (err) {
-      console.error("Error fetching charge settings for order:", err);
     }
 
     if (razorpay_signature) {
@@ -497,9 +532,12 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       payment_method,
       status: razorpay_payment_id ? "confirmed" : "pending",
       razorpay_order_id,
-      razorpay_order_id,
       razorpay_payment_id,
-      ...chargeSettings
+      razorpay_signature,
+      mobile: mobile || detailedAddress.mobile || null,
+      coupon_code: coupon_code || null,
+      coupon_discount: coupon_discount ? parseFloat(coupon_discount) : 0,
+      ...finalChargeSettings
     };
 
     const order = await orderDao.create(orderData);

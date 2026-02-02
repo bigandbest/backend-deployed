@@ -396,7 +396,6 @@ model inventory {
   bulk_reserved_qty    Int?      @default(0)
   warehouse_id Int
   updated_at   DateTime          @updatedAt @db.Timestamptz
-  updated_at   DateTime          @updatedAt @db.Timestamptz
   created_at   DateTime          @default(now()) @db.Timestamptz
   status       String?
 
@@ -494,6 +493,8 @@ model orders {
   handling_charge     Decimal?         @default(0) @db.Decimal
   surge_charge        Decimal?         @default(0) @db.Decimal
   platform_charge     Decimal?         @default(0) @db.Decimal
+  coupon_code         String?          @db.VarChar
+  coupon_discount     Decimal?         @default(0) @db.Decimal
 
   // Relations
   user                users?           @relation(fields: [user_id], references: [id])
