@@ -11,6 +11,7 @@ import warehousePincodeDao from "../dao/warehouse-pincode.dao.js";
 import zonePincodeDao from "../dao/zone-pincode.dao.js";
 import warehouseDao from "../dao/warehouse.dao.js";
 import prisma from "../config/prisma.js";
+import ProductBrandDAO from "../dao/product-brand.dao.js";
 
 const VARIANT_JOIN = "product_variants(*)";
 
@@ -115,7 +116,7 @@ export const getProductsByCategory = async (req, res) => {
 
 export const getAllCategories = async (req, res) => {
   try {
-    const categories = await categoryDao.list({ active: true });
+    const categories = await categoryDao.listCategories(true);
 
     const transformedCategories = categories.map((cat) => ({
       id: cat.id,
@@ -917,57 +918,24 @@ export const getQuickPicks = async (req, res) => {
 
     // console.log("Quick picks data:", products.length, "products found");
 
+    // Enrich with inventory data before transformation
+    if (products.length > 0) {
+      // Assuming warehouse_id might be passed in query, if not, it handles null (checks all warehouses/aggregated)
+      const warehouseId = req.query.warehouse_id ? parseInt(req.query.warehouse_id) : null;
+      products = await productDao.enrichProductsWithInventory(products, warehouseId);
+
+      // Map stock info to top-level fields
+      products = products.map(p => ({
+        ...p,
+        stock: p.stock_info?.available_stock || 0,
+        stock_quantity: p.stock_info?.available_stock || 0
+      }));
+    }
+
     // Transform the data to match frontend expectations
-    const transformedProducts = products.map((product) => {
-      // Use the helper if available, or manual transform
-      // We will do manual consistent with other controllers or use the helper if defined in this file
-
-      const defaultVariant =
-        product.variants?.find((v) => v.is_default === true) ||
-        product.variants?.[0];
-
-      const brandObj =
-        product.brands && product.brands.length > 0
-          ? product.brands[0].brand
-          : null;
-
-      return {
-        id: product.id,
-        name: product.name,
-        description: product.description,
-        // Use variant pricing if available, otherwise fallback
-        price: defaultVariant?.price || 0,
-        oldPrice: defaultVariant?.old_price || 0,
-        rating: parseFloat(product.rating) || 4.0,
-        reviews: product.review_count || 0,
-        discount: defaultVariant?.discount_percentage || 0,
-        image:
-          product.media?.find((m) => m.is_primary)?.url ||
-          product.media?.[0]?.url,
-        images: product.media?.map((m) => m.url) || [],
-        inStock: defaultVariant ? true : false,
-        stock: 100, // Default stock value
-        popular: false,
-        featured: false,
-        category: product.category_id,
-        category_info: product.category,
-        weight: defaultVariant?.title || "1 Unit",
-        brand: brandObj?.name || "BigandBest",
-        shipping_amount: defaultVariant?.shipping_amount || 0,
-        specifications: null,
-        created_at: product.created_at,
-        hasVariants: product.variants?.length > 0,
-        variants: product.variants || [],
-        defaultVariant: defaultVariant,
-        // Preserve original product data (for card display)
-        originalPrice: defaultVariant?.price || 0,
-        originalOldPrice: defaultVariant?.old_price || 0,
-        originalStock: 100,
-        // Ensure main product data is never overridden
-        cardPrice: defaultVariant?.price || 0,
-        cardOldPrice: defaultVariant?.old_price || 0,
-      };
-    });
+    const transformedProducts = products.map((product) =>
+      transformProduct(product)
+    );
 
     res.status(200).json({
       success: true,
@@ -988,10 +956,16 @@ export const getProductsBySubcategory = async (req, res) => {
     const limit = parseInt(req.query.limit) || 50;
 
     // Use listProducts with includeAllVariants to get full product details
-    const products = await productDao.listProducts(
+    let products = await productDao.listProducts(
       { subcategory_id: subcategoryId, includeAllVariants: true },
       { page, limit },
     );
+
+    // Enrich with inventory data
+    if (products.items && products.items.length > 0) {
+      const warehouseId = req.query.warehouse_id ? parseInt(req.query.warehouse_id) : null;
+      products.items = await productDao.enrichProductsWithInventory(products.items, warehouseId);
+    }
 
     // Flatten the response for frontend convenience (matching admin endpoint structure)
     const flattenedProducts = (products.items || []).map((p) => {
@@ -1082,7 +1056,21 @@ export const getProductsByGroup = async (req, res) => {
   try {
     const { groupId } = req.params;
 
-    const products = await productDao.getProductsByFilter({ groupId });
+    let products = await productDao.getProductsByFilter({ groupId });
+
+    // Enrich with inventory data
+    if (products.length > 0) {
+      const warehouseId = req.query.warehouse_id ? parseInt(req.query.warehouse_id) : null;
+      products = await productDao.enrichProductsWithInventory(products, warehouseId);
+
+      // Map stock info to top-level fields
+      products = products.map(p => ({
+        ...p,
+        stock: p.stock_info?.available_stock || 0,
+        stock_quantity: p.stock_info?.available_stock || 0
+      }));
+    }
+
     const transformedProducts = products.map((product) =>
       transformProduct(product),
     );
@@ -1251,7 +1239,24 @@ export const getProductsByBrand = async (req, res) => {
   try {
     const { brandId } = req.params;
 
-    const products = await productDao.getProductsByFilter({ brandId });
+    // Use ProductBrandDAO to get products with necessary relations (media, variants, etc.)
+    const brandProducts = await ProductBrandDAO.listProductsByBrand(brandId);
+
+    // Extract actual product objects
+    let products = brandProducts.map(item => item.product).filter(Boolean);
+
+    // Enrich with inventory data
+    if (products.length > 0) {
+      products = await productDao.enrichProductsWithInventory(products);
+
+      // Map stock info to top-level fields expected by transformProduct
+      products = products.map(p => ({
+        ...p,
+        stock: p.stock_info?.available_stock || 0,
+        stock_quantity: p.stock_info?.available_stock || 0
+      }));
+    }
+
     const transformedProducts = products.map((product) =>
       transformProduct(product),
     );
@@ -1267,6 +1272,7 @@ export const getProductsByBrand = async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
 
 // Get related products based on cart items (by category)
 export const getRelatedProducts = async (req, res) => {
@@ -1681,7 +1687,7 @@ export const checkProductAvailability = async (req, res) => {
       if (
         divisionStock &&
         divisionStock.stock_quantity - (divisionStock.reserved_quantity || 0) >
-          0
+        0
       ) {
         return res.json({
           success: true,
@@ -1765,7 +1771,7 @@ export const checkCartAvailability = async (req, res) => {
 
     for (const item of items) {
       const { product_id, quantity } = item;
-      const product = await productDao.getById(product_id);
+      const product = await productDao.getProductById(product_id);
       if (!product) {
         results.push({
           product_id,
@@ -1785,7 +1791,7 @@ export const checkCartAvailability = async (req, res) => {
           );
         const availableQty = divisionStock
           ? divisionStock.stock_quantity -
-            (divisionStock.reserved_quantity || 0)
+          (divisionStock.reserved_quantity || 0)
           : 0;
         if (availableQty >= quantity) {
           availabilityInfo = {
@@ -1982,7 +1988,7 @@ export const monitorAndAutoTransfer = async (req, res) => {
       if (
         zonalStock &&
         zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0) >=
-          transferQty
+        transferQty
       ) {
         await productWarehouseStockDao.upsertStock(item.product_id, parentId, {
           stock_quantity: zonalStock.stock_quantity - transferQty,

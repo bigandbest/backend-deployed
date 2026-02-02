@@ -38,7 +38,22 @@ class ProductBrandDAO {
     async listProductsByBrand(brandId) {
         return await prisma.product_brand.findMany({
             where: { brand_id: brandId },
-            include: { product: true }
+            include: {
+                product: {
+                    include: {
+                        variants: {
+                            include: {
+                                inventory: true,
+                                attributes: true
+                            }
+                        },
+                        media: true,
+                        product_recommended_store: {
+                            include: { recommended_store: true }
+                        }
+                    }
+                }
+            }
         });
     }
 }

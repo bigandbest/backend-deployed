@@ -212,6 +212,18 @@ export const getProductsInSection = async (req, res) => {
       warehouse_id ? parseInt(warehouse_id) : null
     );
 
+    // Map enriched stock info to top-level fields
+    products = products.map(p => {
+      const stockQty = p.stock_info?.available_stock || 0;
+      return {
+        ...p,
+        stock: stockQty,
+        stock_quantity: stockQty,
+        inStock: stockQty > 0,
+        is_in_stock: stockQty > 0
+      };
+    });
+
     // Manual pagination as the list is relatively small
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const paginatedProducts = products.slice(offset, offset + parseInt(limit));
@@ -488,22 +500,27 @@ export const getSectionWithContent = async (req, res) => {
       products.push(...brands);
     }
 
-    // 4. Enrich Inventory
-    const productIds = products.filter(p => p.id).map(p => p.id);
-    if (productIds.length > 0 && warehouseIdInt) {
-      const stocks = await prisma.product_warehouse_stocks.findMany({
-        where: { product_id: { in: productIds }, warehouse_id: warehouseIdInt },
-        select: { product_id: true, quantity: true }
-      });
-      const stockMap = new Map();
-      stocks.forEach(s => stockMap.set(s.product_id, s.quantity));
+    // 4. Enrich Inventory (Standardized)
+    const productDAO = (await import('../dao/product.dao.js')).default;
+    if (products.length > 0) {
+      products = await productDAO.enrichProductsWithInventory(
+        products,
+        warehouseIdInt
+      );
 
-      products.forEach(p => {
-        if (p.id) {
-          const qty = stockMap.get(p.id) || 0;
-          p.stock = qty;
-          p.is_in_stock = qty > 0;
-        }
+      // Ensures fields match frontend expectation (similar to transformProduct)
+      products = products.map(p => {
+        const stockQty = p.stock_info?.available_stock || 0;
+        return {
+          ...p,
+          stock: stockQty,
+          stock_quantity: stockQty,
+          inStock: stockQty > 0, // Frontend often checks 'inStock'
+          is_in_stock: stockQty > 0, // Keep snake_case for legacy compatibility if needed
+          // Ensure image field is set correctly if missing
+          image: p.image || p.media?.find(m => m.is_primary)?.url || p.media?.[0]?.url || "",
+          images: p.images || p.media?.map(m => m.url) || []
+        };
       });
     }
 
