@@ -465,16 +465,7 @@ export const deleteZone = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Check usage
-    const products = await DeliveryZoneDAO.checkProductUsage(Number(id));
-    if (products.length > 0) {
-      return res.status(400).json({
-        success: false,
-        error: "Cannot delete zone",
-        message: `Zone is currently used by ${products.length} product(s)`,
-        products: products
-      });
-    }
+    // Cascading delete: All associated zone_pincodes will be automatically deleted
 
     await DeliveryZoneDAO.delete(Number(id));
     res.status(200).json({ success: true, message: "Zone deleted successfully" });
