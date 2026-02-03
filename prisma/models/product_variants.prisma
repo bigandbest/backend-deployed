@@ -10,6 +10,12 @@ model product_variants {
 
   // Short human-readable packaging info
   packaging_details   String?  // e.g. "Sealed plastic pouch", "Glass bottle with outer box"
+  
+  // Variant-specific photo (Cloudinary URL)
+  photo_url           String?  @db.VarChar
+  
+  // Net quantity description  
+  net_quantity        String?  // e.g. "Net Qty: 1kg", "Contains 10 pieces"
 
   // Optional GST override per variant
   gst_rate_override   Decimal? @db.Decimal

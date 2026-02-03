@@ -337,6 +337,8 @@ class ProductDAO {
                                         variant_id: variant.id,
                                         attribute_name: attr.attribute_name,
                                         attribute_value: attr.attribute_value,
+                                        price: attr.price ? parseFloat(attr.price) : null,
+                                        old_price: attr.old_price ? parseFloat(attr.old_price) : null,
                                     })),
                                 });
                             }
@@ -384,6 +386,8 @@ class ProductDAO {
                                     variant_id: newVariant.id,
                                     attribute_name: attr.attribute_name,
                                     attribute_value: attr.attribute_value,
+                                    price: attr.price ? parseFloat(attr.price) : null,
+                                    old_price: attr.old_price ? parseFloat(attr.old_price) : null,
                                 })),
                             });
                         }
@@ -606,6 +610,8 @@ class ProductDAO {
                         variant_id: variantId,
                         attribute_name: attr.attribute_name,
                         attribute_value: attr.attribute_value,
+                        price: attr.price ? parseFloat(attr.price) : null,
+                        old_price: attr.old_price ? parseFloat(attr.old_price) : null,
                     })),
                 });
             }

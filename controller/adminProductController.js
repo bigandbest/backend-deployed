@@ -211,6 +211,8 @@ export const createProduct = async (req, res) => {
               ? parseFloat(v.shipping_amount)
               : 0,
             packaging_details: v.packaging_details, // Added packaging_details
+            photo_url: v.photo_url || null, // Variant-specific photo (Cloudinary URL)
+            net_quantity: v.net_quantity || null, // Net quantity description
 
             // Bulk Pricing
             is_bulk_enabled:
@@ -238,6 +240,8 @@ export const createProduct = async (req, res) => {
               create: v.attributes.map((attr) => ({
                 attribute_name: attr.attribute_name,
                 attribute_value: attr.attribute_value,
+                price: attr.price ? parseFloat(attr.price) : null,
+                old_price: attr.old_price ? parseFloat(attr.old_price) : null,
               })),
             };
           }
@@ -575,7 +579,7 @@ export const getProductForAdmin = async (req, res) => {
         : null;
     const storeObj =
       product.product_recommended_store &&
-      product.product_recommended_store.length > 0
+        product.product_recommended_store.length > 0
         ? product.product_recommended_store[0].recommended_store
         : null;
 
@@ -907,6 +911,8 @@ export const updateProduct = async (req, res) => {
               ? parseFloat(v.shipping_amount)
               : 0,
             packaging_details: v.packaging_details || null, // Added packaging_details
+            photo_url: v.photo_url || null, // Variant-specific photo (Cloudinary URL)
+            net_quantity: v.net_quantity || null, // Net quantity description
 
             // Bulk Pricing
             is_bulk_enabled:

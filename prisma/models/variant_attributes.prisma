@@ -4,6 +4,8 @@ model variant_attributes {
 
   attribute_name  String
   attribute_value String
+  price           Decimal? @db.Decimal
+  old_price       Decimal? @db.Decimal
 
   variant product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
 
