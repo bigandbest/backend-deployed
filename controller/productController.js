@@ -10,6 +10,7 @@ import stockMovementDao from "../dao/stock-movement.dao.js";
 import warehousePincodeDao from "../dao/warehouse-pincode.dao.js";
 import zonePincodeDao from "../dao/zone-pincode.dao.js";
 import warehouseDao from "../dao/warehouse.dao.js";
+import cartAvailabilityDAO from "../dao/cart-availability.dao.js";
 import prisma from "../config/prisma.js";
 import ProductBrandDAO from "../dao/product-brand.dao.js";
 
@@ -1758,117 +1759,34 @@ export const checkProductAvailability = async (req, res) => {
 
 export const checkCartAvailability = async (req, res) => {
   try {
-    const { items, pincode } = req.body;
-    if (!items || !Array.isArray(items) || !pincode)
-      return res.status(400).json({ success: false, error: "Invalid input" });
+    const { items, pincode, latitude, longitude } = req.body;
 
-    const divisionWarehouse = await warehousePincodeDao.getByPincode(pincode);
-    const zonePincode = await zonePincodeDao.getByPincode(pincode);
-
-    const results = [];
-    let allAvailable = true;
-    let maxDeliveryDays = 0;
-
-    for (const item of items) {
-      const { product_id, quantity } = item;
-      const product = await productDao.getProductById(product_id);
-      if (!product) {
-        results.push({
-          product_id,
-          available: false,
-          error: "Product not found",
-        });
-        allAvailable = false;
-        continue;
-      }
-
-      let availabilityInfo = null;
-      if (divisionWarehouse) {
-        const divisionStock =
-          await productWarehouseStockDao.getByProductAndWarehouse(
-            product_id,
-            divisionWarehouse.warehouse_id,
-          );
-        const availableQty = divisionStock
-          ? divisionStock.stock_quantity -
-          (divisionStock.reserved_quantity || 0)
-          : 0;
-        if (availableQty >= quantity) {
-          availabilityInfo = {
-            product_id,
-            product_name: product.name,
-            available: true,
-            warehouse_type: "division",
-            warehouse_id: divisionWarehouse.warehouse_id,
-            warehouse_name: divisionWarehouse.warehouses?.name,
-            delivery_days: 1,
-            delivery_message: "Delivery in 1 day",
-            available_quantity: availableQty,
-            requested_quantity: quantity,
-          };
-          maxDeliveryDays = Math.max(maxDeliveryDays, 1);
-        }
-      }
-
-      if (!availabilityInfo && zonePincode) {
-        const zonalWarehouses = await deliveryZoneDao.getZonalWarehouses(
-          zonePincode.zone_id,
-        );
-        for (const warehouse of zonalWarehouses) {
-          const zonalStock =
-            await productWarehouseStockDao.getByProductAndWarehouse(
-              product_id,
-              warehouse.id,
-            );
-          const availableQty = zonalStock
-            ? zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0)
-            : 0;
-          if (availableQty >= quantity) {
-            availabilityInfo = {
-              product_id,
-              product_name: product.name,
-              available: true,
-              warehouse_type: "zonal",
-              warehouse_id: warehouse.id,
-              warehouse_name: warehouse.name,
-              delivery_days: 3,
-              delivery_message: "Delivery in 3-4 working days",
-              available_quantity: availableQty,
-              requested_quantity: quantity,
-            };
-            maxDeliveryDays = Math.max(maxDeliveryDays, 3);
-            break;
-          }
-        }
-      }
-
-      if (availabilityInfo) {
-        results.push(availabilityInfo);
-      } else {
-        results.push({
-          product_id,
-          product_name: product.name,
-          available: false,
-          delivery_message: "Not available",
-          requested_quantity: quantity,
-        });
-        allAvailable = false;
-      }
+    // Validate required parameters
+    if (!items || !Array.isArray(items)) {
+      return res.status(400).json({ success: false, error: "Items array is required." });
     }
 
-    res.json({
+    if (!pincode) {
+      return res.status(400).json({ success: false, error: "Pincode is required." });
+    }
+
+    if (items.length === 0) {
+      return res.status(200).json({
+        success: true,
+        all_available: true,
+        pincode,
+        items: []
+      });
+    }
+
+    // Use the cart-availability DAO for proper validation
+    const result = await cartAvailabilityDAO.checkDeliveryAvailability(items, latitude, longitude, pincode);
+
+    return res.status(200).json({
       success: true,
-      all_available: allAvailable,
-      pincode,
-      max_delivery_days: maxDeliveryDays,
-      delivery_message:
-        maxDeliveryDays === 1
-          ? "Delivery in 1 day"
-          : maxDeliveryDays === 3
-            ? "Delivery in 3-4 working days"
-            : "Delivery time varies",
-      items: results,
+      ...result
     });
+
   } catch (error) {
     console.error("Error in checkCartAvailability:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
