@@ -17,7 +17,7 @@ router.get("/", authenticateToken, getWishlist);
 router.post("/", authenticateToken, addToWishlist);
 
 // Check if product is in wishlist (optional authentication)
-router.get("/check/:productId", checkWishlist);
+router.get("/check/:productId", authenticateToken, checkWishlist);
 
 // Remove item from wishlist (requires authentication)
 router.delete("/:productId", authenticateToken, removeFromWishlist);
