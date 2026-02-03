@@ -98,18 +98,7 @@ class DeliveryZoneDAO {
         ]);
     }
 
-    async checkProductUsage(zoneId) {
-        // Check if any product uses this zone via allowed_zone_ids array
-        return await prisma.products.findMany({
-            where: {
-                allowed_zone_ids: {
-                    has: zoneId
-                }
-            },
-            take: 5,
-            select: { id: true, name: true }
-        });
-    }
+
 
     async getStatistics() {
         const totalZones = await prisma.delivery_zones.count();
