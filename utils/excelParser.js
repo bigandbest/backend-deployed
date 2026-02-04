@@ -47,7 +47,7 @@ export const parseExcel = (
       );
 
       const hasHeader =
-        lowerFirstRow.includes("zone_name") &&
+        (lowerFirstRow.includes("zone_name") || lowerFirstRow.includes("zone name")) &&
         lowerFirstRow.includes("pincode");
 
       const startIndex = hasHeader ? 1 : 0;
@@ -263,6 +263,10 @@ export const groupByZones = (excelData) => {
       pincode: row.pincode,
       city: row.city,
       state: row.state,
+      district: row.district,
+      location_name: row.location_name,
+      village: row.village,
+      others: row.others,
     });
   });
 
