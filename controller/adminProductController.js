@@ -30,6 +30,8 @@ export const createProduct = async (req, res) => {
       brand_name, // Typically brand_id from frontend
       brand_id,
       faq,
+      created_by,
+      seller_id,
       ...otherFields
     } = req.body;
 
@@ -125,6 +127,8 @@ export const createProduct = async (req, res) => {
       active: active !== undefined ? active : true,
       has_variants: !!has_variants,
       faq: faq || null, // Save FAQ JSON
+      created_by: created_by || "admin",
+      seller_id: seller_id || null, // Future proofing for multi-vendor
     };
 
     console.log("\n=== BACKEND: Product Data Before Relations ===");
@@ -579,7 +583,7 @@ export const getProductForAdmin = async (req, res) => {
         : null;
     const storeObj =
       product.product_recommended_store &&
-        product.product_recommended_store.length > 0
+      product.product_recommended_store.length > 0
         ? product.product_recommended_store[0].recommended_store
         : null;
 

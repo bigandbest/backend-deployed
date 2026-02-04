@@ -40,6 +40,10 @@ cess_rate          Decimal?           @default(0) @db.Decimal
   has_variants       Boolean?           @default(false)
   faq                Json?
 
+  // Seller Tracking
+  created_by         String?            @default("admin") // "admin" or "seller"
+  seller_id          String?            @db.Uuid          // Link to future seller table
+  
   created_at         DateTime?          @default(now()) @db.Timestamptz
   updated_at         DateTime?          @updatedAt @db.Timestamptz
 
