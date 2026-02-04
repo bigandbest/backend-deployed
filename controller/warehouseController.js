@@ -541,6 +541,10 @@ export const getZonalWarehousePincodes = async (req, res) => {
             pincode: zp.pincode,
             city: zp.city,
             state: zp.state,
+            district: zp.district,
+            location_name: zp.location_name,
+            village: zp.village,
+            others: zp.others,
             is_available: true
           });
         }
