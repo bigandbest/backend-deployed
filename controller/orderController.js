@@ -306,6 +306,7 @@ export const placeOrder = async (req, res) => {
       handling_charge,
       surge_charge,
       platform_charge,
+      discount_charge,
       coupon_code,
       coupon_discount,
       mobile
@@ -315,7 +316,8 @@ export const placeOrder = async (req, res) => {
     let finalChargeSettings = {
       handling_charge: handling_charge !== undefined ? parseFloat(handling_charge) : 0,
       surge_charge: surge_charge !== undefined ? parseFloat(surge_charge) : 0,
-      platform_charge: platform_charge !== undefined ? parseFloat(platform_charge) : 0
+      platform_charge: platform_charge !== undefined ? parseFloat(platform_charge) : 0,
+      discount_charge: discount_charge !== undefined ? parseFloat(discount_charge) : 0
     };
 
     if (handling_charge === undefined) {
@@ -325,7 +327,8 @@ export const placeOrder = async (req, res) => {
           finalChargeSettings = {
             handling_charge: parseFloat(settings.handling_charge || 0),
             surge_charge: parseFloat(settings.surge_charge || 0),
-            platform_charge: parseFloat(settings.platform_charge || 0)
+            platform_charge: parseFloat(settings.platform_charge || 0),
+            discount_charge: parseFloat(settings.discount_charge || 0)
           };
         }
       } catch (err) {
@@ -469,6 +472,7 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       handling_charge,
       surge_charge,
       platform_charge,
+      discount_charge,
       coupon_code,
       coupon_discount,
       mobile
@@ -478,7 +482,8 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
     let finalChargeSettings = {
       handling_charge: handling_charge !== undefined ? parseFloat(handling_charge) : 0,
       surge_charge: surge_charge !== undefined ? parseFloat(surge_charge) : 0,
-      platform_charge: platform_charge !== undefined ? parseFloat(platform_charge) : 0
+      platform_charge: platform_charge !== undefined ? parseFloat(platform_charge) : 0,
+      discount_charge: discount_charge !== undefined ? parseFloat(discount_charge) : 0
     };
 
     if (handling_charge === undefined) {
@@ -488,7 +493,8 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
           finalChargeSettings = {
             handling_charge: parseFloat(settings.handling_charge || 0),
             surge_charge: parseFloat(settings.surge_charge || 0),
-            platform_charge: parseFloat(settings.platform_charge || 0)
+            platform_charge: parseFloat(settings.platform_charge || 0),
+            discount_charge: parseFloat(settings.discount_charge || 0)
           };
         }
       } catch (err) {

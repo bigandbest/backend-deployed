@@ -17,6 +17,8 @@ export const getChargeSettings = async (req, res) => {
                     handling_charge: 0,
                     surge_charge: 0,
                     platform_charge: 0,
+                    discount_charge: 0,
+                    delivery_charge: 30,
                 },
             });
         }
@@ -40,13 +42,15 @@ export const getChargeSettings = async (req, res) => {
  */
 export const updateChargeSettings = async (req, res) => {
     try {
-        const { handling_charge, surge_charge, platform_charge } = req.body;
+        const { handling_charge, surge_charge, platform_charge, discount_charge, delivery_charge } = req.body;
 
         // Validation - at least one field must be provided
         if (
             handling_charge === undefined &&
             surge_charge === undefined &&
-            platform_charge === undefined
+            platform_charge === undefined &&
+            discount_charge === undefined &&
+            delivery_charge === undefined
         ) {
             return res.status(400).json({
                 success: false,
@@ -76,11 +80,27 @@ export const updateChargeSettings = async (req, res) => {
             });
         }
 
+        if (discount_charge !== undefined && discount_charge < 0) {
+            return res.status(400).json({
+                success: false,
+                error: "discount_charge must be greater than or equal to 0",
+            });
+        }
+
+        if (delivery_charge !== undefined && delivery_charge < 0) {
+            return res.status(400).json({
+                success: false,
+                error: "delivery_charge must be greater than or equal to 0",
+            });
+        }
+
         // Build update object
         const updateData = {};
         if (handling_charge !== undefined) updateData.handling_charge = handling_charge;
         if (surge_charge !== undefined) updateData.surge_charge = surge_charge;
         if (platform_charge !== undefined) updateData.platform_charge = platform_charge;
+        if (discount_charge !== undefined) updateData.discount_charge = discount_charge;
+        if (delivery_charge !== undefined) updateData.delivery_charge = delivery_charge;
 
         // Update or insert (upsert)
         // Update or insert (upsert) using DAO
