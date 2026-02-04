@@ -105,8 +105,8 @@ model charge_settings {
   surge_charge    Decimal   @default(0) @db.Decimal
   discount_charge Decimal   @default(0) @db.Decimal
   platform_charge Decimal   @default(0) @db.Decimal
-  delivery_charge Decimal   @default(30) @db.Decimal
   updated_at      DateTime? @default(now()) @db.Timestamptz(6)
+  delivery_charge Decimal   @default(30) @db.Decimal
 }
 
 model contact_queries {

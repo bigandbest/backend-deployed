@@ -61,6 +61,9 @@ const transformProduct = (product, assignments = []) => {
     variants: activeVariants,
     defaultVariant: defaultVariant || null,
     warehouse_assignments: assignments,
+    created_by: product.created_by,
+    seller_id: product.seller_id,
+    seller_name: product.seller_id ? "Seller" : "BigandBestMart", // Placeholder until seller table exists
   };
 };
 
@@ -922,20 +925,25 @@ export const getQuickPicks = async (req, res) => {
     // Enrich with inventory data before transformation
     if (products.length > 0) {
       // Assuming warehouse_id might be passed in query, if not, it handles null (checks all warehouses/aggregated)
-      const warehouseId = req.query.warehouse_id ? parseInt(req.query.warehouse_id) : null;
-      products = await productDao.enrichProductsWithInventory(products, warehouseId);
+      const warehouseId = req.query.warehouse_id
+        ? parseInt(req.query.warehouse_id)
+        : null;
+      products = await productDao.enrichProductsWithInventory(
+        products,
+        warehouseId,
+      );
 
       // Map stock info to top-level fields
-      products = products.map(p => ({
+      products = products.map((p) => ({
         ...p,
         stock: p.stock_info?.available_stock || 0,
-        stock_quantity: p.stock_info?.available_stock || 0
+        stock_quantity: p.stock_info?.available_stock || 0,
       }));
     }
 
     // Transform the data to match frontend expectations
     const transformedProducts = products.map((product) =>
-      transformProduct(product)
+      transformProduct(product),
     );
 
     res.status(200).json({
@@ -964,8 +972,13 @@ export const getProductsBySubcategory = async (req, res) => {
 
     // Enrich with inventory data
     if (products.items && products.items.length > 0) {
-      const warehouseId = req.query.warehouse_id ? parseInt(req.query.warehouse_id) : null;
-      products.items = await productDao.enrichProductsWithInventory(products.items, warehouseId);
+      const warehouseId = req.query.warehouse_id
+        ? parseInt(req.query.warehouse_id)
+        : null;
+      products.items = await productDao.enrichProductsWithInventory(
+        products.items,
+        warehouseId,
+      );
     }
 
     // Flatten the response for frontend convenience (matching admin endpoint structure)
@@ -1061,14 +1074,19 @@ export const getProductsByGroup = async (req, res) => {
 
     // Enrich with inventory data
     if (products.length > 0) {
-      const warehouseId = req.query.warehouse_id ? parseInt(req.query.warehouse_id) : null;
-      products = await productDao.enrichProductsWithInventory(products, warehouseId);
+      const warehouseId = req.query.warehouse_id
+        ? parseInt(req.query.warehouse_id)
+        : null;
+      products = await productDao.enrichProductsWithInventory(
+        products,
+        warehouseId,
+      );
 
       // Map stock info to top-level fields
-      products = products.map(p => ({
+      products = products.map((p) => ({
         ...p,
         stock: p.stock_info?.available_stock || 0,
-        stock_quantity: p.stock_info?.available_stock || 0
+        stock_quantity: p.stock_info?.available_stock || 0,
       }));
     }
 
@@ -1244,17 +1262,17 @@ export const getProductsByBrand = async (req, res) => {
     const brandProducts = await ProductBrandDAO.listProductsByBrand(brandId);
 
     // Extract actual product objects
-    let products = brandProducts.map(item => item.product).filter(Boolean);
+    let products = brandProducts.map((item) => item.product).filter(Boolean);
 
     // Enrich with inventory data
     if (products.length > 0) {
       products = await productDao.enrichProductsWithInventory(products);
 
       // Map stock info to top-level fields expected by transformProduct
-      products = products.map(p => ({
+      products = products.map((p) => ({
         ...p,
         stock: p.stock_info?.available_stock || 0,
-        stock_quantity: p.stock_info?.available_stock || 0
+        stock_quantity: p.stock_info?.available_stock || 0,
       }));
     }
 
@@ -1273,7 +1291,6 @@ export const getProductsByBrand = async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 };
-
 
 // Get related products based on cart items (by category)
 export const getRelatedProducts = async (req, res) => {
@@ -1688,7 +1705,7 @@ export const checkProductAvailability = async (req, res) => {
       if (
         divisionStock &&
         divisionStock.stock_quantity - (divisionStock.reserved_quantity || 0) >
-        0
+          0
       ) {
         return res.json({
           success: true,
@@ -1763,11 +1780,15 @@ export const checkCartAvailability = async (req, res) => {
 
     // Validate required parameters
     if (!items || !Array.isArray(items)) {
-      return res.status(400).json({ success: false, error: "Items array is required." });
+      return res
+        .status(400)
+        .json({ success: false, error: "Items array is required." });
     }
 
     if (!pincode) {
-      return res.status(400).json({ success: false, error: "Pincode is required." });
+      return res
+        .status(400)
+        .json({ success: false, error: "Pincode is required." });
     }
 
     if (items.length === 0) {
@@ -1775,18 +1796,22 @@ export const checkCartAvailability = async (req, res) => {
         success: true,
         all_available: true,
         pincode,
-        items: []
+        items: [],
       });
     }
 
     // Use the cart-availability DAO for proper validation
-    const result = await cartAvailabilityDAO.checkDeliveryAvailability(items, latitude, longitude, pincode);
+    const result = await cartAvailabilityDAO.checkDeliveryAvailability(
+      items,
+      latitude,
+      longitude,
+      pincode,
+    );
 
     return res.status(200).json({
       success: true,
-      ...result
+      ...result,
     });
-
   } catch (error) {
     console.error("Error in checkCartAvailability:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
@@ -1906,7 +1931,7 @@ export const monitorAndAutoTransfer = async (req, res) => {
       if (
         zonalStock &&
         zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0) >=
-        transferQty
+          transferQty
       ) {
         await productWarehouseStockDao.upsertStock(item.product_id, parentId, {
           stock_quantity: zonalStock.stock_quantity - transferQty,
