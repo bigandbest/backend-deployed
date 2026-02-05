@@ -26,14 +26,15 @@ class InventoryDAO {
             where.warehouse_id = warehouseId;
         }
 
-        const allResults = await prisma.inventory.findMany({
+        // Use product_warehouse_stock instead of inventory
+        const allResults = await prisma.product_warehouse_stock.findMany({
             where,
             select: {
                 variant_id: true,
-                stock_qty: true,
-                reserved_qty: true,
+                stock_quantity: true,
+                reserved_quantity: true,
                 warehouse_id: true,
-                warehouse: {
+                warehouses: {
                     select: {
                         id: true,
                         name: true,
@@ -46,34 +47,40 @@ class InventoryDAO {
         // Aggregate results by variant
         const stockMap = new Map();
         allResults.forEach((inv) => {
-            const availableStock = inv.stock_qty - (inv.reserved_qty || 0);
+            // Map fields from new schema
+            const stockQty = inv.stock_quantity || 0;
+            const reservedQty = inv.reserved_quantity || 0;
+            const availableStock = stockQty - reservedQty;
+            const warehouse = inv.warehouses;
 
             if (stockMap.has(inv.variant_id)) {
                 // Aggregate stock across warehouses
                 const existing = stockMap.get(inv.variant_id);
-                existing.total_stock += inv.stock_qty;
+                existing.total_stock += stockQty;
                 existing.available_stock += availableStock;
-                existing.warehouses.push({
-                    warehouse_id: inv.warehouse_id,
-                    warehouse_name: inv.warehouse.name,
-                    warehouse_type: inv.warehouse.type,
-                    stock: availableStock,
-                });
+                if (warehouse) {
+                    existing.warehouses.push({
+                        warehouse_id: inv.warehouse_id,
+                        warehouse_name: warehouse.name,
+                        warehouse_type: warehouse.type,
+                        stock: availableStock,
+                    });
+                }
             } else {
                 stockMap.set(inv.variant_id, {
                     variant_id: inv.variant_id,
-                    total_stock: inv.stock_qty,
+                    total_stock: stockQty,
                     available_stock: availableStock,
                     in_stock: availableStock > 0,
                     low_stock: availableStock > 0 && availableStock < 10,
-                    warehouses: [
+                    warehouses: warehouse ? [
                         {
                             warehouse_id: inv.warehouse_id,
-                            warehouse_name: inv.warehouse.name,
-                            warehouse_type: inv.warehouse.type,
+                            warehouse_name: warehouse.name,
+                            warehouse_type: warehouse.type,
                             stock: availableStock,
                         },
-                    ],
+                    ] : [],
                 });
             }
         });

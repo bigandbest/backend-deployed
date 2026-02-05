@@ -1325,9 +1325,46 @@ export const getProductVariants = async (req, res) => {
     const { productId } = req.params;
     const variants = await productVariantDao.listByProduct(productId, true);
 
+    // CRITICAL: Enrich with inventory data
+    // Import inventory DAO dynamically to avoid circular dependencies if any
+    const inventoryDAO = (await import("../dao/inventory.dao.js")).default;
+
+    // Collect variant IDs
+    const variantIds = variants.map(v => v.id);
+
+    // Fetch stock data
+    const stockMap = await inventoryDAO.getStockByVariantIds(
+      variantIds,
+      req.query.warehouse_id ? parseInt(req.query.warehouse_id) : null
+    );
+
+    // Enrich variants
+    const enrichedVariants = variants.map(variant => {
+      const stockInfo = stockMap.get(variant.id) || {
+        available_stock: 0,
+        in_stock: false,
+        low_stock: false,
+        warehouses: []
+      };
+
+      return {
+        ...variant,
+        stock_info: {
+          available_stock: stockInfo.available_stock,
+          in_stock: stockInfo.in_stock,
+          low_stock: stockInfo.low_stock,
+          warehouse_count: stockInfo.warehouses?.length || 0
+        },
+        // Frontend often looks for these top-level fields
+        variant_stock: stockInfo.available_stock,
+        stock: stockInfo.available_stock,
+        inStock: stockInfo.in_stock
+      };
+    });
+
     res.status(200).json({
       success: true,
-      variants: variants || [],
+      variants: enrichedVariants || [],
     });
   } catch (error) {
     console.error("Server error:", error);
@@ -1705,7 +1742,7 @@ export const checkProductAvailability = async (req, res) => {
       if (
         divisionStock &&
         divisionStock.stock_quantity - (divisionStock.reserved_quantity || 0) >
-          0
+        0
       ) {
         return res.json({
           success: true,
@@ -1931,7 +1968,7 @@ export const monitorAndAutoTransfer = async (req, res) => {
       if (
         zonalStock &&
         zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0) >=
-          transferQty
+        transferQty
       ) {
         await productWarehouseStockDao.upsertStock(item.product_id, parentId, {
           stock_quantity: zonalStock.stock_quantity - transferQty,

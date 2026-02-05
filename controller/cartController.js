@@ -29,9 +29,9 @@ export const getCartItems = async (req, res) => {
         low_stock: false
       };
 
-      if (variant?.inventory && Array.isArray(variant.inventory)) {
-        const available = variant.inventory.reduce((sum, inv) =>
-          sum + (inv.stock_qty || 0) - (inv.reserved_qty || 0), 0);
+      if (variant?.warehouse_stock && Array.isArray(variant.warehouse_stock)) {
+        const available = variant.warehouse_stock.reduce((sum, inv) =>
+          sum + (inv.stock_quantity || 0) - (inv.reserved_quantity || 0), 0);
         stock_info.available_stock = available < 0 ? 0 : available;
         stock_info.in_stock = stock_info.available_stock > 0;
         stock_info.low_stock = stock_info.available_stock > 0 && stock_info.available_stock < 10;
