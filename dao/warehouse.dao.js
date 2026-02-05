@@ -400,16 +400,27 @@ class WarehouseDAO {
         if (isNaN(numericId)) {
             throw new Error('Invalid warehouse ID');
         }
-        return await prisma.inventory.findMany({
+
+        // Use product_warehouse_stock (new table) instead of inventory (legacy)
+        const stocks = await prisma.product_warehouse_stock.findMany({
             where: { warehouse_id: numericId },
             include: {
-                variant: {
+                product_variants: { // Relation name in product_warehouse_stock
                     include: {
                         product: true
                     }
                 }
             }
         });
+
+        // Map to structure expected by controller (legacy inventory names)
+        return stocks.map(stock => ({
+            ...stock,
+            stock_qty: stock.stock_quantity,
+            reserved_qty: stock.reserved_quantity,
+            bulk_stock_threshold: stock.minimum_threshold,
+            variant: stock.product_variants // Controller usage expects 'variant'
+        }));
     }
 
     async upsertSchedulingConfig(warehouseId, data) {

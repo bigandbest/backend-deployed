@@ -66,7 +66,7 @@ class CartDAO {
             include: {
                 variant: {
                     include: {
-                        inventory: true,
+                        warehouse_stock: true,
                         product: {
                             include: {
                                 media: {

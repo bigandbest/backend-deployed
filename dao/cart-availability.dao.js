@@ -8,13 +8,12 @@ class CartAvailabilityDAO {
      */
     async getWarehousesByPincode(pincode) {
         try {
-            const data = await prisma.warehouse_pincodes.findMany({
+            // 1. Direct Warehouse Mapping
+            const directMappings = await prisma.warehouse_pincodes.findMany({
                 where: {
                     pincode: pincode,
                     is_active: true,
-                    warehouse: {
-                        is_active: true
-                    }
+                    warehouse: { is_active: true }
                 },
                 include: {
                     warehouse: {
@@ -28,7 +27,67 @@ class CartAvailabilityDAO {
                 }
             });
 
-            return data || [];
+            // 2. Zone-based Mapping
+            // 2a. Find zones for this pincode
+            const zoneMappings = await prisma.zone_pincodes.findMany({
+                where: { pincode: pincode, is_active: true },
+                select: { zone_id: true }
+            });
+
+            // 2b. Find nationwide zones
+            const nationwideZones = await prisma.delivery_zones.findMany({
+                where: { is_nationwide: true, is_active: true },
+                select: { id: true }
+            });
+
+            const zoneIds = [
+                ...zoneMappings.map(z => z.zone_id),
+                ...nationwideZones.map(z => z.id)
+            ];
+
+            let zoneWarehouses = [];
+            if (zoneIds.length > 0) {
+                // 2c. Find warehouses serving these zones
+                const warehouseZones = await prisma.warehouse_zones.findMany({
+                    where: {
+                        zone_id: { in: zoneIds },
+                        is_active: true,
+                        warehouse: { is_active: true }
+                    },
+                    include: {
+                        warehouse: {
+                            select: {
+                                id: true,
+                                name: true,
+                                type: true,
+                                is_active: true
+                            }
+                        }
+                    }
+                });
+
+                // Map to same format as direct mappings
+                // Note: Zone mappings don't have per-pincode delivery_days stored, so we use defaults or logic
+                zoneWarehouses = warehouseZones.map(wz => ({
+                    warehouse_id: wz.warehouse_id,
+                    delivery_days: 3, // Default for zonal delivery
+                    warehouse: wz.warehouse
+                }));
+            }
+
+            // Combine and deduplicate by warehouse_id
+            const allWarehouses = [...directMappings, ...zoneWarehouses];
+            const uniqueWarehouses = [];
+            const seenIds = new Set();
+
+            for (const w of allWarehouses) {
+                if (!seenIds.has(w.warehouse_id)) {
+                    seenIds.add(w.warehouse_id);
+                    uniqueWarehouses.push(w);
+                }
+            }
+
+            return uniqueWarehouses;
         } catch (error) {
             console.error('Error fetching warehouses by pincode:', error);
             return [];
@@ -43,7 +102,8 @@ class CartAvailabilityDAO {
      */
     async checkVariantStock(variantId, warehouseIds) {
         try {
-            const data = await prisma.inventory.findMany({
+            // Use product_warehouse_stock instead of inventory
+            const data = await prisma.product_warehouse_stock.findMany({
                 where: {
                     variant_id: variantId,
                     warehouse_id: {
@@ -51,7 +111,7 @@ class CartAvailabilityDAO {
                     }
                 },
                 include: {
-                    warehouse: {
+                    warehouses: { // Relation name in product_warehouse_stock
                         select: {
                             id: true,
                             name: true,
@@ -64,8 +124,8 @@ class CartAvailabilityDAO {
             // Calculate available stock for each warehouse
             return data?.map(item => ({
                 ...item,
-                warehouse: item.warehouse,
-                available_stock: Math.max(0, item.stock_qty - item.reserved_qty)
+                warehouse: item.warehouses, // Map back to 'warehouse' for compatibility
+                available_stock: Math.max(0, item.stock_quantity - (item.reserved_quantity || 0))
             })) || [];
         } catch (error) {
             console.error('Error checking variant stock:', error);
