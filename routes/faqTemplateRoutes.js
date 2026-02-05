@@ -10,9 +10,12 @@ import { authenticateToken } from "../middleware/authenticate.js";
 
 const router = express.Router();
 
+// Public routes (no authentication required)
+router.get("/", getAllFaqTemplates);
+router.get("/:id", getFaqTemplateById);
+
+// Protected routes (admin only)
 router.post("/", authenticateToken, createFaqTemplate);
-router.get("/", authenticateToken, getAllFaqTemplates);
-router.get("/:id", authenticateToken, getFaqTemplateById);
 router.put("/:id", authenticateToken, updateFaqTemplate);
 router.delete("/:id", authenticateToken, deleteFaqTemplate);
 
