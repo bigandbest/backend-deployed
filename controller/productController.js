@@ -49,7 +49,8 @@ const transformProduct = (product, assignments = []) => {
       product.category?.name || product.category_name || product.category,
     weight:
       product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
-    brand: product.brand_name || "BigandBest",
+    brand:
+      product.brands?.[0]?.brand?.name || product.brand_name || "BigandBest",
     shipping_amount: product.shipping_amount || 0,
     specifications: product.specifications,
     created_at: product.created_at,
@@ -552,7 +553,7 @@ export const getProductsByDeliveryZone = async (req, res) => {
         product_recommended_store: {
           include: { recommended_store: true },
         },
-        brands: true,
+        brands: { include: { brand: true } },
       },
       skip: offsetInt,
       take: limitInt,
@@ -649,7 +650,7 @@ export const getQuickPicks = async (req, res) => {
               include: {
                 variants: true,
                 media: true,
-                brands: true,
+                brands: { include: { brand: true } },
                 product_recommended_store: {
                   include: { recommended_store: true },
                 },
@@ -673,7 +674,7 @@ export const getQuickPicks = async (req, res) => {
           include: {
             variants: true,
             media: true,
-            brands: true,
+            brands: { include: { brand: true } },
             product_recommended_store: {
               include: { recommended_store: true },
             },
@@ -689,7 +690,7 @@ export const getQuickPicks = async (req, res) => {
         include: {
           variants: true,
           media: true,
-          brands: true,
+          brands: { include: { brand: true } },
           product_recommended_store: {
             include: { recommended_store: true },
           },
@@ -728,7 +729,7 @@ export const getQuickPicks = async (req, res) => {
           include: {
             variants: true,
             media: true,
-            brands: true,
+            brands: { include: { brand: true } },
             product_recommended_store: {
               include: { recommended_store: true },
             },
@@ -760,7 +761,7 @@ export const getQuickPicks = async (req, res) => {
           include: {
             variants: true,
             media: true,
-            brands: true,
+            brands: { include: { brand: true } },
             product_recommended_store: {
               include: { recommended_store: true },
             },
