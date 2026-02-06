@@ -40,15 +40,19 @@ class DeliveryChargeMilestoneDAO {
     }
 
     async getApplicableCharge(orderValue) {
+        // "Upto" logic: Find the smallest milestone limit that is >= orderValue.
+        // Example: Order 200. Milestones: [399, 999].
+        // 399 >= 200. Match.
+        // This is the "upto" bucket the order falls into.
         return await prisma.delivery_charge_milestones.findFirst({
             where: {
                 is_active: true,
                 min_order_value: {
-                    lte: orderValue
+                    gte: orderValue
                 }
             },
             orderBy: {
-                min_order_value: 'desc'
+                min_order_value: 'asc'
             }
         });
     }

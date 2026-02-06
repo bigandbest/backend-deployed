@@ -57,7 +57,7 @@ export const getMilestoneById = async (req, res) => {
  */
 export const createMilestone = async (req, res) => {
     try {
-        const { min_order_value, delivery_charge, discount, description, is_active } = req.body;
+        const { min_order_value, delivery_charge, discount, surcharge, description, is_active } = req.body;
 
         // Validation
         if (min_order_value === undefined || min_order_value === null) {
@@ -88,10 +88,18 @@ export const createMilestone = async (req, res) => {
             });
         }
 
+        if (surcharge !== undefined && surcharge < 0) {
+            return res.status(400).json({
+                success: false,
+                error: "surcharge must be greater than or equal to 0",
+            });
+        }
+
         const data = await deliveryChargeMilestoneDao.create({
             min_order_value,
             delivery_charge,
             discount: discount || 0,
+            surcharge: surcharge || 0,
             description: description || null,
             is_active: is_active !== undefined ? is_active : true,
         });
@@ -123,7 +131,7 @@ export const createMilestone = async (req, res) => {
 export const updateMilestone = async (req, res) => {
     try {
         const { id } = req.params;
-        const { min_order_value, delivery_charge, discount, description, is_active } = req.body;
+        const { min_order_value, delivery_charge, discount, surcharge, description, is_active } = req.body;
 
         // Validation
         if (min_order_value !== undefined && min_order_value < 0) {
@@ -140,10 +148,18 @@ export const updateMilestone = async (req, res) => {
             });
         }
 
+        if (surcharge !== undefined && surcharge < 0) {
+            return res.status(400).json({
+                success: false,
+                error: "surcharge must be greater than or equal to 0",
+            });
+        }
+
         const updateData = {};
         if (min_order_value !== undefined) updateData.min_order_value = min_order_value;
         if (delivery_charge !== undefined) updateData.delivery_charge = delivery_charge;
         if (discount !== undefined) updateData.discount = discount;
+        if (surcharge !== undefined) updateData.surcharge = surcharge;
         if (description !== undefined) updateData.description = description;
         if (is_active !== undefined) updateData.is_active = is_active;
 
