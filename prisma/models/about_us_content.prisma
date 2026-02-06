@@ -5,5 +5,10 @@ model about_us_content {
   subtitle         String?   @default("About Big&Best") @db.VarChar
   heading          String?   @default("Big&Best Mart") @db.VarChar
   content          String?
+  mission          String?
+  story            String?
+  values           String?
+  vision           String?
+  why_choose_us    String?
   updated_at       DateTime? @default(now()) @db.Timestamptz
 }

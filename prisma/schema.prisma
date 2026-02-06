@@ -15,6 +15,11 @@ model about_us_content {
   subtitle         String?   @default("About Big&Best") @db.VarChar
   heading          String?   @default("Big&Best Mart") @db.VarChar
   content          String?
+  mission          String?
+  story            String?
+  values           String?
+  vision           String?
+  why_choose_us    String?
   updated_at       DateTime? @default(now()) @db.Timestamptz(6)
 }
 
@@ -211,6 +216,7 @@ model delivery_charge_milestones {
   created_at      DateTime? @default(now()) @db.Timestamptz(6)
   updated_at      DateTime? @default(now()) @db.Timestamptz(6)
   discount        Decimal?  @default(0.00) @db.Decimal
+  surcharge       Decimal?  @default(0.00) @db.Decimal
 }
 
 model delivery_zones {
