@@ -36,6 +36,7 @@ class OrderDAO {
                   select: {
                     name: true,
                     media: true,
+                    return_days: true,
                   },
                 },
               },
