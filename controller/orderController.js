@@ -309,7 +309,8 @@ export const placeOrder = async (req, res) => {
       discount_charge,
       coupon_code,
       coupon_discount,
-      mobile
+      mobile,
+      receiver_name
     } = req.body;
 
     // Use charges from request (snapshot) or fetch current settings as fallback
@@ -351,6 +352,7 @@ export const placeOrder = async (req, res) => {
       coupon_code: coupon_code || null,
       coupon_discount: coupon_discount ? parseFloat(coupon_discount) : 0,
       mobile: mobile || null,
+      receiver_name: receiver_name || null,
       ...finalChargeSettings
     });
 
@@ -475,7 +477,8 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       discount_charge,
       coupon_code,
       coupon_discount,
-      mobile
+      mobile,
+      receiver_name
     } = req.body;
 
     // Use charges from request (snapshot) or fetch current settings as fallback
@@ -541,6 +544,7 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       razorpay_payment_id,
       razorpay_signature,
       mobile: mobile || detailedAddress.mobile || null,
+      receiver_name: receiver_name || detailedAddress.receiver_name || null,
       coupon_code: coupon_code || null,
       coupon_discount: coupon_discount ? parseFloat(coupon_discount) : 0,
       ...finalChargeSettings

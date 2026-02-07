@@ -90,16 +90,23 @@ export const checkReturnEligibility = async (req, res) => {
       });
     }
 
-    // Check if already has return request
-    const existingReturn = await returnOrderDao.findByOrderId(order_id);
+    // Check for existing return items to mark them as ineligible
+    const existingReturnItems = await prisma.return_order_items.findMany({
+      where: {
+        return_order: {
+          order_id: order_id
+        }
+      },
+      select: {
+        order_item_id: true
+      }
+    });
 
-    if (existingReturn) {
-      return res.json({
-        success: false,
-        error: "Return request already exists",
-        existing_return: existingReturn,
-      });
-    }
+    const returnedItemIds = existingReturnItems.map(item => item.order_item_id);
+
+    // If all items are returned, then can_return might be false, but for now we let the frontend handle the disabling
+    // We just pass returnedItemIds to the frontend
+
 
     let eligibility = {
       can_return: false,
@@ -108,42 +115,66 @@ export const checkReturnEligibility = async (req, res) => {
       days_since_delivery: 0,
     };
 
-    if (order.status?.toLowerCase() === "delivered") {
-      // Use updated_at if available, otherwise fall back to created_at
-      const deliveryDate = order.updated_at || order.created_at;
-      const daysSinceDelivery = calculateDaysSinceDelivery(
-        deliveryDate,
-        order.status,
-      );
-      eligibility.days_since_delivery = daysSinceDelivery;
+    const isCODOrder = ["cod", "cash", "cash on delivery"].some(method =>
+      order.payment_method?.toLowerCase().includes(method)
+    );
 
-      if (daysSinceDelivery <= 7 && daysSinceDelivery >= 0) {
-        eligibility.can_return = true;
-        eligibility.reason = `Product can be returned within 7 days of delivery. ${7 - daysSinceDelivery
-          } days remaining.`;
-      } else if (daysSinceDelivery > 7) {
-        eligibility.reason =
-          "Return period has expired. Products can only be returned within 7 days of delivery.";
-      } else {
-        eligibility.reason =
-          "Unable to calculate delivery date for this order.";
-      }
-    } else if (
-      ["pending", "processing", "shipped"].includes(order.status?.toLowerCase())
-    ) {
+    if (isCODOrder) {
+      eligibility.can_return = false;
+      eligibility.can_cancel = false;
+      eligibility.reason = "COD orders cannot be cancelled or returned as per policy.";
+
+      // Also mark all items as ineligible for COD
+      order.order_items.forEach(item => {
+        item_eligibility[item.id] = {
+          is_eligible: false,
+          reason: "COD orders are non-returnable",
+          return_days: 0,
+          remaining_days: 0
+        };
+      });
+
+      eligibility.item_eligibility = item_eligibility;
+    } else if (order.status?.toLowerCase() === "delivered") {
+      const deliveryDate = order.updated_at || order.created_at;
+      const daysSinceDelivery = calculateDaysSinceDelivery(deliveryDate, order.status);
+
+      order.order_items.forEach(item => {
+        const productReturnDays = item.variant?.product?.return_days || 7;
+        const isAlreadyReturned = returnedItemIds.includes(item.id);
+        const isWindowValid = daysSinceDelivery <= productReturnDays && daysSinceDelivery >= 0;
+
+        const eligible = !isAlreadyReturned && isWindowValid;
+        if (eligible) atLeastOneEligible = true;
+
+        item_eligibility[item.id] = {
+          is_eligible: eligible,
+          reason: isAlreadyReturned
+            ? "Already returned"
+            : isWindowValid
+              ? `Eligible for return (Window: ${productReturnDays} days)`
+              : `Return window expired (${productReturnDays} days)`,
+          return_days: productReturnDays,
+          remaining_days: Math.max(0, productReturnDays - daysSinceDelivery)
+        };
+      });
+
+      eligibility.can_return = atLeastOneEligible;
+      eligibility.days_since_delivery = daysSinceDelivery;
+      eligibility.item_eligibility = item_eligibility;
+
+    } else if (["pending", "confirmed", "processing", "shipped"].includes(order.status?.toLowerCase())) {
       eligibility.can_cancel = true;
-      eligibility.reason =
-        "Order can be cancelled as it hasn't been delivered yet.";
+      eligibility.reason = "Order can be cancelled as it hasn't been delivered yet.";
     } else {
-      console.log("Order status not eligible:", order.status);
-      eligibility.reason =
-        "This order is not eligible for return or cancellation.";
+      eligibility.reason = "This order is not eligible for return or cancellation.";
     }
 
     return res.json({
       success: true,
       order_status: order.status,
       eligibility,
+      returned_item_ids: returnedItemIds,
     });
   } catch (error) {
     return res.status(500).json({
@@ -189,30 +220,34 @@ export const createReturnRequest = async (req, res) => {
       });
     }
 
-    // 3. Determine if Bank Details are required
-    const isCOD = ["cod", "cash", "cash on delivery"].some((method) =>
-      order.payment_method?.toLowerCase().includes(method),
-    );
-    const needsBankDetails =
-      isCOD && (return_type === "return" || return_type === "cancellation");
-
-    if (needsBankDetails) {
-      if (
-        !bank_account_holder_name ||
-        !bank_account_number ||
-        !bank_ifsc_code ||
-        !bank_name
-      ) {
-        return res.status(400).json({
-          success: false,
-          error: "Bank details are required for COD returns",
-        });
-      }
+    // 3. Bank Details are ALWAYS required for refunds
+    if (
+      !bank_account_holder_name ||
+      !bank_account_number ||
+      !bank_ifsc_code ||
+      !bank_name
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Bank details are required for processing refunds",
+      });
     }
 
     // 4. Check Eligibility
     let isEligible = false;
     const orderStatus = order.status?.toLowerCase();
+
+    // Block COD orders from cancellation and return
+    const isCODOrder = ["cod", "cash", "cash on delivery"].some(method =>
+      order.payment_method?.toLowerCase().includes(method)
+    );
+
+    if (isCODOrder) {
+      return res.status(400).json({
+        success: false,
+        error: "COD orders cannot be cancelled or returned as per policy.",
+      });
+    }
 
     if (return_type === "return") {
       if (orderStatus === "delivered") {
@@ -220,10 +255,54 @@ export const createReturnRequest = async (req, res) => {
           order.updated_at || order.created_at,
           order.status,
         );
-        isEligible = daysSince <= 7 && daysSince >= 0;
+
+        // Validate each item's return window
+        if (items && items.length > 0) {
+          const ineligibleItems = [];
+
+          items.forEach(requestedItem => {
+            const orderItem = order.order_items.find(oi => oi.id === requestedItem.order_item_id);
+            if (orderItem) {
+              const productReturnDays = orderItem.variant?.product?.return_days || 7;
+              if (daysSince > productReturnDays) {
+                ineligibleItems.push(orderItem.variant?.product?.name || "Unknown Item");
+              }
+            }
+          });
+
+          if (ineligibleItems.length > 0) {
+            return res.status(400).json({
+              success: false,
+              error: `Return window expired for: ${ineligibleItems.join(", ")}`
+            });
+          }
+          isEligible = true;
+        } else {
+          // Fallback for full order return legacy support (assume 7 days if no items specified, though strict item mode is preferred)
+          isEligible = daysSince <= 7 && daysSince >= 0;
+        }
+
       }
     } else if (return_type === "cancellation") {
-      isEligible = ["pending", "processing", "shipped"].includes(orderStatus);
+      isEligible = ["pending", "confirmed", "processing", "shipped"].includes(orderStatus);
+    }
+
+    // 4.1 Check if Items are already returned
+    if (items && items.length > 0) {
+      const itemIds = items.map(item => item.order_item_id);
+
+      const alreadyReturned = await prisma.return_order_items.findFirst({
+        where: {
+          order_item_id: { in: itemIds }
+        }
+      });
+
+      if (alreadyReturned) {
+        return res.status(400).json({
+          success: false,
+          error: "One or more items in this request have already been returned/requested."
+        });
+      }
     }
 
     if (!isEligible) {
@@ -238,6 +317,11 @@ export const createReturnRequest = async (req, res) => {
     let initial_status = "pending";
     let processed_at = null;
 
+    // Determine if it's a COD order
+    const isCOD = ["cod", "cash", "cash on delivery"].some(method =>
+      order.payment_method?.toLowerCase().includes(method)
+    );
+
     if (return_type === "cancellation") {
       if (isCOD) {
         refund_amount = 0;
@@ -248,13 +332,24 @@ export const createReturnRequest = async (req, res) => {
         initial_status = "pending";
       }
     } else {
-      if (isCOD) {
-        refund_amount = Number(order.total) - (Number(order.shipping) || 0);
-        initial_status = "pending";
+      // Calculate refund based on items
+      if (items && items.length > 0) {
+        // Fetch order items to calculate refund for the selected items
+        const orderItems = await prisma.order_items.findMany({
+          where: { id: { in: items.map(i => i.order_item_id) } }
+        });
+
+        const itemsTotal = orderItems.reduce((sum, item) => {
+          const requestedQty = items.find(i => i.order_item_id === item.id)?.quantity || 0;
+          return sum + (Number(item.price) * requestedQty);
+        }, 0);
+
+        refund_amount = itemsTotal;
       } else {
+        // Fallback if no items provided (shouldn't happen for valid return)
         refund_amount = Number(order.total) - (Number(order.shipping) || 0);
-        initial_status = "pending";
       }
+      initial_status = "pending";
     }
 
     // 6. Create return request via DAO
@@ -265,12 +360,10 @@ export const createReturnRequest = async (req, res) => {
         return_type,
         reason,
         additional_details,
-        bank_account_holder_name: needsBankDetails
-          ? bank_account_holder_name
-          : "N/A",
-        bank_account_number: needsBankDetails ? bank_account_number : "N/A",
-        bank_ifsc_code: needsBankDetails ? bank_ifsc_code : "N/A",
-        bank_name: needsBankDetails ? bank_name : "N/A",
+        bank_account_holder_name: bank_account_holder_name,
+        bank_account_number: bank_account_number,
+        bank_ifsc_code: bank_ifsc_code,
+        bank_name: bank_name,
         refund_amount,
         status: initial_status,
       },

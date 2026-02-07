@@ -21,7 +21,7 @@ export const getOrderTracking = async (req, res) => {
 
     // Sort tracking by timestamp
     const tracking =
-      order.order_tracking?.sort(
+      order.tracking?.sort(
         (a, b) => new Date(a.timestamp) - new Date(b.timestamp),
       ) || [];
 
@@ -95,7 +95,7 @@ export const searchByTrackingNumber = async (req, res) => {
 
     // Sort tracking by timestamp
     const tracking =
-      order.order_tracking?.sort(
+      order.tracking?.sort(
         (a, b) => new Date(a.timestamp) - new Date(b.timestamp),
       ) || [];
 
