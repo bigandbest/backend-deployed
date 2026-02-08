@@ -40,6 +40,27 @@ class ProductSectionCategoryDAO {
         return results;
     }
 
+    async sync(sectionId, categoryIds) {
+        return await prisma.$transaction(async (tx) => {
+            // Delete all existing mappings for this section
+            await tx.product_section_categories.deleteMany({
+                where: { section_id: parseInt(sectionId) }
+            });
+
+            // Insert new mappings
+            if (categoryIds && categoryIds.length > 0) {
+                await tx.product_section_categories.createMany({
+                    data: categoryIds.map(catId => ({
+                        section_id: parseInt(sectionId),
+                        category_id: String(catId)
+                    })),
+                    skipDuplicates: true
+                });
+            }
+            return true;
+        });
+    }
+
     async remove(sectionId, categoryId) {
         return await prisma.product_section_categories.deleteMany({
             where: {

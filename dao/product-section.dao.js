@@ -34,7 +34,7 @@ class ProductSectionDAO {
     }
 
     async list(filters = {}) {
-        const { active = true } = filters;
+        const { active } = filters;
         return await prisma.product_sections.findMany({
             where: {
                 ...(active !== undefined && { is_active: active })

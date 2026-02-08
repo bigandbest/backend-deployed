@@ -299,6 +299,28 @@ export const getSectionsForProduct = async (req, res) => {
 
 // ========== CATEGORY-SECTION MAPPING FUNCTIONS ==========
 
+// Sync categories for a section (Replace all)
+export const syncCategoriesInSection = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { category_ids } = req.body;
+
+    if (!Array.isArray(category_ids)) {
+      return res.status(400).json({ error: "category_ids array is required" });
+    }
+
+    await productSectionCategoryDao.sync(parseInt(id), category_ids);
+
+    res.status(200).json({
+      success: true,
+      message: `Section categories synced successfully. ${category_ids.length} categories mapped.`,
+    });
+  } catch (error) {
+    console.error("Error syncing categories to section:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
 // Add categories to a section
 export const addCategoriesToSection = async (req, res) => {
   try {
@@ -471,7 +493,7 @@ export const getSectionWithContent = async (req, res) => {
     if (categoryMappings && categoryMappings.length > 0) {
       const categoryIds = categoryMappings.map(m => m.category_id);
       const categoryProducts = await prisma.products.findMany({
-        where: { category_id: { in: categoryIds }, is_active: true },
+        where: { category_id: { in: categoryIds }, active: true },
         include: {
           variants: { where: { active: true, is_default: true } },
           media: { where: { is_primary: true }, take: 1 }
