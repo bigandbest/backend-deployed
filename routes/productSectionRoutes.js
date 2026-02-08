@@ -18,7 +18,8 @@ import {
   getSectionsForCategory,
   getProductGridSettings,
   updateProductGridSettings,
-  getSectionWithContent
+  getSectionWithContent,
+  syncCategoriesInSection
 } from "../controller/productSectionController.js";
 
 const router = express.Router();
@@ -65,6 +66,9 @@ router.put("/:id/products/order", updateProductOrderInSection);
 router.get("/products/:productId/sections", getSectionsForProduct);
 
 // ========== CATEGORY-SECTION MAPPING ROUTES ==========
+
+// Sync categories to a section (Replace existing)
+router.put("/:id/categories", syncCategoriesInSection);
 
 // Add categories to a section
 router.post("/:id/categories", addCategoriesToSection);

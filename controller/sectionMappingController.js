@@ -372,8 +372,10 @@ export const getCategoriesForSection = async (req, res) => {
       categoryMappings.forEach(m => categoryIdsSet.add(m.category_id));
     }
 
-    // Add parent categories from subcategories
-    if (subcategoryMappings.length > 0) {
+    // Add parent categories from subcategories ONLY if exclude_inferred is false (default)
+    const excludeInferred = req.query.exclude_inferred === 'true';
+
+    if (!excludeInferred && subcategoryMappings.length > 0) {
       const subIds = subcategoryMappings.map(m => m.subcategory_id);
       const subcategories = await prisma.subcategories.findMany({
         where: { id: { in: subIds } },
