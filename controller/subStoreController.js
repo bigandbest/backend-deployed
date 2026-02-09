@@ -174,6 +174,9 @@ export async function createSectionGroupMapping(req, res) {
             group_id: group_id, // UUID
         }));
 
+        // Clear existing mappings for this section to ensure sync/replace behavior
+        await ProductSectionGroupDAO.deleteBySection(section_id);
+
         const data = await ProductSectionGroupDAO.createMany(mappings);
 
         res.status(201).json({ success: true, mappings: data });
@@ -314,15 +317,15 @@ export async function deleteMapping(req, res) {
             await StoreSectionMappingDAO.deleteByStoreMapping(storeId);
             res.json({ success: true, message: "Store-section mappings deleted successfully" });
 
-        } else if (id.startsWith("section_")) {
-            const sectionId = id.replace("section_", "");
-            await StoreSectionMappingDAO.deleteBySectionMapping(sectionId);
-            res.json({ success: true, message: "Section-product mappings deleted successfully" });
-
         } else if (id.startsWith("section_group_")) {
             const sectionId = id.replace("section_group_", "");
             await ProductSectionGroupDAO.deleteBySection(sectionId);
             res.json({ success: true, message: "Group mappings deleted successfully" });
+
+        } else if (id.startsWith("section_")) {
+            const sectionId = id.replace("section_", "");
+            await StoreSectionMappingDAO.deleteBySectionMapping(sectionId);
+            res.json({ success: true, message: "Section-product mappings deleted successfully" });
 
         } else if (id.startsWith("psg_")) {
             const realId = parseInt(id.replace("psg_", ""));
