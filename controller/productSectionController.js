@@ -67,7 +67,27 @@ export const updateProductSection = async (req, res) => {
     delete updateData.id;
     delete updateData.created_at;
 
-    const data = await productSectionDao.update(parseInt(id), updateData);
+    // Allowed fields for update
+    const allowedFields = [
+      'section_name',
+      'description',
+      'is_active',
+      'display_order',
+      'component_name',
+      'is_marketing',
+      'allow_group_mapping',
+      'allow_category_mapping'
+    ];
+
+    // Filter updateData to only include allowed fields
+    const filteredUpdateData = Object.keys(updateData)
+      .filter(key => allowedFields.includes(key))
+      .reduce((obj, key) => {
+        obj[key] = updateData[key];
+        return obj;
+      }, {});
+
+    const data = await productSectionDao.update(parseInt(id), filteredUpdateData);
 
     res.status(200).json({
       success: true,

@@ -593,6 +593,9 @@ model product_sections {
   section_products           product_section_products[]
   subcategory_mappings       section_subcategory_mappings[]
   store_section_mappings     store_section_mappings[]
+  is_marketing               Boolean?                       @default(false)
+  allow_group_mapping        Boolean?                       @default(false)
+  allow_category_mapping     Boolean?                       @default(false)
 }
 
 model product_variants {

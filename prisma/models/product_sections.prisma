@@ -8,6 +8,9 @@ model product_sections {
   description    String?
   created_at     DateTime? @default(now()) @db.Timestamp
   updated_at     DateTime? @default(now()) @db.Timestamp
+  is_marketing               Boolean?                       @default(false)
+  allow_group_mapping        Boolean?                       @default(false)
+  allow_category_mapping     Boolean?                       @default(false)
 
   // Relations
   section_products     product_section_products[]
