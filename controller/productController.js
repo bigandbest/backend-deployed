@@ -1304,7 +1304,15 @@ export const getRelatedProducts = async (req, res) => {
         .json({ success: false, error: "product_ids array is required" });
     }
 
-    const products = await productDao.getRelatedProducts(product_ids);
+    const sanitizedProductIds = product_ids
+      .map((id) => (typeof id === "string" ? id.split("_")[0] : id))
+      .filter((id) => id && id.length === 36); // Basic UUID length check
+
+    if (sanitizedProductIds.length === 0) {
+      return res.status(200).json({ success: true, products: [] });
+    }
+
+    const products = await productDao.getRelatedProducts(sanitizedProductIds);
     const transformedProducts = products.map((product) =>
       transformProduct(product),
     );
