@@ -107,7 +107,14 @@ export async function getAllSubStores(req, res) {
 // Get all product sections
 export async function getAllProductSections(req, res) {
     try {
-        const data = await ProductSectionDAO.list();
+        const { allow_group_mapping } = req.query;
+        const filters = {};
+
+        if (allow_group_mapping !== undefined) {
+            filters.allow_group_mapping = allow_group_mapping === 'true';
+        }
+
+        const data = await ProductSectionDAO.list(filters);
         res.json({ success: true, sections: data });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
