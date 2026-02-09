@@ -34,10 +34,11 @@ class ProductSectionDAO {
     }
 
     async list(filters = {}) {
-        const { active } = filters;
+        const { active, allow_group_mapping } = filters;
         return await prisma.product_sections.findMany({
             where: {
-                ...(active !== undefined && { is_active: active })
+                ...(active !== undefined && { is_active: active }),
+                ...(allow_group_mapping !== undefined && { allow_group_mapping: allow_group_mapping })
             },
             orderBy: { display_order: 'asc' }
         });
