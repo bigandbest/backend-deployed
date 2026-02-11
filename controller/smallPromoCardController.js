@@ -1,4 +1,4 @@
-import { supabase } from "../config/supabaseClient.js";
+import { uploadToCloudinary } from "../services/uploadService.js";
 import smallPromoCardDao from "../dao/small-promo-card.dao.js";
 
 // Add a Small Promo Card
@@ -12,24 +12,17 @@ export async function addCard(req, res) {
             return res.status(400).json({ success: false, error: "Image is required" });
         }
 
-        // Upload image to Supabase Storage
-        const fileExt = imageFile.originalname.split(".").pop();
-        const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
-        const { error: uploadError } = await supabase.storage
-            .from("addBanner") // Reusing banner bucket
-            .upload(fileName, imageFile.buffer, {
-                contentType: imageFile.mimetype,
-                upsert: true,
-            });
+        // Upload image to Cloudinary
+        const uploadResult = await uploadToCloudinary(
+            imageFile.buffer,
+            "small-promo-cards",
+            imageFile.mimetype
+        );
 
-        if (uploadError) {
-            return res.status(400).json({ success: false, error: uploadError.message });
+        if (!uploadResult.success) {
+            return res.status(400).json({ success: false, error: uploadResult.error });
         }
-
-        const { data: urlData } = supabase.storage
-            .from("addBanner")
-            .getPublicUrl(fileName);
-        imageUrl = urlData.publicUrl;
+        imageUrl = uploadResult.secure_url;
 
         const card = await smallPromoCardDao.create({
             image_url: imageUrl,
@@ -52,6 +45,11 @@ export async function addCard(req, res) {
 export async function updateCard(req, res) {
     try {
         const { id } = req.params;
+        const parsedId = parseInt(id); // Fix: Parse ID to integer
+        if (isNaN(parsedId)) {
+            return res.status(400).json({ success: false, error: "Invalid ID format" });
+        }
+
         const { link, display_order, is_active, link_type, resource_id, sub_resource_id } = req.body;
         const imageFile = req.file;
 
@@ -59,32 +57,28 @@ export async function updateCard(req, res) {
         if (link !== undefined) updateData.link = link;
         if (display_order !== undefined) updateData.display_order = parseInt(display_order);
         if (is_active !== undefined) updateData.is_active = is_active === "true" || is_active === true;
+
+        // Fix: correctly handle null/empty string for resource_ids
         if (link_type !== undefined) updateData.link_type = link_type;
-        if (resource_id !== undefined) updateData.resource_id = resource_id;
-        if (sub_resource_id !== undefined) updateData.sub_resource_id = sub_resource_id;
+        if (resource_id !== undefined) updateData.resource_id = resource_id || null;
+        if (sub_resource_id !== undefined) updateData.sub_resource_id = sub_resource_id || null;
 
         // Update image if provided
         if (imageFile) {
-            const fileExt = imageFile.originalname.split(".").pop();
-            const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
-            const { error: uploadError } = await supabase.storage
-                .from("addBanner")
-                .upload(fileName, imageFile.buffer, {
-                    contentType: imageFile.mimetype,
-                    upsert: true,
-                });
+            // Upload image to Cloudinary
+            const uploadResult = await uploadToCloudinary(
+                imageFile.buffer,
+                "small-promo-cards",
+                imageFile.mimetype
+            );
 
-            if (uploadError) {
-                return res.status(400).json({ success: false, error: uploadError.message });
+            if (!uploadResult.success) {
+                return res.status(400).json({ success: false, error: uploadResult.error });
             }
-
-            const { data: urlData } = supabase.storage
-                .from("addBanner")
-                .getPublicUrl(fileName);
-            updateData.image_url = urlData.publicUrl;
+            updateData.image_url = uploadResult.secure_url;
         }
 
-        const card = await smallPromoCardDao.update(id, updateData);
+        const card = await smallPromoCardDao.update(parsedId, updateData);
 
         res.json({ success: true, card });
     } catch (err) {
@@ -100,7 +94,12 @@ export async function updateCard(req, res) {
 export async function deleteCard(req, res) {
     try {
         const { id } = req.params;
-        await smallPromoCardDao.delete(id);
+        const parsedId = parseInt(id); // Fix: Parse ID to integer
+        if (isNaN(parsedId)) {
+            return res.status(400).json({ success: false, error: "Invalid ID format" });
+        }
+
+        await smallPromoCardDao.delete(parsedId);
         res.json({ success: true, message: "Card deleted successfully" });
     } catch (err) {
         console.error("Error in deleteCard:", err);

@@ -15,19 +15,19 @@ const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Add a Banner with image upload
-router.post("/add", invalidateCacheMiddleware('banners'), upload.single("image"), addBanner);
+router.post("/add", upload.single("image"), invalidateCacheMiddleware('banners'), addBanner);
 
 // Update a Banner with optional image upload
-router.put("/update/:id", invalidateCacheMiddleware('banners'), upload.single("image"), updateBanner);
+router.put("/update/:id", upload.single("image"), invalidateCacheMiddleware('banners'), updateBanner);
 
 // Delete a Banner
-router.delete("/delete/:id", invalidateCacheMiddleware('banners'), deleteBanner);
+router.delete("/delete/:id", deleteBanner);
 
 // Get all Banners (cache for 10 minutes - banners change occasionally)
-router.get("/all", cacheMiddleware(600), getAllBanners);
+router.get("/all", getAllBanners);
 
 // Get a single Banner by ID (cache for 15 minutes)
-router.get("/:id", cacheMiddleware(900), getBannerById);
+router.get("/:id", getBannerById);
 
 // Get all Banners by a specific type (e.g., /api/banner/type/homepage)
 router.get("/type/:bannerType", getBannersByType);

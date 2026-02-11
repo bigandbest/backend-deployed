@@ -305,7 +305,35 @@ export const deleteCoupon = async (req, res) => {
             success: true,
             message: "Coupon deleted successfully"
         });
+
     } catch (error) {
+        // If record to delete does not exist (P2025), treat as success (idempotent)
+        if (error.code === 'P2025') {
+            return res.status(200).json({
+                success: true,
+                message: "Coupon deleted successfully (or already deleted)"
+            });
+        }
+
+        // If Foreign Key Constraint failed (P2003) - likely due to usage history
+        if (error.code === 'P2003') {
+            try {
+                // Fallback to soft delete
+                await couponDAO.updateStatus(req.params.id, "DISABLED");
+                return res.status(200).json({
+                    success: true,
+                    message: "Coupon has usage history, so it was disabled instead of deleted."
+                });
+            } catch (softDeleteError) {
+                // If even soft delete fails
+                return res.status(500).json({
+                    success: false,
+                    error: "Failed to delete or disable coupon",
+                    message: softDeleteError.message
+                });
+            }
+        }
+
         console.error("Error deleting coupon:", error);
         res.status(500).json({
             success: false,
