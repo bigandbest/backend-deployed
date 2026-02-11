@@ -130,6 +130,10 @@ export async function deleteBanner(req, res) {
     await AddBannerDAO.delete(id);
     res.json({ success: true, message: "Banner deleted successfully" });
   } catch (err) {
+    // P2025 is Prisma's "Record to delete does not exist" error
+    if (err.code === 'P2025') {
+      return res.status(200).json({ success: true, message: "Banner already deleted or not found" });
+    }
     res.status(500).json({ success: false, error: err.message });
   }
 }

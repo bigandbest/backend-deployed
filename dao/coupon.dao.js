@@ -21,9 +21,9 @@ class CouponDAO {
     async list(filters = {}, pagination = {}) {
         const { status, page = 1, limit = 20 } = { ...filters, ...pagination };
         const offset = (page - 1) * limit;
-        
+
         const where = status ? { status } : {};
-        
+
         const [items, total] = await Promise.all([
             prisma.coupons.findMany({
                 where,
@@ -38,7 +38,7 @@ class CouponDAO {
             }),
             prisma.coupons.count({ where })
         ]);
-        
+
         return { items, total, page, limit };
     }
 
@@ -57,16 +57,15 @@ class CouponDAO {
     }
 
     async delete(id) {
-        return await prisma.coupons.update({
-            where: { id },
-            data: { status: 'DISABLED' }
+        return await prisma.coupons.delete({
+            where: { id }
         });
     }
 
     async getUsageHistory(couponId, pagination = {}) {
         const { page = 1, limit = 50 } = pagination;
         const offset = (page - 1) * limit;
-        
+
         const [usage, total] = await Promise.all([
             prisma.coupon_usage.findMany({
                 where: { coupon_id: couponId },
@@ -78,7 +77,7 @@ class CouponDAO {
                 where: { coupon_id: couponId }
             })
         ]);
-        
+
         return { usage, total, page, limit };
     }
 

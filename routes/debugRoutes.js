@@ -1,5 +1,6 @@
 import express from "express";
 import { supabase } from "../config/supabaseClient.js";
+import { uploadToCloudinary } from "../services/uploadService.js";
 // import { createNotificationHelper } from "../controller/NotificationHelpers.js";
 
 const router = express.Router();
@@ -169,6 +170,35 @@ router.post("/test-return-notification", async (req, res) => {
   } catch (error) {
     console.error("Test return notification error:", error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Test Cloudinary Connectivity
+router.get("/test-cloudinary-connectivity", async (req, res) => {
+  try {
+    // 1x1 transparent GIF
+    const base64Image = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+    const buffer = Buffer.from(base64Image, "base64");
+
+    console.log("Attempting test upload to Cloudinary...");
+    const result = await uploadToCloudinary(buffer, "debug_test", "image/gif");
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: "Cloudinary upload successful",
+        url: result.secure_url
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: "Cloudinary upload failed",
+        details: result.error
+      });
+    }
+  } catch (error) {
+    console.error("Cloudinary test error:", error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
