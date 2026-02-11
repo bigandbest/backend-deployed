@@ -1,6 +1,5 @@
 import VideoCardDAO from "../dao/video-card.dao.js";
-import { supabase } from "../config/supabaseClient.js";
-import crypto from "crypto";
+import { uploadToCloudinary } from "../services/uploadService.js";
 
 /**
  * Video Card Controller - Routes for video card operations
@@ -11,7 +10,7 @@ import crypto from "crypto";
 export async function addVideoCard(req, res) {
   try {
     console.log("addVideoCard - req.body:", req.body);
-    console.log("addVideoCard - req.files:", req.files);
+    // console.log("addVideoCard - req.file:", req.file);
 
     const { title, description, video_url, thumbnail_url, active, position } =
       req.body;
@@ -22,32 +21,23 @@ export async function addVideoCard(req, res) {
         ? true
         : false;
 
-    // For now, disable file upload since we're testing text fields
-    const thumbnailFile = null;
+    const thumbnailFile = req.file;
     let processedThumbnailUrl = thumbnail_url;
 
-    // Upload thumbnail to Supabase Storage if a file is provided
+    // Upload thumbnail to Cloudinary if a file is provided
     if (thumbnailFile) {
-      const fileExt = thumbnailFile.originalname.split(".").pop();
-      const fileName = `video_thumb_${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage
-        .from("video_thumbnails")
-        .upload(fileName, thumbnailFile.buffer, {
-          contentType: thumbnailFile.mimetype,
-          upsert: true,
-        });
+      const uploadResult = await uploadToCloudinary(
+        thumbnailFile.buffer,
+        "video_thumbnails",
+        thumbnailFile.mimetype
+      );
 
-      if (uploadError)
+      if (!uploadResult.success) {
         return res
           .status(400)
-          .json({ success: false, error: uploadError.message });
-
-      const { data: urlData } = supabase.storage
-        .from("video_thumbnails")
-        .getPublicUrl(fileName);
-      processedThumbnailUrl = urlData.publicUrl;
+          .json({ success: false, error: uploadResult.error });
+      }
+      processedThumbnailUrl = uploadResult.secure_url;
     }
 
     // Insert video card into database using DAO
@@ -74,61 +64,51 @@ export async function addVideoCard(req, res) {
 // Update a Video Card
 export async function updateVideoCard(req, res) {
   try {
-    console.log("updateVideoCard - req.body:", req.body);
-    console.log("updateVideoCard - req.params:", req.params);
-    console.log("updateVideoCard - req.files:", req.files);
-
     const { id } = req.params;
+    const parsedId = parseInt(id);
+
+    if (isNaN(parsedId)) {
+      return res.status(400).json({ success: false, error: "Invalid ID format" });
+    }
+
     const { title, description, video_url, thumbnail_url, active, position } =
       req.body;
 
-    if (!title && !description && !video_url) {
-      return res.status(400).json({
-        success: false,
-        error:
-          "Request body is empty or malformed. Please check that form data is being sent correctly.",
-      });
-    }
-
     const processedActive = active === "true" || active === true ? true : false;
 
-    // For now, disable file upload since we're testing text fields
-    const thumbnailFile = null;
+    const thumbnailFile = req.file;
     let processedThumbnailUrl = thumbnail_url;
 
     // Upload new thumbnail if provided
     if (thumbnailFile) {
-      const fileExt = thumbnailFile.originalname.split(".").pop();
-      const fileName = `video_thumb_${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage
-        .from("video_thumbnails")
-        .upload(fileName, thumbnailFile.buffer, {
-          contentType: thumbnailFile.mimetype,
-          upsert: true,
-        });
+      const uploadResult = await uploadToCloudinary(
+        thumbnailFile.buffer,
+        "video_thumbnails",
+        thumbnailFile.mimetype
+      );
 
-      if (uploadError)
+      if (!uploadResult.success) {
         return res
           .status(400)
-          .json({ success: false, error: uploadError.message });
-
-      const { data: urlData } = supabase.storage
-        .from("video_thumbnails")
-        .getPublicUrl(fileName);
-      processedThumbnailUrl = urlData.publicUrl;
+          .json({ success: false, error: uploadResult.error });
+      }
+      processedThumbnailUrl = uploadResult.secure_url;
     }
 
     // Update video card in database using DAO
-    const videoCard = await VideoCardDAO.update(id, {
+    const updateData = {
       title,
       description,
       video_url,
-      thumbnail_url: processedThumbnailUrl,
       active: processedActive,
       position: position ? parseInt(position) : 0,
-    });
+    };
+
+    if (processedThumbnailUrl) {
+      updateData.thumbnail_url = processedThumbnailUrl;
+    }
+
+    const videoCard = await VideoCardDAO.update(parsedId, updateData);
 
     res.status(200).json({
       success: true,
@@ -137,6 +117,9 @@ export async function updateVideoCard(req, res) {
     });
   } catch (error) {
     console.error("Error updating video card:", error);
+    if (error.code === 'P2025') {
+      return res.status(404).json({ success: false, error: "Video card not found" });
+    }
     res.status(500).json({ success: false, error: error.message });
   }
 }
@@ -145,8 +128,13 @@ export async function updateVideoCard(req, res) {
 export async function deleteVideoCard(req, res) {
   try {
     const { id } = req.params;
+    const parsedId = parseInt(id);
 
-    await VideoCardDAO.delete(id);
+    if (isNaN(parsedId)) {
+      return res.status(400).json({ success: false, error: "Invalid ID format" });
+    }
+
+    await VideoCardDAO.delete(parsedId);
 
     res.status(200).json({
       success: true,
@@ -154,6 +142,9 @@ export async function deleteVideoCard(req, res) {
     });
   } catch (error) {
     console.error("Error deleting video card:", error);
+    if (error.code === 'P2025') {
+      return res.status(404).json({ success: false, error: "Video card not found" });
+    }
     res.status(500).json({ success: false, error: error.message });
   }
 }
@@ -192,8 +183,13 @@ export async function getActiveVideoCards(req, res) {
 export async function getVideoCardById(req, res) {
   try {
     const { id } = req.params;
+    const parsedId = parseInt(id);
 
-    const videoCard = await VideoCardDAO.getById(id);
+    if (isNaN(parsedId)) {
+      return res.status(400).json({ success: false, error: "Invalid ID format" });
+    }
+
+    const videoCard = await VideoCardDAO.getById(parsedId);
 
     if (!videoCard) {
       return res
