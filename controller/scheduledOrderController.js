@@ -254,7 +254,7 @@ export const getScheduledOrderById = async (req, res) => {
 
         const data = await prisma.scheduled_orders.findFirst({
             where: {
-                id: parseInt(id),
+                id: id,
                 user_id: userId
             }
         });
@@ -301,7 +301,7 @@ export const updateScheduledOrder = async (req, res) => {
         // Check if order exists and belongs to user
         const existingOrder = await prisma.scheduled_orders.findFirst({
             where: {
-                id: parseInt(id),
+                id: id,
                 user_id: userId
             }
         });
@@ -351,7 +351,7 @@ export const updateScheduledOrder = async (req, res) => {
 
         // Perform update
         const data = await prisma.scheduled_orders.update({
-            where: { id: parseInt(id) },
+            where: { id: id },
             data: updateData
         });
 
@@ -390,7 +390,7 @@ export const cancelScheduledOrder = async (req, res) => {
         // Check if order exists and belongs to user
         const existingOrder = await prisma.scheduled_orders.findFirst({
             where: {
-                id: parseInt(id),
+                id: id,
                 user_id: userId
             },
             select: {
@@ -409,7 +409,7 @@ export const cancelScheduledOrder = async (req, res) => {
         if (existingOrder.status === 'PROCESSING') {
             // Mark as cancelled if currently processing (will be caught by executor if possible)
             await prisma.scheduled_orders.update({
-                where: { id: parseInt(id) },
+                where: { id: id },
                 data: {
                     status: 'CANCELLED',
                     failure_reason: 'Cancelled by user during processing'
@@ -431,7 +431,7 @@ export const cancelScheduledOrder = async (req, res) => {
 
         // Cancel the order
         await prisma.scheduled_orders.update({
-            where: { id: parseInt(id) },
+            where: { id: id },
             data: {
                 status: 'CANCELLED',
                 failure_reason: 'Cancelled by user'
