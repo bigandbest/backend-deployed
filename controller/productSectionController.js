@@ -469,28 +469,52 @@ export const getSectionWithContent = async (req, res) => {
 
     // 3. Fetch specific content based on mappings
 
-    // A. Groups
+    // A. Groups — products are linked via subcategory_id, not group_id
     if (groupMappings && groupMappings.length > 0) {
       const groupIds = groupMappings.map(m => m.group_id);
-      const groupProducts = await prisma.products.findMany({
-        where: { group_id: { in: groupIds }, active: true },
-        include: {
-          variants: { where: { active: true, is_default: true } },
-          media: { where: { is_primary: true }, take: 1 }
-        },
-        take: 50
+
+      // Fetch the groups to get their subcategory_ids (products have subcategory_id, not group_id)
+      const groups = await prisma.groups.findMany({
+        where: { id: { in: groupIds } },
+        select: { id: true, name: true, image_url: true, subcategory_id: true }
       });
 
-      const groupProductsMap = {};
+      const subcategoryIds = groups
+        .map(g => g.subcategory_id)
+        .filter(Boolean);
+
+      let groupProducts = [];
+      if (subcategoryIds.length > 0) {
+        groupProducts = await prisma.products.findMany({
+          where: { subcategory_id: { in: subcategoryIds }, active: true },
+          include: {
+            variants: { where: { active: true, is_default: true } },
+            media: { where: { is_primary: true }, take: 1 }
+          },
+          take: 50
+        });
+      }
+
+      // Build a map from subcategory_id to products for grouping
+      const subcatProductsMap = {};
       groupProducts.forEach(product => {
-        if (!groupProductsMap[product.group_id]) groupProductsMap[product.group_id] = [];
-        groupProductsMap[product.group_id].push(product);
+        if (!subcatProductsMap[product.subcategory_id]) subcatProductsMap[product.subcategory_id] = [];
+        subcatProductsMap[product.subcategory_id].push(product);
       });
 
-      mappedContent.groups = groupMappings.map(m => ({
-        ...m.groups,
-        preview_products: groupProductsMap[m.group_id] || []
-      }));
+      // Build a map from group_id to group info
+      const groupInfoMap = {};
+      groups.forEach(g => { groupInfoMap[g.id] = g; });
+
+      mappedContent.groups = groupMappings.map(m => {
+        const groupInfo = groupInfoMap[m.group_id] || {};
+        return {
+          id: groupInfo.id,
+          name: groupInfo.name || m.group_name,
+          image_url: groupInfo.image_url || m.image_url,
+          preview_products: subcatProductsMap[groupInfo.subcategory_id] || []
+        };
+      });
       mappedContent.groups.forEach(g => products.push(...g.preview_products));
     }
 
@@ -523,10 +547,9 @@ export const getSectionWithContent = async (req, res) => {
       products.push(...categoryProducts);
     }
 
-    // D. Manual Products
-    if (section.section_products && section.section_products.length > 0) {
-      products.push(...section.section_products.map(item => item.product));
-    }
+    // D. Manual Products — REMOVED
+    // Direct product-section assignments (product_section_products) are no longer used.
+    // Products are sourced only through group, store, or category mappings.
 
     // E. Special Components
     if (section.component_name === 'VideoCardSection') {

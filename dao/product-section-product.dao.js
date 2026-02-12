@@ -59,6 +59,12 @@ class ProductSectionProductDAO {
         return result ? result.display_order : -1;
     }
 
+    async deleteBySection(sectionId) {
+        return await prisma.product_section_products.deleteMany({
+            where: { section_id: Number(sectionId) }
+        });
+    }
+
     async listBySection(sectionId) {
         return await prisma.product_section_products.findMany({
             where: { section_id: sectionId },

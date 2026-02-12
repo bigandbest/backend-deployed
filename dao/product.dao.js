@@ -266,6 +266,7 @@ class ProductDAO {
             take: limit,
             include: {
                 variants: { where: { active: true, is_default: true }, take: 1 },
+                media: { where: { is_primary: true }, take: 1 },
             },
             orderBy: { rating: "desc" },
         });

@@ -1,6 +1,7 @@
 import ProductSectionGroupDAO from "../dao/product-section-group.dao.js";
 import ProductSectionDAO from "../dao/product-section.dao.js";
 import StoreSectionMappingDAO from "../dao/store-section-mapping.dao.js";
+import ProductSectionProductDAO from "../dao/product-section-product.dao.js";
 import ProductDAO from "../dao/product.dao.js";
 import prisma from "../config/prisma.js";
 import SubStoreDAO from "../dao/sub-store.dao.js";
@@ -307,6 +308,7 @@ export async function updateMappingStatus(req, res) {
 }
 
 // Delete mapping (supports both individual records and grouped deletions)
+// Also cascade-deletes linked products from product_section_products
 export async function deleteMapping(req, res) {
     try {
         const { id } = req.params;
@@ -318,18 +320,42 @@ export async function deleteMapping(req, res) {
             res.json({ success: true, message: "Store-section mappings deleted successfully" });
 
         } else if (id.startsWith("section_group_")) {
+            // Deleting ALL group mappings for a section
             const sectionId = id.replace("section_group_", "");
+            // 1. Remove all group mappings for this section
             await ProductSectionGroupDAO.deleteBySection(sectionId);
-            res.json({ success: true, message: "Group mappings deleted successfully" });
+            // 2. Remove all linked products from this section
+            await ProductSectionProductDAO.deleteBySection(sectionId);
+            // 3. Remove all store_section_mappings (section_product type) for this section
+            await StoreSectionMappingDAO.deleteBySectionMapping(sectionId);
+            res.json({ success: true, message: "Group mappings and all linked products deleted successfully" });
 
         } else if (id.startsWith("section_")) {
             const sectionId = id.replace("section_", "");
             await StoreSectionMappingDAO.deleteBySectionMapping(sectionId);
+            // Also remove direct product assignments
+            await ProductSectionProductDAO.deleteBySection(sectionId);
             res.json({ success: true, message: "Section-product mappings deleted successfully" });
 
         } else if (id.startsWith("psg_")) {
+            // Deleting a SINGLE group mapping — also remove linked products for that section
             const realId = parseInt(id.replace("psg_", ""));
+            // Find the mapping first to get section_id
+            const mapping = await prisma.product_section_groups.findUnique({
+                where: { id: realId }
+            });
             await ProductSectionGroupDAO.delete(realId);
+            // If this was the last group mapping for the section, also clean up products
+            if (mapping) {
+                const remaining = await prisma.product_section_groups.count({
+                    where: { section_id: mapping.section_id }
+                });
+                if (remaining === 0) {
+                    // No more group mappings → remove all products from this section
+                    await ProductSectionProductDAO.deleteBySection(mapping.section_id);
+                    await StoreSectionMappingDAO.deleteBySectionMapping(mapping.section_id);
+                }
+            }
             res.json({ success: true, message: "Group mapping deleted successfully" });
 
         } else {
