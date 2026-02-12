@@ -15,10 +15,10 @@ const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Add a Banner with image upload
-router.post("/add", upload.single("image"), invalidateCacheMiddleware('banners'), addBanner);
+router.post("/add", upload.single("image"), addBanner);
 
 // Update a Banner with optional image upload
-router.put("/update/:id", upload.single("image"), invalidateCacheMiddleware('banners'), updateBanner);
+router.put("/update/:id", upload.single("image"), updateBanner);
 
 // Delete a Banner
 router.delete("/delete/:id", deleteBanner);

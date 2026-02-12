@@ -294,7 +294,7 @@ export async function updateMappingStatus(req, res) {
         const { is_active } = req.body;
 
         // Check if it's a new table ID
-        if (id.startsWith && id.startsWith("psg_")) {
+        if (typeof id === 'string' && id.startsWith("psg_")) {
             // For now just return success for individual group toggle if not implemented
             return res.json({ success: true });
         }
