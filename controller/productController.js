@@ -2141,3 +2141,143 @@ export const getRelatedProductsBySubcategory = async (req, res) => {
     res.status(500).json({ success: false, error: "Internal server error" });
   }
 };
+
+// BBM Super Saver - Top 50 lowest price products
+export const getSuperSaver = async (req, res) => {
+  try {
+    const { limit = 50, warehouse_id } = req.query;
+    const limitInt = parseInt(limit);
+
+    // Get active products with variants, sorted by price (ascending)
+    const products = await prisma.products.findMany({
+      where: { active: true },
+      include: {
+        variants: {
+          where: { active: true },
+          orderBy: { price: "asc" },
+        },
+        media: true,
+        brands: {
+          include: {
+            brand: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+        product_recommended_store: {
+          include: { recommended_store: true },
+        },
+      },
+      take: limitInt * 2, // Fetch more to ensure we have enough after filtering
+    });
+
+    // Calculate minimum price for each product from its variants
+    const productsWithMinPrice = products.map((p) => {
+      const activeVariants = p.variants.filter((v) => v.active !== false);
+      const minPrice = activeVariants.length > 0
+        ? Math.min(...activeVariants.map((v) => v.price || 0))
+        : p.price || 0;
+      return { ...p, minPrice };
+    });
+
+    // Sort by minimum price and take top N
+    const sortedProducts = productsWithMinPrice
+      .sort((a, b) => a.minPrice - b.minPrice)
+      .slice(0, limitInt);
+
+    // Enrich with inventory data
+    const enrichedProducts = await productDao.enrichProductsWithInventory(
+      sortedProducts,
+      warehouse_id ? parseInt(warehouse_id) : null,
+    );
+
+    // Compute prices for each product
+    const productsWithPrices = enrichedProducts.map((p) => {
+      const defaultVariant =
+        p.variants?.find((v) => v.is_default) || p.variants?.[0];
+      return {
+        ...p,
+        price: defaultVariant?.price || p.minPrice || 0,
+        old_price:
+          defaultVariant?.old_price || defaultVariant?.price * 1.2 || 0,
+        image: p.media?.[0]?.url || "",
+        brand: p.brands?.[0]?.brand?.name || null,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      products: productsWithPrices,
+      total: productsWithPrices.length,
+    });
+  } catch (error) {
+    console.error("Error fetching super saver products:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+// New Arrivals - Latest 100 products
+export const getNewArrivals = async (req, res) => {
+  try {
+    const { limit = 100, warehouse_id } = req.query;
+    const limitInt = parseInt(limit);
+
+    // Get latest active products sorted by creation date (descending)
+    const products = await prisma.products.findMany({
+      where: { active: true },
+      include: {
+        variants: {
+          where: { active: true },
+        },
+        media: true,
+        brands: {
+          include: {
+            brand: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+        product_recommended_store: {
+          include: { recommended_store: true },
+        },
+      },
+      orderBy: { created_at: "desc" },
+      take: limitInt,
+    });
+
+    // Enrich with inventory data
+    const enrichedProducts = await productDao.enrichProductsWithInventory(
+      products,
+      warehouse_id ? parseInt(warehouse_id) : null,
+    );
+
+    // Compute prices for each product
+    const productsWithPrices = enrichedProducts.map((p) => {
+      const defaultVariant =
+        p.variants?.find((v) => v.is_default) || p.variants?.[0];
+      return {
+        ...p,
+        price: defaultVariant?.price || 0,
+        old_price:
+          defaultVariant?.old_price || defaultVariant?.price * 1.2 || 0,
+        image: p.media?.[0]?.url || "",
+        brand: p.brands?.[0]?.brand?.name || null,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      products: productsWithPrices,
+      total: productsWithPrices.length,
+    });
+  } catch (error) {
+    console.error("Error fetching new arrivals:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};

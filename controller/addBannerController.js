@@ -57,6 +57,9 @@ export async function addBanner(req, res) {
     };
 
     const data = await AddBannerDAO.create(bannerData);
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
     res.status(201).json({ success: true, banner: data });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -117,6 +120,9 @@ export async function updateBanner(req, res) {
     }
 
     const data = await AddBannerDAO.update(id, updateData);
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
     res.json({ success: true, banner: data });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -128,6 +134,9 @@ export async function deleteBanner(req, res) {
   try {
     const { id } = req.params;
     await AddBannerDAO.delete(id);
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
     res.json({ success: true, message: "Banner deleted successfully" });
   } catch (err) {
     // P2025 is Prisma's "Record to delete does not exist" error
@@ -138,17 +147,18 @@ export async function deleteBanner(req, res) {
   }
 }
 
-// View All Banners
 export async function getAllBanners(req, res) {
   try {
     const data = await AddBannerDAO.list();
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
     res.json({ success: true, banners: data });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 }
 
-// View a Single Banner
 export async function getBannerById(req, res) {
   try {
     const { id } = req.params;
@@ -159,13 +169,15 @@ export async function getBannerById(req, res) {
         .status(404)
         .json({ success: false, error: "Banner not found" });
 
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
     res.json({ success: true, banner: data });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 }
 
-// Get all Banners by banner_type
 export async function getBannersByType(req, res) {
   try {
     const { bannerType } = req.params;
@@ -177,6 +189,9 @@ export async function getBannersByType(req, res) {
     }
 
     const data = await AddBannerDAO.getByType(bannerType);
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
     res.status(200).json({ success: true, banners: data });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

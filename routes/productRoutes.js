@@ -21,6 +21,8 @@ import {
   getTopProducts,
   getRelatedProducts,
   getRelatedProductsBySubcategory, // NEW: For single product page
+  getSuperSaver, // NEW: BBM Super Saver - Top 50 lowest price
+  getNewArrivals, // NEW: New Arrivals - Latest 100 products
   // Variant routes
   addProductVariant,
   updateProductVariant,
@@ -49,6 +51,8 @@ router.get("/filter", getProductsWithFilters);
 router.get("/everyday-essentials", getEverydayEssentials);
 router.get("/top-products", getTopProducts);
 router.get("/quick-picks", getQuickPicks);
+router.get("/super-saver", getSuperSaver); // NEW: BBM Super Saver
+router.get("/new-arrivals", getNewArrivals); // NEW: New Arrivals
 router.get("/delivery-zone", getProductsByDeliveryZone);
 
 // Batch lookup for product data used by cart/order UIs
