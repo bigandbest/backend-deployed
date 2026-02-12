@@ -1313,7 +1313,14 @@ export const getRelatedProducts = async (req, res) => {
     }
 
     const products = await productDao.getRelatedProducts(sanitizedProductIds);
-    const transformedProducts = products.map((product) =>
+
+    // Enrich with inventory data so stock info is available
+    const enrichedProducts = await productDao.enrichProductsWithInventory(
+      products,
+      null // no specific warehouse — use default
+    );
+
+    const transformedProducts = enrichedProducts.map((product) =>
       transformProduct(product),
     );
 
