@@ -23,7 +23,11 @@ class InventoryDAO {
         };
 
         if (warehouseId) {
-            where.warehouse_id = warehouseId;
+            if (Array.isArray(warehouseId)) {
+                where.warehouse_id = { in: warehouseId };
+            } else {
+                where.warehouse_id = warehouseId;
+            }
         }
 
         // Use product_warehouse_stock instead of inventory

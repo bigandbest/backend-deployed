@@ -676,10 +676,10 @@ class ProductDAO {
     /**
      * Enrich products with inventory stock information
      * @param {Array} products - Array of products with variants
-     * @param {number} warehouseId - Optional warehouse filter
+     * @param {number|Array<number>} warehouseIds - Optional warehouse filter (single ID or array of IDs)
      * @returns {Array} Products enriched with stock_info
      */
-    async enrichProductsWithInventory(products, warehouseId = null) {
+    async enrichProductsWithInventory(products, warehouseIds = null) {
         if (!products || products.length === 0) {
             return products;
         }
@@ -702,7 +702,7 @@ class ProductDAO {
         // Batch fetch inventory for all variants
         const stockMap = await inventoryDAO.getStockByVariantIds(
             variantIds,
-            warehouseId,
+            warehouseIds,
         );
 
         // Enrich each product

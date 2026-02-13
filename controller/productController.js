@@ -486,47 +486,45 @@ export const getProductsByDeliveryZone = async (req, res) => {
       });
     }
 
-    // Get zones for this pincode using Prisma
-    // 1. Get zones explicitly linked to this pincode
-    const pincodeZones = await prisma.zone_pincodes.findMany({
-      where: { pincode: pincode, is_active: true },
-      include: { zone: true },
-      // distinct: ['zone_id'] // Optional if duplicates possible, but usually active pincode-zone is unique per zone
-    });
+    // Get warehouses serving this pincode using CartAvailabilityDAO
+    const warehousePincodes = await cartAvailabilityDAO.getWarehousesByPincode(
+      pincode,
+    );
 
-    // 2. Get nationwide zones (if applicable, usually nationwide products skip zone check, but check if nationwide zones exist)
-    const nationwideZones = await prisma.delivery_zones.findMany({
-      where: { is_nationwide: true, is_active: true },
-    });
-
-    const activeZoneIds = [
-      ...pincodeZones.map((pz) => pz.zone_id),
-      ...nationwideZones.map((nz) => nz.id),
-    ];
-
-    // Unique IDs
-    const uniqueZoneIds = [...new Set(activeZoneIds)];
-
-    if (uniqueZoneIds.length === 0) {
-      // Even if no zones found, we might still serve NATIONWIDE products?
-      // The original code returned empty list if no zones found.
-      // But typically nationwide products should be available everywhere.
-      // We will follow original logic: if no zones, verify if it strictly means "no service" or just "no zonal service".
-      // Original: if (!zones) return [];
-      // We'll mimic this but be aware nationwide products exist.
-      // However, if we assume "zones" meant "Serviceable Zones", then 0 zones means no service.
-      // But we fetched nationwide zones too. So if uniqueZoneIds is empty, truly no service.
+    if (!warehousePincodes || warehousePincodes.length === 0) {
       return res.status(200).json({
         success: true,
         products: [],
-        message: "No delivery zones found for this pincode",
+        message: "No delivery zones/warehouses found for this pincode",
         pincode,
         zones: [],
       });
     }
 
+    // Extract warehouse IDs
+    const warehouseIds = [
+      ...new Set(warehousePincodes.map((wp) => wp.warehouse_id)),
+    ];
+
+    // Determine implied zones for query filtering (compatibility with legacy zonal logic)
+    // We still filter products by allowed_zone_ids if they are zonal products
+    // We can infer zones from the resolved warehouses if needed, or re-fetch zones directly.
+    // For now, let's keep the zone-based filtering for PRODUCT SELECTION, but use warehouse-based filtering for STOCK.
+
+    // Re-fetch zones to reproduce the allowed_zone_ids logic
+    const pincodeZones = await prisma.zone_pincodes.findMany({
+      where: { pincode: pincode, is_active: true },
+    });
+    const nationwideZones = await prisma.delivery_zones.findMany({
+      where: { is_nationwide: true, is_active: true },
+    });
+    const activeZoneIds = [
+      ...pincodeZones.map((pz) => pz.zone_id),
+      ...nationwideZones.map((nz) => nz.id),
+    ];
+    const uniqueZoneIds = [...new Set(activeZoneIds)];
+
     // Build query for deliverable products
-    // Logic: Product is Active AND (Delivery is Nationwide OR (Delivery is Zonal AND allowed_zone_ids overlaps with uniqueZoneIds))
     const whereClause = {
       active: true,
       OR: [
@@ -539,10 +537,7 @@ export const getProductsByDeliveryZone = async (req, res) => {
     };
 
     if (category) {
-      whereClause.category = category; // Ensure 'category' field name matches schema (string or relation?)
-      // Schema view showed product has 'category' (json or string? or relation?).
-      // Products definition in schema not fully visible but DAO uses 'category' filter.
-      // Prisma client types showed 'category' as input.
+      whereClause.category = category;
     }
 
     const products = await prisma.products.findMany({
@@ -559,18 +554,23 @@ export const getProductsByDeliveryZone = async (req, res) => {
       take: limitInt,
     });
 
-    // Flatten zones for response
-    const zonesResponse = [
-      ...pincodeZones.map((pz) => pz.zone),
-      ...nationwideZones,
-    ];
+    // CRITICAL: Enrich with inventory data from resolved warehouses
+    const enrichedProducts = await productDao.enrichProductsWithInventory(
+      products,
+      warehouseIds,
+    );
 
     // Transform products
-    const transformedProducts = products.map((product) => {
+    const transformedProducts = enrichedProducts.map((product) => {
       const defaultVariant =
         product.variants?.find((v) => v.is_default === true) ||
         product.variants?.[0] ||
         null;
+
+      // Use enriched stock info
+      const stockInfo = product.stock_info || defaultVariant?.stock_info || {};
+      const availableStock = stockInfo.available_stock || 0;
+      const inStock = stockInfo.in_stock || false;
 
       return {
         id: product.id,
@@ -586,8 +586,9 @@ export const getProductsByDeliveryZone = async (req, res) => {
           product.media?.find((m) => m.is_primary)?.url ||
           product.media?.[0]?.url,
         images: product.images || product.media?.map((m) => m.url) || [],
-        inStock: (product.stock || 0) > 0,
-        stock: product.stock || 0,
+        inStock: inStock,
+        stock: availableStock,
+        stock_quantity: availableStock, // Frontend might use this too
         popular: product.popular,
         featured: product.featured,
         category: product.category,
@@ -609,7 +610,7 @@ export const getProductsByDeliveryZone = async (req, res) => {
       success: true,
       products: transformedProducts,
       pincode,
-      zones: zonesResponse,
+      zones: [],
       total: transformedProducts.length, // approximation, for true total we need count()
       category: category || "all",
     });
