@@ -1028,6 +1028,7 @@ export const getProductsBySubcategory = async (req, res) => {
         media: p.media,
         variants: p.variants,
         // Flattened brand and store info for convenience
+        brand: brandObj?.name || "BigandBest",
         brand_id: brandObj?.id || null,
         brand_name: brandObj?.name || null,
         store_id: storeObj?.id || null,
