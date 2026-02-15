@@ -471,18 +471,49 @@ class ProductDAO {
     }
 
     async getSuperSaver(limit = 50) {
-        return await prisma.products.findMany({
-            where: {
-                active: true,
-            },
-            take: limit,
-            include: {
-                category: true,
-                variants: { where: { active: true }, orderBy: { price: "asc" } },
-                media: { orderBy: { sort_order: "asc" } },
-            },
-            orderBy: { price: "asc" },
-        });
+        try {
+            // 1. Get IDs of products sorted by their lowest variant price
+            // We join products and variants, group by product ID, and order by min price
+            const productsWithPrice = await prisma.$queryRaw`
+                SELECT p.id, MIN(pv.price) as min_price
+                FROM products p
+                JOIN product_variants pv ON p.id = pv.product_id
+                WHERE p.active = true AND pv.active = true
+                GROUP BY p.id
+                ORDER BY MIN(pv.price) ASC
+                LIMIT ${limit}
+            `;
+
+            const productIds = productsWithPrice.map(p => p.id);
+
+            if (productIds.length === 0) {
+                return [];
+            }
+
+            // 2. Fetch full product details
+            const products = await prisma.products.findMany({
+                where: {
+                    id: { in: productIds },
+                },
+                include: {
+                    category: true,
+                    variants: { where: { active: true }, orderBy: { price: "asc" } },
+                    media: { orderBy: { sort_order: "asc" } },
+                },
+            });
+
+            // 3. Sort products to match the order from the raw query (lowest price first)
+            // Create a map for O(1) lookup of order index
+            const idToIndex = new Map(productIds.map((id, index) => [id, index]));
+
+            return products.sort((a, b) => {
+                return (idToIndex.get(a.id) || 0) - (idToIndex.get(b.id) || 0);
+            });
+
+        } catch (error) {
+            console.error("Error in getSuperSaver DAO:", error);
+            throw error;
+        }
     }
 
     // Check delivery feasibility (Stub implementation to fix crash)
