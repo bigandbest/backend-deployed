@@ -36,6 +36,18 @@ class DailyDealsProductDAO {
                     include: {
                         variants: {
                             where: { active: true }
+                        },
+                        media: {
+                            where: { is_primary: true },
+                            take: 1
+                        },
+                        category: { select: { name: true, id: true } },
+                        brands: {
+                            select: {
+                                brand: {
+                                    select: { id: true, name: true }
+                                }
+                            }
                         }
                     }
                 }
