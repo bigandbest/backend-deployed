@@ -187,6 +187,40 @@ export const getTopProducts = async (req, res) => {
   }
 };
 
+export const getNewArrivals = async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 100;
+    const products = await productDao.getNewArrivals(limit);
+    const transformedProducts = products.map(product => transformProduct(product));
+
+    res.status(200).json({
+      success: true,
+      products: transformedProducts,
+      total: transformedProducts.length,
+    });
+  } catch (error) {
+    console.error("Error in getNewArrivals:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+export const getSuperSaver = async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    const products = await productDao.getSuperSaver(limit);
+    const transformedProducts = products.map(product => transformProduct(product));
+
+    res.status(200).json({
+      success: true,
+      products: transformedProducts,
+      total: transformedProducts.length,
+    });
+  } catch (error) {
+    console.error("Error in getSuperSaver:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
 export const getProductsWithFilters = async (req, res) => {
   try {
     const {
@@ -993,6 +1027,28 @@ export const getRelatedProducts = async (req, res) => {
     });
   } catch (error) {
     console.error("getRelatedProducts error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+export const getRelatedProductsBySubcategory = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const limit = parseInt(req.query.limit) || 10;
+
+    if (!productId) {
+      return res.status(400).json({ success: false, error: "Product ID is required" });
+    }
+
+    const products = await productDao.getRelatedProductsBySubcategory(productId, limit);
+    const transformedProducts = products.map((product) => transformProduct(product));
+
+    res.status(200).json({
+      success: true,
+      products: transformedProducts,
+    });
+  } catch (error) {
+    console.error("Error in getRelatedProductsBySubcategory:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
   }
 };
