@@ -455,6 +455,36 @@ class ProductDAO {
         });
     }
 
+    async getNewArrivals(limit = 100) {
+        return await prisma.products.findMany({
+            where: {
+                active: true,
+            },
+            take: limit,
+            include: {
+                category: true,
+                variants: { where: { active: true } },
+                media: { orderBy: { sort_order: "asc" } },
+            },
+            orderBy: { created_at: "desc" },
+        });
+    }
+
+    async getSuperSaver(limit = 50) {
+        return await prisma.products.findMany({
+            where: {
+                active: true,
+            },
+            take: limit,
+            include: {
+                category: true,
+                variants: { where: { active: true }, orderBy: { price: "asc" } },
+                media: { orderBy: { sort_order: "asc" } },
+            },
+            orderBy: { price: "asc" },
+        });
+    }
+
     // Check delivery feasibility (Stub implementation to fix crash)
     async canDeliverToPincode(productId, pincode) {
         // TODO: Implement actual logic based on Warehouse/Pincode mapping
@@ -473,6 +503,25 @@ class ProductDAO {
             include: {
                 variants: { where: { active: true } },
             },
+        });
+    }
+
+    async getRelatedProductsBySubcategory(productId, limit = 10) {
+        const product = await this.getProductById(productId);
+        if (!product || !product.subcategory_id) return [];
+
+        return await prisma.products.findMany({
+            where: {
+                subcategory_id: product.subcategory_id,
+                id: { not: productId },
+                active: true,
+            },
+            take: limit,
+            include: {
+                variants: { where: { active: true }, orderBy: { price: "asc" } },
+                media: { where: { is_primary: true }, take: 1 },
+            },
+            orderBy: { rating: "desc" },
         });
     }
 
