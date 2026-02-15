@@ -70,25 +70,35 @@ export const getProductsForDailyDeal = async (req, res) => {
     // Fetch products for this deal
     const data = await dailyDealsProductDao.getProductsByDealId(daily_deal_id);
 
-    // Transform the data to match expected format
-    const products = data.map(item => {
-      const p = item.product;
-      const defaultVariant = p.variants?.find(v => v.is_default) || p.variants?.[0] || {};
+    // Extract actual product objects
+    const productsList = data.map((item) => item.product).filter((p) => p !== null);
+
+    // Enrich with inventory
+    const enrichedProducts = await productDao.enrichProductsWithInventory(
+      productsList
+    );
+
+    // Transform/Format for frontend (UnifiedProductCard expectations)
+    const formattedProducts = enrichedProducts.map((p) => {
+      const defaultVariant =
+        p.variants?.find((v) => v.is_default) || p.variants?.[0] || {};
 
       return {
-        id: p.id,
-        name: p.name,
+        ...p, // Include all original fields (id, name, etc)
+
+        // Helpful top-level props for default view
         price: defaultVariant.price || 0,
         oldPrice: defaultVariant.old_price || 0,
-        rating: p.rating ? parseFloat(p.rating) : 4.0,
-        discount: defaultVariant.discount_percentage || 0,
-        image: p.image,
-        category: p.category_id,
-        uom: p.uom, // Ensure UOM is available or handled
-        stock: defaultVariant.inventory?.stock_qty || 0,
-        inStock: (defaultVariant.inventory?.stock_qty || 0) > 0,
-        brand: "BigandBest", // Fallback as brand relation might be complex
-        description: p.description,
+        stock: defaultVariant.stock_info?.available_stock || 0,
+        inStock: defaultVariant.stock_info?.in_stock || false,
+
+        // Ensure full variants array is passed with stock_info
+        variants: p.variants,
+
+        // Map media/brand/category if needed
+        image: p.media?.[0]?.url || p.image,
+        brand: p.brands?.[0]?.brand?.name || p.brand,
+        category: p.category?.name || p.category_id,
       };
     });
 
@@ -100,8 +110,8 @@ export const getProductsForDailyDeal = async (req, res) => {
         discount: dealData.discount,
         image_url: dealData.image_url,
       },
-      products: products,
-      total: products.length,
+      products: formattedProducts,
+      total: formattedProducts.length,
     });
   } catch (err) {
     console.error("Get products for deal error:", err);
