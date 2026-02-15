@@ -163,8 +163,8 @@ const createApp = () => {
     }),
   );
 
-  app.use(express.json({ limit: "10mb" })); // Add size limit
-  app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+  app.use(express.json({ limit: "50mb" })); // Add size limit
+  app.use(express.urlencoded({ extended: true, limit: "50mb" }));
   app.use(cookieParser());
 
   // API Routes

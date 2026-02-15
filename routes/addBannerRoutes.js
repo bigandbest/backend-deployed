@@ -12,7 +12,10 @@ import { invalidateCacheMiddleware } from "../utils/cacheInvalidation.js";
 import multer from "multer";
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
+});
 
 // Add a Banner with image upload
 router.post("/add", upload.single("image"), addBanner);
@@ -31,6 +34,5 @@ router.get("/:id", getBannerById);
 
 // Get all Banners by a specific type (e.g., /api/banner/type/homepage)
 router.get("/type/:bannerType", getBannersByType);
-
 
 export default router;
