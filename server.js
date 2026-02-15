@@ -146,6 +146,7 @@ const createApp = () => {
         "https://big-best-frontend.vercel.app",
         "https://api.amitdev.tech",
         "https://big-best-backend.vercel.app",
+        "https://www.bigbestmart.com",
       ],
       methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
       exposedHeaders: ["Authorization"],
