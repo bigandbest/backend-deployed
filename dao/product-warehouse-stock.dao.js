@@ -6,106 +6,95 @@ class ProductWarehouseStockDAO {
     }
 
     async getZonalStock(productId, zoneId, quantity = 1) {
-        // Find inventories where warehouse is in the zone and has active stock
-        // Inventory is linked to variant, but we query by product?
-        // Query: Find any variant of this product in zonal warehouse
-        // This is tricky. Usually we want specific variant stock.
-        // Assuming "product level check" means "any variant" or "default variant"?
-        // Most likely this is used for availability check which should be variant specific.
-        // BUT if signature is (productId), we must aggregate or finding best match.
-
-        // Return FIRST match
-        return await prisma.inventory.findFirst({
+        return await this.db.product_warehouse_stock.findFirst({
             where: {
-                variant: { product_id: productId },
-                warehouse: {
-                    type: 'zonal',
-                    is_active: true,
-                    warehouse_zones: {
-                        some: { zone_id: zoneId }
+                product_id: productId,
+                is_active: true,
+                warehouse_zones: {
+                    some: {
+                        zone_id: zoneId
                     }
                 },
-                stock_qty: { gte: quantity }
+                warehouses: {
+                    type: 'zonal',
+                    is_active: true
+                },
+                stock_quantity: {
+                    gte: quantity
+                }
             },
             include: {
-                warehouse: true,
-                variant: true
+                warehouses: true
             },
             orderBy: {
-                stock_qty: 'desc'
+                stock_quantity: 'desc'
             }
         });
     }
 
     async getCentralStock(productId, quantity = 1) {
-        return await prisma.inventory.findFirst({
+        return await this.db.product_warehouse_stock.findFirst({
             where: {
-                variant: { product_id: productId },
-                warehouse: {
+                product_id: productId,
+                is_active: true,
+                warehouses: {
                     type: 'central',
                     is_active: true
                 },
-                stock_qty: { gte: quantity }
+                stock_quantity: {
+                    gte: quantity
+                }
             },
             include: {
-                warehouse: true,
-                variant: true
+                warehouses: true
             },
             orderBy: {
-                stock_qty: 'desc'
+                stock_quantity: 'desc'
             }
         });
     }
 
     async reserveStock(productId, warehouseId, quantity, orderId) {
-        // We lack variantId here. Must fetch default variant or fail?
-        // Since we can't easily guess, we try to find a variant WITH stock in this warehouse.
-        const targetInventory = await prisma.inventory.findFirst({
-            where: {
-                variant: { product_id: productId },
-                warehouse_id: parseInt(warehouseId),
-                stock_qty: { gte: quantity }
-            }
-        });
-
-        if (!targetInventory) {
-            throw new Error(`Insufficient stock in warehouse ${warehouseId} for product ${productId}`);
-        }
-
-        return await prisma.inventory.update({
-            where: { id: targetInventory.id },
-            data: {
-                reserved_qty: { increment: quantity },
-                updated_at: new Date()
-            }
-        });
+        return await this.db.$executeRaw`
+            SELECT update_stock_with_movement(
+                ${productId}::uuid,
+                ${warehouseId}::integer,
+                'reservation'::text,
+                ${quantity}::integer,
+                'order'::text,
+                ${orderId}::text,
+                ${`Stock reserved for order ${orderId}`}::text
+            )
+        `;
     }
 
     async confirmStockDeduction(productId, warehouseId, quantity, orderId) {
-        // Find inventory record (assuming reservation exists on some variant)
-        // This is risky if multiple variants exist, we must know which one.
-        // Ideally callers should pass variantId.
-        // We try to find ANY inventory for this product in this warehouse with reserved > 0?
-        // Or just stock >= quantity.
-        const targetInventory = await prisma.inventory.findFirst({
-            where: {
-                variant: { product_id: productId },
-                warehouse_id: parseInt(warehouseId)
-            },
-            orderBy: { reserved_qty: 'desc' } // release from reservation first
-        });
+        return await this.db.$transaction(async (tx) => {
+            // First release the reservation
+            await tx.$executeRaw`
+                SELECT update_stock_with_movement(
+                    ${productId}::uuid,
+                    ${warehouseId}::integer,
+                    'release'::text,
+                    ${quantity}::integer,
+                    'order'::text,
+                    ${orderId}::text,
+                    ${`Release reservation for order ${orderId}`}::text
+                )
+            `;
 
-        if (!targetInventory) {
-            throw new Error(`Inventory record not found for product ${productId} in warehouse ${warehouseId}`);
-        }
-
-        return await prisma.inventory.update({
-            where: { id: targetInventory.id },
-            data: {
-                stock_qty: { decrement: quantity },
-                reserved_qty: { decrement: quantity }, // Assuming it was reserved. If partially reserved, this might go negative logic? Prisma handles decrement safely if not constrained unsigned, but here we assume correct flow.
-                updated_at: new Date()
-            }
+            // Then deduct actual stock
+            return await tx.$executeRaw`
+                SELECT update_stock_with_movement(
+                    ${productId}::uuid,
+                    ${warehouseId}::integer,
+                    'outbound'::text,
+                    ${quantity}::integer,
+                    'order'::text,
+                    ${orderId}::text,
+                    ${`Order fulfillment for order ${orderId}`}::text
+                )
+            `;
         });
     }
 
@@ -140,24 +129,15 @@ class ProductWarehouseStockDAO {
                 }
             });
         } else {
-            // Create new stock record
-            return await prisma.product_warehouse_stock.create({
-                data: {
-                    product_id: productId,
-                    warehouse_id: parseInt(warehouseId),
-                    variant_id: null,
-                    ...stockData,
-                    created_at: new Date(),
-                    updated_at: new Date()
-                }
-            });
+            // UPDATE-ONLY: Do not create new records, only update existing ones
+            throw new Error(`No existing stock record found for product ${productId} in warehouse ${warehouseId}. Stock records must be created before updating.`);
         }
     }
 
     async listByProduct(productId) {
-        return await prisma.inventory.findMany({
-            where: { variant: { product_id: productId } },
-            include: { warehouse: true, variant: true }
+        return await prisma.product_warehouse_stock.findMany({
+            where: { product_id: productId },
+            include: { warehouses: true }
         });
     }
 
@@ -169,34 +149,19 @@ class ProductWarehouseStockDAO {
     }
 
     async upsertVariantStock(productId, variantId, warehouseId, stockData) {
-        const numericId = parseInt(warehouseId, 10);
-        const existing = await this.getByVariantAndWarehouse(variantId, numericId);
+        const existing = await this.getByVariantAndWarehouse(variantId, warehouseId);
 
         if (existing) {
             return await prisma.product_warehouse_stock.update({
                 where: { id: existing.id },
                 data: {
-                    stock_quantity: stockData.stock_quantity,
-                    minimum_threshold: stockData.minimum_threshold || 0,
-                    cost_per_unit: stockData.cost_per_unit,
+                    ...stockData,
                     updated_at: new Date()
                 }
             });
         } else {
-            return await prisma.product_warehouse_stock.create({
-                data: {
-                    product_id: productId,
-                    variant_id: variantId,
-                    warehouse_id: numericId,
-                    stock_quantity: stockData.stock_quantity || 0,
-                    minimum_threshold: stockData.minimum_threshold || 0,
-                    cost_per_unit: stockData.cost_per_unit,
-                    reserved_quantity: 0,
-                    is_active: true,
-                    created_at: new Date(),
-                    updated_at: new Date()
-                }
-            });
+            // UPDATE-ONLY: Do not create new records, only update existing ones
+            throw new Error(`No existing stock record found for variant ${variantId} in warehouse ${warehouseId}. Stock records must be created before updating.`);
         }
     }
 
@@ -217,7 +182,7 @@ class ProductWarehouseStockDAO {
                     select: {
                         id: true,
                         name: true,
-                        media: true
+                        images: true
                     }
                 },
                 warehouses: {
@@ -266,7 +231,7 @@ class ProductWarehouseStockDAO {
                         id: true,
                         name: true,
                         rating: true,
-                        media: true,
+                        images: true,
                         category: {
                             select: {
                                 id: true,

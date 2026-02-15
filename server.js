@@ -563,7 +563,7 @@ const startServer = async () => {
     console.log("⚠️ Skipping database connection (SKIP_DB=true)");
   }
 
-  const server = app.listen(PORT, () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     const workerId = "standalone";
     const pid = process.pid;
 
@@ -579,8 +579,7 @@ const startServer = async () => {
     console.log(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
     console.log(`🌐 CORS: Configured to allow all origins`);
     console.log(
-      `💳 Razorpay Mode: ${
-        process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
+      `💳 Razorpay Mode: ${process.env.RAZORPAY_KEY_ID?.startsWith("rzp_test_") ? "TEST" : "LIVE"
       }`,
     );
     console.log(`🔗 Supabase: Storage & Auth only`);

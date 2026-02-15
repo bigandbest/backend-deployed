@@ -20,16 +20,8 @@ class WarehouseDAO {
                 where: { id: numericId },
                 include: {
                     parent_warehouse: true,
-                    child_warehouses: { include: { warehouse_pincodes: true } },
-                    warehouse_zones: {
-                        include: {
-                            zone: {
-                                include: {
-                                    zone_pincodes: true
-                                }
-                            }
-                        }
-                    },
+                    child_warehouses: true,
+                    warehouse_zones: { include: { zone: true } },
                     warehouse_pincodes: true,
                     scheduling_configs: { include: { slot: true } }
                 }
@@ -42,16 +34,8 @@ class WarehouseDAO {
             where: { name: id },
             include: {
                 parent_warehouse: true,
-                child_warehouses: { include: { warehouse_pincodes: true } },
-                warehouse_zones: {
-                    include: {
-                        zone: {
-                            include: {
-                                zone_pincodes: true
-                            }
-                        }
-                    }
-                },
+                child_warehouses: true,
+                warehouse_zones: { include: { zone: true } },
                 warehouse_pincodes: true,
                 scheduling_configs: { include: { slot: true } }
             }
@@ -192,31 +176,20 @@ class WarehouseDAO {
         if (isNaN(numericId)) {
             throw new Error('Invalid warehouse ID');
         }
+        const where = {
+            warehouse_id: numericId,
+            product_id: productId
+        };
+        if (variantId) where.variant_id = variantId;
+        else where.variant_id = null; // Explicitly check for null variant_id for base products
 
-        // If variantId is provided, query by it directly
-        if (variantId) {
-            return await prisma.inventory.findUnique({
-                where: {
-                    variant_id_warehouse_id: {
-                        variant_id: variantId,
-                        warehouse_id: numericId
-                    }
-                },
-                include: {
-                    variant: {
-                        include: {
-                            product: true
-                        }
-                    }
-                }
-            });
-        }
-
-        // If only productId, we might need to find specific stock? 
-        // But inventory is variant-centric. 
-        // Logic needing product-level stock usually implies aggregating variants or finding base variant.
-        // Returning null or emulating old behavior if necessary.
-        return null;
+        return await prisma.product_warehouse_stock.findFirst({
+            where,
+            include: {
+                products: true,
+                product_variants: true
+            }
+        });
     }
 
     async updateProductStock(warehouseId, productId, variantId, data) {
@@ -224,42 +197,35 @@ class WarehouseDAO {
         if (isNaN(numericId)) {
             throw new Error('Invalid warehouse ID');
         }
-
-        if (!variantId) {
-            throw new Error('Variant ID is required for inventory updates');
-        }
-
-        // Check if stock record exists
-        const existing = await prisma.product_warehouse_stock.findFirst({
-            where: {
-                variant_id: variantId,
-                warehouse_id: numericId
+        // Upsert logic
+        const where = {
+            warehouse_id_product_id_variant_id: {
+                warehouse_id: numericId,
+                product_id: productId,
+                variant_id: variantId || 0 // Assuming 0 or specific value for no variant if constraint requires? 
+                // Actually relying on findFirst unique check is safer if schema is unknown.
             }
-        });
+        };
+
+        // Revised upsert using findFirst for safety
+        const existing = await this.getProductStock(numericId, productId, variantId);
 
         if (existing) {
             return await prisma.product_warehouse_stock.update({
                 where: { id: existing.id },
                 data: {
-                    stock_quantity: parseInt(data.stock_quantity) || 0,
-                    minimum_threshold: parseInt(data.minimum_threshold) || 0,
-                    cost_per_unit: parseFloat(data.cost_per_unit) || 0,
-                    updated_at: new Date()
+                    ...data,
+                    last_restocked_at: new Date()
                 }
             });
         } else {
             return await prisma.product_warehouse_stock.create({
                 data: {
+                    warehouse_id: warehouseId,
                     product_id: productId,
                     variant_id: variantId,
-                    warehouse_id: numericId,
-                    stock_quantity: parseInt(data.stock_quantity) || 0,
-                    minimum_threshold: parseInt(data.minimum_threshold) || 0,
-                    cost_per_unit: parseFloat(data.cost_per_unit) || 0,
-                    reserved_quantity: 0,
-                    is_active: true,
-                    created_at: new Date(),
-                    updated_at: new Date()
+                    ...data,
+                    last_restocked_at: new Date()
                 }
             });
         }
@@ -270,29 +236,13 @@ class WarehouseDAO {
         if (isNaN(numericId)) {
             throw new Error('Invalid warehouse ID');
         }
-
-        // Must find all variants for this product to delete their inventory?
-        // Or we rely on cascading delete if product is deleted?
-        // The previous logic deleted generic stock record.
-        // With inventory linked to variant, we need to delete inventory logic.
-        // This function might be deprecated or need to find variants first.
-
-        // For now, let's find variants of the product and delete their inventory for this warehouse
-        const variants = await prisma.product_variants.findMany({
-            where: { product_id: productId },
-            select: { id: true }
+        // Delete all stock records for this product in this warehouse (base + variants)
+        return await prisma.product_warehouse_stock.deleteMany({
+            where: {
+                warehouse_id: numericId,
+                product_id: productId
+            }
         });
-
-        if (variants.length > 0) {
-            const variantIds = variants.map(v => v.id);
-            return await prisma.inventory.deleteMany({
-                where: {
-                    warehouse_id: numericId,
-                    variant_id: { in: variantIds }
-                }
-            });
-        }
-        return { count: 0 };
     }
 
     async findForOrder(pincode, productType, preferredWarehouseId) {
@@ -312,7 +262,6 @@ class WarehouseDAO {
             data: pincodeDataList.map(p => ({
                 warehouse_id: numericId,
                 ...p,
-                delivery_days: p.delivery_days ? parseInt(p.delivery_days, 10) : undefined,
                 is_active: true
             })),
             skipDuplicates: true
@@ -345,9 +294,6 @@ class WarehouseDAO {
             },
             data: {
                 ...data,
-                ...(data.delivery_days !== undefined && {
-                    delivery_days: data.delivery_days ? parseInt(data.delivery_days, 10) : null
-                }),
                 updated_at: new Date()
             }
         });
@@ -358,41 +304,10 @@ class WarehouseDAO {
         if (isNaN(numericId)) {
             throw new Error('Invalid warehouse ID');
         }
-
-        const warehouse = await this.getById(numericId);
-        if (!warehouse) return [];
-
-        const directPincodes = warehouse.warehouse_pincodes || [];
-
-        if (warehouse.type !== 'zonal') {
-            return directPincodes;
-        }
-
-        // Aggregate pincodes from zones for zonal warehouses
-        const pincodeMap = new Map();
-
-        // Add direct pincodes first
-        directPincodes.forEach(p => {
-            pincodeMap.set(p.pincode, p);
+        return await prisma.warehouse_pincodes.findMany({
+            where: { warehouse_id: numericId, is_active: true },
+            orderBy: { pincode: 'asc' }
         });
-
-        // Add pincodes from assigned zones
-        warehouse.warehouse_zones?.forEach(wz => {
-            wz.zone?.zone_pincodes?.forEach(zp => {
-                if (!pincodeMap.has(zp.pincode)) {
-                    pincodeMap.set(zp.pincode, {
-                        pincode: zp.pincode,
-                        city: zp.city,
-                        state: zp.state,
-                        delivery_days: 3, // Default for zonal
-                        is_active: zp.is_active,
-                        is_zonal: true
-                    });
-                }
-            });
-        });
-
-        return Array.from(pincodeMap.values()).sort((a, b) => a.pincode.localeCompare(b.pincode));
     }
 
     async listStocks(warehouseId) {
@@ -400,27 +315,13 @@ class WarehouseDAO {
         if (isNaN(numericId)) {
             throw new Error('Invalid warehouse ID');
         }
-
-        // Use product_warehouse_stock (new table) instead of inventory (legacy)
-        const stocks = await prisma.product_warehouse_stock.findMany({
-            where: { warehouse_id: numericId },
+        return await prisma.product_warehouse_stock.findMany({
+            where: { warehouse_id: numericId, is_active: true },
             include: {
-                product_variants: { // Relation name in product_warehouse_stock
-                    include: {
-                        product: true
-                    }
-                }
+                products: true,
+                product_variants: true
             }
         });
-
-        // Map to structure expected by controller (legacy inventory names)
-        return stocks.map(stock => ({
-            ...stock,
-            stock_qty: stock.stock_quantity,
-            reserved_qty: stock.reserved_quantity,
-            bulk_stock_threshold: stock.minimum_threshold,
-            variant: stock.product_variants // Controller usage expects 'variant'
-        }));
     }
 
     async upsertSchedulingConfig(warehouseId, data) {

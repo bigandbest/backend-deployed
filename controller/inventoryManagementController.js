@@ -59,8 +59,9 @@ export const getWarehouseInventory = async (req, res) => {
       variant_id: stock.variant_id,
       warehouse_id: stock.warehouse_id,
       product_name: stock.products?.name,
+      product_image: stock.products?.image,
       variant_name: stock.product_variants?.title || "Base Variant",
-      sku: stock.product_variants?.sku,
+      sku: stock.product_variants?.sku || stock.products?.sku,
       stock_quantity: stock.stock_quantity,
       reserved_quantity: stock.reserved_quantity || 0,
       available_quantity: stock.stock_quantity - (stock.reserved_quantity || 0),
@@ -156,6 +157,7 @@ export const getProductInventoryAcrossWarehouses = async (req, res) => {
       product: {
         id: product.id,
         name: product.name,
+        image: product.image,
         variants: product.variants,
       },
       inventory_summary: {
@@ -391,12 +393,6 @@ export const allocateStockToZonal = async (req, res) => {
     const { divisionWarehouseId } = req.params;
     const { product_id, variant_id, zonal_allocations } = req.body;
 
-    console.log('🔵 allocateStockToZonal called');
-    console.log('  Division Warehouse ID:', divisionWarehouseId);
-    console.log('  Product ID:', product_id);
-    console.log('  Variant ID:', variant_id);
-    console.log('  Allocations:', zonal_allocations);
-
     // Validate
     if (!product_id || !zonal_allocations || !Array.isArray(zonal_allocations)) {
       return res.status(400).json({
@@ -407,7 +403,7 @@ export const allocateStockToZonal = async (req, res) => {
 
     // Verify division warehouse
     const divisionWarehouse = await WarehouseDAO.getById(divisionWarehouseId);
-    if (!divisionWarehouse) {
+    if (!divisionWarehouse || divisionWarehouse.type !== "division") {
       return res.status(400).json({
         success: false,
         error: "Invalid division warehouse",
@@ -420,9 +416,8 @@ export const allocateStockToZonal = async (req, res) => {
 
       for (const allocation of zonal_allocations) {
         const { zonal_warehouse_id, quantity } = allocation;
-        const quantityInt = parseInt(quantity);
 
-        // Verify zonal warehouse exists
+        // Verify zonal warehouse exists and is a child of division
         const zonalWarehouse = await tx.warehouses.findFirst({
           where: {
             id: zonal_warehouse_id,
@@ -434,40 +429,7 @@ export const allocateStockToZonal = async (req, res) => {
           throw new Error(`Invalid zonal warehouse: ${zonal_warehouse_id}`);
         }
 
-        // Get current stock in division warehouse
-        const divisionStock = await tx.product_warehouse_stock.findFirst({
-          where: {
-            product_id,
-            warehouse_id: parseInt(divisionWarehouseId),
-            variant_id: variant_id || null,
-          }
-        });
-
-        const previousDivisionStock = divisionStock?.stock_quantity || 0;
-
-        // Deduct from division warehouse
-        if (divisionStock) {
-          await tx.product_warehouse_stock.update({
-            where: { id: divisionStock.id },
-            data: {
-              stock_quantity: { decrement: quantityInt },
-              updated_at: new Date(),
-            }
-          });
-        }
-
-        // Get current stock in zonal warehouse
-        const zonalStock = await tx.product_warehouse_stock.findFirst({
-          where: {
-            product_id,
-            warehouse_id: zonal_warehouse_id,
-            variant_id: variant_id || null,
-          }
-        });
-
-        const previousZonalStock = zonalStock?.stock_quantity || 0;
-
-        // Add to zonal warehouse
+        // Create or update allocation record
         const allocated = await tx.product_warehouse_stock.upsert({
           where: {
             product_id_warehouse_id_variant_id: {
@@ -477,54 +439,19 @@ export const allocateStockToZonal = async (req, res) => {
             },
           },
           update: {
-            stock_quantity: { increment: quantityInt },
+            stock_quantity: {
+              increment: parseInt(quantity),
+            },
             last_restocked_at: new Date(),
-            updated_at: new Date(),
           },
           create: {
             product_id,
             variant_id: variant_id || null,
             warehouse_id: zonal_warehouse_id,
-            stock_quantity: quantityInt,
+            stock_quantity: parseInt(quantity),
             is_active: true,
             last_restocked_at: new Date(),
-            created_at: new Date(),
-            updated_at: new Date(),
           },
-        });
-
-        // Record stock movement for division warehouse (outgoing)
-        await tx.stock_movements.create({
-          data: {
-            product_id,
-            warehouse_id: parseInt(divisionWarehouseId),
-            movement_type: 'allocation_out',
-            quantity: -quantityInt,
-            previous_stock: previousDivisionStock,
-            new_stock: previousDivisionStock - quantityInt,
-            reference_type: 'allocation',
-            reference_id: zonal_warehouse_id,
-            reason: `Allocated to ${zonalWarehouse.name}`,
-            notes: `Stock allocated from division to zonal warehouse`,
-            created_at: new Date(),
-          }
-        });
-
-        // Record stock movement for zonal warehouse (incoming)
-        await tx.stock_movements.create({
-          data: {
-            product_id,
-            warehouse_id: zonal_warehouse_id,
-            movement_type: 'allocation_in',
-            quantity: quantityInt,
-            previous_stock: previousZonalStock,
-            new_stock: previousZonalStock + quantityInt,
-            reference_type: 'allocation',
-            reference_id: parseInt(divisionWarehouseId),
-            reason: `Received from ${divisionWarehouse.name}`,
-            notes: `Stock allocated from division to zonal warehouse`,
-            created_at: new Date(),
-          }
         });
 
         allocatedRecords.push(allocated);
@@ -533,14 +460,13 @@ export const allocateStockToZonal = async (req, res) => {
       return allocatedRecords;
     });
 
-    console.log('✅ Stock allocated successfully with movements recorded');
     res.status(200).json({
       success: true,
       message: "Stock allocated to zonal warehouses successfully",
       allocations: results,
     });
   } catch (error) {
-    console.error("❌ Error allocating stock to zonal:", error);
+    console.error("Error allocating stock to zonal:", error);
     res.status(500).json({
       success: false,
       error: "Internal server error",
@@ -569,6 +495,7 @@ export const getLowStockProducts = async (req, res) => {
           select: {
             id: true,
             name: true,
+            image: true,
             category: { select: { id: true, name: true } },
           },
         },
