@@ -261,6 +261,7 @@ export const verifyOTP = async (req, res) => {
         code: otp,
       });
 
+    // Verify OTP logic...
     if (response.status === "approved") {
       // User is verified
       return res.json({ success: true, message: "OTP verified" });
@@ -270,5 +271,25 @@ export const verifyOTP = async (req, res) => {
   } catch (err) {
     console.error("Twilio Verify OTP Error:", err);
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/**
+ * Get all business users
+ */
+export const getBusinessUsers = async (req, res) => {
+  try {
+    const businessUsers = await UserDAO.getBusinessUsers();
+
+    // Map phone to phone_no for frontend compatibility
+    const formattedUsers = businessUsers.map((user) => ({
+      ...user,
+      phone_no: user.phone,
+    }));
+
+    res.json(formattedUsers);
+  } catch (error) {
+    console.error("Error fetching business users:", error);
+    res.status(500).json({ error: "Failed to fetch business users" });
   }
 };

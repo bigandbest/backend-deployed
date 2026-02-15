@@ -9,12 +9,12 @@ class UserDAO {
       });
     } catch (error) {
       // Handle unique constraint violation on email (P2002)
-      if (error.code === 'P2002' && error.meta?.target?.includes('email')) {
+      if (error.code === "P2002" && error.meta?.target?.includes("email")) {
         console.log("UserDAO: Email conflict detected. Archiving old user.");
 
         // Find conflicting user
         const conflictingUser = await prisma.users.findUnique({
-          where: { email: data.email }
+          where: { email: data.email },
         });
 
         if (conflictingUser && conflictingUser.id !== data.id) {
@@ -23,10 +23,12 @@ class UserDAO {
           // Archive old user
           await prisma.users.update({
             where: { id: conflictingUser.id },
-            data: { email: archivedEmail }
+            data: { email: archivedEmail },
           });
 
-          console.log(`UserDAO: Archived user ${conflictingUser.id} to ${archivedEmail}`);
+          console.log(
+            `UserDAO: Archived user ${conflictingUser.id} to ${archivedEmail}`,
+          );
 
           // Retry creation
           return await prisma.users.create({
@@ -231,6 +233,27 @@ class UserDAO {
     return await prisma.users.update({
       where: { id: userId },
       data: { password: hashedPassword },
+    });
+  }
+  async getBusinessUsers() {
+    return await prisma.users.findMany({
+      where: {
+        business_type: {
+          not: null,
+        },
+      },
+      select: {
+        id: true,
+        first_name: true,
+        last_name: true,
+        business_type: true,
+        pan: true,
+        gstin: true,
+        phone: true,
+        created_at: true,
+        email: true,
+      },
+      orderBy: { created_at: "desc" },
     });
   }
 }

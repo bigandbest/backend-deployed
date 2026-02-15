@@ -438,6 +438,23 @@ model partners {
   updated_at DateTime? @default(now()) @db.Timestamptz(6)
 }
 
+model business_partner_inquiries {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  full_name        String    @db.VarChar
+  email            String    @db.VarChar
+  phone            String    @db.VarChar
+  city             String    @db.VarChar
+  state            String    @db.VarChar
+  partnership_type String    @db.VarChar
+  message          String?
+  status           String?   @default("Pending") @db.VarChar
+  created_at       DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([created_at], map: "idx_business_partner_inquiries_created_at")
+  @@index([status], map: "idx_business_partner_inquiries_status")
+}
+
 model payment_retry_logs {
   id                 String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   scheduled_order_id String                @db.Uuid
@@ -588,14 +605,14 @@ model product_sections {
   description                String?
   created_at                 DateTime?                      @default(now()) @db.Timestamp(6)
   updated_at                 DateTime?                      @default(now()) @db.Timestamp(6)
+  allow_category_mapping     Boolean?                       @default(false)
+  allow_group_mapping        Boolean?                       @default(false)
+  is_marketing               Boolean?                       @default(false)
   product_section_categories product_section_categories[]
   product_section_groups     product_section_groups[]
   section_products           product_section_products[]
   subcategory_mappings       section_subcategory_mappings[]
   store_section_mappings     store_section_mappings[]
-  is_marketing               Boolean?                       @default(false)
-  allow_group_mapping        Boolean?                       @default(false)
-  allow_category_mapping     Boolean?                       @default(false)
 }
 
 model product_variants {
