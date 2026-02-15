@@ -138,7 +138,15 @@ const createApp = () => {
   // Middleware
   app.use(
     cors({
-      origin: true,
+      origin: [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "https://admin-deployed.vercel.app",
+        "https://big-best-frontend.vercel.app",
+        "https://api.amitdev.tech",
+        "https://big-best-backend.vercel.app",
+      ],
       methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
       exposedHeaders: ["Authorization"],
       allowedHeaders: [
