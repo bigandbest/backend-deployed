@@ -263,8 +263,16 @@ export const verifyOTP = async (req, res) => {
 
     // Verify OTP logic...
     if (response.status === "approved") {
-      // User is verified
-      return res.json({ success: true, message: "OTP verified" });
+      // User is verified, now login or signup
+      const result = await AuthService.loginOrSignupWithOTP(formattedPhone);
+
+      return res.json({
+        success: true,
+        message: "OTP verified",
+        user: result.user,
+        token: result.token,
+        refreshToken: result.refreshToken,
+      });
     }
 
     res.status(400).json({ success: false, message: "Invalid OTP" });

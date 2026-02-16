@@ -2,6 +2,7 @@
 import { supabase } from "../config/supabaseClient.js";
 import prisma from "../config/prisma.js";
 import WalletDAO from "../dao/wallet.dao.js";
+import OrderDAO from "../dao/order.dao.js";
 import crypto from "crypto";
 import Razorpay from "razorpay";
 // import { createNotificationHelper } from "./NotificationHelpers.js";
@@ -836,35 +837,36 @@ export const createWalletOrder = async (req, res) => {
     }
 
     // Prepare Order Items for atomic creation
+    // Prepare Order Items for atomic creation
     let orderItemsData = [];
     if (items && items.length > 0) {
       orderItemsData = items.map(item => ({
-        product_id: String(item.product_id),
+        variant_id: String(item.variant_id || item.product_id), // Use variant_id if available
         quantity: parseInt(item.quantity),
         price: parseFloat(item.price),
       }));
     } else if (product_id) {
+      // If single product purchase, check if variant_id is provided in body
+      const variantIdToUse = req.body.variant_id || product_id;
       orderItemsData.push({
-        product_id: String(product_id),
+        variant_id: String(variantIdToUse),
         quantity: parseInt(quantity),
         price: totalPrice / parseInt(quantity)
       });
     }
 
-    // Create order data with nested items
+    // Create order data with nested items - strictly matching schema
     const orderCreateData = {
       user_id: String(user_id),
-      user_name: String(user_name),
-      user_email: user_email ? String(user_email) : null,
-      user_location: user_location ? String(user_location) : null,
-      product_name: String(product_name),
-      product_total_price: totalPrice,
-      address: String(user_address),
+      address: String(user_address), // Assuming address maps to 'address' column
       payment_method: 'wallet',
       status: 'pending',
-      total: totalPrice,
-      subtotal: totalPrice,
+      total: parseFloat(totalPrice),
+      subtotal: parseFloat(totalPrice), // Simplified for now
       shipping: 0,
+      // Map other fields if they exist in schema
+      receiver_name: user_name, // Mapping user_name to receiver_name
+      mobile: mobile ? String(mobile) : null,
       order_items: {
         create: orderItemsData
       }
