@@ -119,6 +119,64 @@ class AuthService {
   }
 
   /**
+   * Login or Signup with OTP
+   * @param {string} phone - User phone number
+   * @returns {Promise<Object>} User and tokens
+   */
+  async loginOrSignupWithOTP(phone) {
+    // Check if user exists
+    let user = await UserDAO.getUserByPhone(phone);
+
+    if (!user) {
+      // Create new user if not exists
+      // Generate a random password since they are using OTP
+      const randomPassword = Math.random().toString(36).slice(-8);
+      const hashedPassword = await hashPassword(randomPassword);
+
+      // Generate unique email based on phone if not provided
+      const email = `${phone.replace(/\+/g, "")}@bigbestmart.com`;
+
+      const userData = {
+        email,
+        password: hashedPassword,
+        name: "User", // Default name
+        phone,
+        role: "USER",
+        is_active: true,
+        created_at: new Date(),
+        last_login: new Date(),
+      };
+
+      try {
+        user = await UserDAO.createUser(userData);
+      } catch (error) {
+        // If email exists (edge case where phone didn't match but generated email did?? Unlikely with phone-based email)
+        // Or if phone constraint failed
+        throw error;
+      }
+    } else {
+      // Update last login
+      await UserDAO.updateUser(user.id, { last_login: new Date() });
+    }
+
+    // Remove password from response
+    const { password: _, ...userWithoutPassword } = user;
+
+    // Generate tokens
+    const token = this.generateToken(user);
+    const refreshToken = generateRefreshToken({
+      id: user.id,
+      email: user.email,
+    });
+
+    return {
+      user: userWithoutPassword,
+      token,
+      refreshToken,
+    };
+  }
+
+  /**
    * Generate JWT token for user
    * @param {Object} user - User object
    * @returns {string} JWT token

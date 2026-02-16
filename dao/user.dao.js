@@ -77,6 +77,12 @@ class UserDAO {
     });
   }
 
+  async getUserByPhone(phone) {
+    return await prisma.users.findFirst({
+      where: { phone },
+    });
+  }
+
   async updateUser(id, data) {
     return await prisma.users.update({
       where: { id },

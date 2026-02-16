@@ -1451,7 +1451,7 @@ export const checkCartAvailability = async (req, res) => {
 
     for (const item of items) {
       const { product_id, quantity } = item;
-      const product = await productDao.getById(product_id);
+      const product = await productDao.getProductById(product_id);
       if (!product) {
         results.push({ product_id, available: false, error: "Product not found" });
         allAvailable = false;

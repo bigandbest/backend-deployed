@@ -7,10 +7,16 @@ import {
 } from "../utils/jwtUtils.js";
 
 const authenticate = (req, res, next) => {
-  const token = req.cookies?.token;
+  let token = req.cookies?.token;
+
+  // Check for Bearer token if cookie is missing
+  if (!token && req.headers.authorization?.startsWith("Bearer ")) {
+    token = req.headers.authorization.split(" ")[1];
+  }
+
   if (!token) {
-    console.log("No cookie token found");
-    return next(new Error("No cookie token"));
+    console.log("No cookie or Bearer token found");
+    return next(new Error("No authentication token found"));
   }
 
   try {
