@@ -97,7 +97,7 @@ export const getProductsByCategory = async (req, res) => {
 
 export const getAllCategories = async (req, res) => {
   try {
-    const categories = await categoryDao.list({ active: true });
+    const categories = await categoryDao.listCategories(true);
 
     const transformedCategories = categories.map((cat) => ({
       id: cat.id,
