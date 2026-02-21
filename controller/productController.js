@@ -16,18 +16,30 @@ const VARIANT_JOIN = "product_variants(*)";
 
 // Helper for consistency in transformations
 const transformProduct = (product, assignments = []) => {
-  const activeVariants = (product.variants || []).filter(v => v.active !== false);
-  const defaultVariant = activeVariants.find(v => v.is_default === true);
+  if (!product) return null;
+  const activeVariants = (product.variants || product.product_variants || []).filter(v => v.active !== false);
+  const defaultVariant = activeVariants.find(v => v.is_default === true) || activeVariants[0];
+
+  // Robustly handle category being an object (Prisma) or a string (Supabase fallback)
+  const categoryName = (typeof product.category === 'object' ? product.category?.name : product.category)
+    || product.category_name
+    || "Product";
+
+  // Robustly handle brand being nested (Prisma brands array), singular field, or brand_name
+  const brandName = (product.brands?.[0]?.brand?.name || product.brand?.name || product.brand_name || "BigandBest");
+
+  const productPrice = parseFloat((product.price || (defaultVariant?.variant_price || defaultVariant?.price) || 0).toString().replace(/,/g, ""));
+  const productOldPrice = parseFloat((product.old_price || product.oldPrice || (defaultVariant?.variant_old_price || defaultVariant?.old_price) || (productPrice * 1.2)).toString().replace(/,/g, ""));
 
   return {
     id: product.id,
     name: product.name,
     description: product.description,
-    price: product.price,
-    oldPrice: product.old_price,
+    price: productPrice,
+    oldPrice: productOldPrice,
     rating: product.rating || 4.0,
-    reviews: product.review_count || 0,
-    discount: product.discount || 0,
+    reviews: product.review_count || product.reviews || 0,
+    discount: product.discount || product.discount_percentage || 0,
     image: product.image,
     images: product.images,
     inStock: (product.stock_quantity || product.stock || 0) > 0,
@@ -37,9 +49,9 @@ const transformProduct = (product, assignments = []) => {
     featured: product.featured,
     most_orders: product.most_orders,
     top_sale: product.top_sale,
-    category: product.category?.name || product.category_name || product.category,
-    weight: product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
-    brand: product.brand_name || "BigandBest",
+    category: categoryName,
+    weight: product.uom || product.weight || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
+    brand: brandName,
     shipping_amount: product.shipping_amount || 0,
     specifications: product.specifications,
     created_at: product.created_at,
@@ -50,9 +62,16 @@ const transformProduct = (product, assignments = []) => {
     hasVariants: activeVariants.length > 0,
     variants: activeVariants,
     defaultVariant: defaultVariant || null,
-    warehouse_assignments: assignments
+    warehouse_assignments: assignments,
+    // compatibility fields for different frontend components
+    originalPrice: productPrice,
+    originalOldPrice: productOldPrice,
+    cardPrice: productPrice,
+    cardOldPrice: productOldPrice,
+    delivery_available: true
   };
 };
+
 
 export const getAllProducts = async (req, res) => {
   try {
@@ -62,9 +81,11 @@ export const getAllProducts = async (req, res) => {
       { limit: 1000, page: 1 },
     );
 
+    const transformedItems = (products.items || []).map(item => transformProduct(item));
+
     res.status(200).json({
       success: true,
-      products: products.items || [],
+      products: transformedItems,
       total: products.total || 0,
     });
   } catch (err) {
@@ -443,34 +464,7 @@ export const getProductsByDeliveryZone = async (req, res) => {
     }
 
     // Transform products
-    const transformedProducts = products.map((product) => ({
-      id: product.id,
-      name: product.name,
-      description: product.description,
-      price: product.price,
-      oldPrice: product.old_price,
-      rating: product.rating || 4.0,
-      reviews: product.review_count || 0,
-      discount: product.discount || 0,
-      image: product.image,
-      images: product.images,
-      inStock: (product.stock || 0) > 0,
-      stock: product.stock || 0,
-      popular: product.popular,
-      featured: product.featured,
-      category: product.category,
-      weight:
-        product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
-      brand: product.brand_name || "BigandBest",
-      shipping_amount: product.shipping_amount || 0,
-      delivery_type: product.delivery_type,
-      delivery_available: true,
-      created_at: product.created_at,
-      hasVariants: product.product_variants?.length > 0,
-      variants: product.product_variants || [],
-      defaultVariant:
-        product.product_variants?.find((v) => v.is_default === true) || null,
-    }));
+    const transformedProducts = products.map((product) => transformProduct(product));
 
     res.status(200).json({
       success: true,
@@ -743,50 +737,7 @@ export const getQuickPicks = async (req, res) => {
     console.log("Quick picks data:", products.length, "products found");
 
     // Transform the data to match frontend expectations
-    const transformedProducts = products.map((product) => {
-      const defaultVariant = product.product_variants?.find(
-        (v) => v.is_default === true
-      );
-
-      return {
-        id: product.id,
-        name: product.name,
-        description: product.description,
-        // ✅ ALWAYS use main product pricing for card display (NEVER variant pricing)
-        price: product.price,
-        oldPrice: product.old_price,
-        rating: product.rating || 4.0,
-        reviews: product.review_count || 0,
-        discount: product.discount || 0,
-        image: product.image,
-        images: product.images,
-        inStock: (product.stock || 0) > 0,
-        stock: product.stock || 0,
-        popular: product.popular,
-        featured: product.featured,
-        most_orders: product.most_orders,
-        top_sale: product.top_sale,
-        category: product.category,
-        category_info: product.categories,
-        weight:
-          product.uom ||
-          `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
-        brand: product.brand_name || "BigandBest",
-        shipping_amount: product.shipping_amount || 0,
-        specifications: product.specifications,
-        created_at: product.created_at,
-        hasVariants: product.product_variants?.length > 0,
-        variants: product.product_variants || [],
-        defaultVariant: defaultVariant,
-        // ✅ Preserve original product data (for card display)
-        originalPrice: product.price,
-        originalOldPrice: product.old_price,
-        originalStock: product.stock || 0,
-        // ✅ Ensure main product data is never overridden
-        cardPrice: product.price,
-        cardOldPrice: product.old_price,
-      };
-    });
+    const transformedProducts = products.map((product) => transformProduct(product));
 
     res.status(200).json({
       success: true,
