@@ -750,6 +750,59 @@ export const getQuickPicks = async (req, res) => {
   }
 };
 
+// BBM Super Saver - Top 50 lowest priced products
+export const getSuperSaver = async (req, res) => {
+  try {
+    const products = await productDao.getSuperSaver(50);
+    const transformed = products.map(p => transformProduct(p));
+
+    res.status(200).json({
+      success: true,
+      products: transformed,
+      total: transformed.length
+    });
+  } catch (error) {
+    console.error("getSuperSaver error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// New Arrivals - Latest 100 products
+export const getNewArrivals = async (req, res) => {
+  try {
+    const products = await productDao.getNewArrivals(100);
+    const transformed = products.map(p => transformProduct(p));
+
+    res.status(200).json({
+      success: true,
+      products: transformed,
+      total: transformed.length
+    });
+  } catch (error) {
+    console.error("getNewArrivals error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Get related products by subcategory (for single product page)
+export const getRelatedProductsBySubcategory = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const products = await productDao.getRelatedProductsBySubcategory(productId, 10);
+    const transformed = products.map(p => transformProduct(p));
+
+    res.status(200).json({
+      success: true,
+      products: transformed,
+      total: transformed.length
+    });
+  } catch (error) {
+    console.error("getRelatedProductsBySubcategory error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+
 // Get products by subcategory
 export const getProductsBySubcategory = async (req, res) => {
   try {
