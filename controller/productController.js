@@ -16,190 +16,43 @@ const VARIANT_JOIN = "product_variants(*)";
 
 // Helper for consistency in transformations
 const transformProduct = (product, assignments = []) => {
-  if (!product) return null;
-
-  // Support both Prisma (variants) and Supabase (product_variants) field names
-  const rawVariants = product.variants || product.product_variants || [];
-  const activeVariants = rawVariants.filter(v => v.active !== false);
-  const defaultVariant = activeVariants.find(v => v.is_default === true) || activeVariants[0];
-
-  // === SAFELY EXTRACT STRINGS - never pass objects to frontend ===
-
-  // Category name: handle Prisma object {id,name} OR plain string
-  const categoryName =
-    (typeof product.category === 'object' && product.category !== null
-      ? product.category?.name
-      : product.category) ||
-    product.category_name ||
-    "";
-
-  // Subcategory name
-  const subcategoryName =
-    (typeof product.subcategory === 'object' && product.subcategory !== null
-      ? product.subcategory?.name
-      : product.subcategory) ||
-    product.subcategory_name ||
-    "";
-
-  // Group name
-  const groupName =
-    (typeof product.group === 'object' && product.group !== null
-      ? product.group?.name
-      : product.group) ||
-    product.group_name ||
-    "";
-
-  // Store name: handle both store (join) and product_recommended_store
-  const storeName =
-    (typeof product.store === 'object' && product.store !== null
-      ? product.store?.name
-      : product.store) ||
-    product.store_name ||
-    "";
-
-  // Brand name: handle Prisma brands[] join array, singular brand object, or plain string
-  const brandName =
-    product.brand_name ||
-    product.brand?.name ||
-    product.brands?.[0]?.brand?.name ||
-    "";
-
-  const brandId =
-    product.brand_id ||
-    product.brands?.[0]?.brand_id ||
-    product.brands?.[0]?.brand?.id ||
-    null;
-
-  // Price resolution — variants use 'price' in new schema, 'variant_price' in old
-  const rawPrice = defaultVariant?.price ?? defaultVariant?.variant_price ?? product.price ?? 0;
-  const rawOldPrice = defaultVariant?.old_price ?? defaultVariant?.variant_old_price ?? product.old_price ?? (parseFloat(rawPrice) * 1.2);
-  const productPrice = parseFloat(rawPrice.toString().replace(/,/g, "")) || 0;
-  const productOldPrice = parseFloat(rawOldPrice.toString().replace(/,/g, "")) || 0;
-  const discountPct = defaultVariant?.discount_percentage ?? product.discount ?? product.discount_percentage ?? 0;
-
-  // Stock resolution — check variant/product-level inventory.
-  // IMPORTANT: if NO inventory records exist, default to "in-stock" (99)
-  // so that seeded products without inventory aren't shown as OUT OF STOCK.
-  const hasInventoryData =
-    defaultVariant?.stock_info != null ||
-    (defaultVariant?.inventory && defaultVariant.inventory.length > 0) ||
-    product.stock_quantity != null ||
-    product.stock != null;
-
-  const rawStockQty =
-    defaultVariant?.stock_info?.available_stock ??
-    defaultVariant?.inventory?.[0]?.stock_qty ??
-    product.stock_quantity ??
-    product.stock ??
-    null;
-
-  const stockQty = rawStockQty !== null ? rawStockQty : (hasInventoryData ? 0 : 99);
-
-  // Safely flatten defaultVariant — only expose primitive fields
-  const safeDefaultVariant = defaultVariant ? {
-    id: defaultVariant.id,
-    product_id: defaultVariant.product_id,
-    sku: defaultVariant.sku,
-    title: defaultVariant.title || defaultVariant.variant_name,
-    price: productPrice,
-    old_price: productOldPrice,
-    discount_percentage: discountPct,
-    is_default: defaultVariant.is_default,
-    active: defaultVariant.active,
-    packaging_details: defaultVariant.packaging_details,
-    net_quantity: defaultVariant.net_quantity,
-    photo_url: defaultVariant.photo_url || defaultVariant.variant_image_url || null,
-    shipping_amount: parseFloat(defaultVariant.shipping_amount) || 0,
-    is_bulk_enabled: defaultVariant.is_bulk_enabled || false,
-    bulk_price: defaultVariant.bulk_price ? parseFloat(defaultVariant.bulk_price) : null,
-    bulk_min_quantity: defaultVariant.bulk_min_quantity || null,
-    bulk_discount_percentage: defaultVariant.bulk_discount_percentage || 0,
-    inStock: stockQty > 0,
-    availableStock: stockQty,
-  } : null;
-
-  // Safe variant list — only expose primitives per variant
-  const safeVariants = activeVariants.map(v => ({
-    id: v.id,
-    sku: v.sku,
-    title: v.title || v.variant_name,
-    price: parseFloat((v.price || v.variant_price || 0).toString()),
-    old_price: parseFloat((v.old_price || v.variant_old_price || 0).toString()),
-    discount_percentage: v.discount_percentage || 0,
-    is_default: v.is_default,
-    active: v.active,
-    packaging_details: v.packaging_details,
-    net_quantity: v.net_quantity,
-    photo_url: v.photo_url || v.variant_image_url || null,
-    shipping_amount: parseFloat(v.shipping_amount) || 0,
-    is_bulk_enabled: v.is_bulk_enabled || false,
-    inStock: (v.stock_info?.available_stock ?? v.inventory?.[0]?.stock_qty ?? 0) > 0,
-  }));
-
-  // Safe images
-  const images = (product.media || product.images || []).map(m =>
-    typeof m === 'string' ? m : (m?.url || "")
-  ).filter(Boolean);
+  const activeVariants = (product.variants || []).filter(v => v.active !== false);
+  const defaultVariant = activeVariants.find(v => v.is_default === true);
 
   return {
-    // === IDs ===
     id: product.id,
-    category_id: product.category_id,
-    subcategory_id: product.subcategory_id,
-    group_id: product.group_id,
-
-    // === Strings only — no nested objects ===
-    name: product.name || "",
-    description: product.description || "",
-    category: categoryName,         // always a string
-    category_name: categoryName,
-    subcategory: subcategoryName,   // always a string
-    subcategory_name: subcategoryName,
-    group: groupName,               // always a string
-    group_name: groupName,
-    store: storeName,               // always a string
-    store_name: storeName,
-    brand: brandName,               // always a string
-    brand_name: brandName,
-    brand_id: brandId,
-
-    // === Pricing ===
-    price: productPrice,
-    oldPrice: productOldPrice,
-    old_price: productOldPrice,
-    discount: discountPct,
-
-    // === Media ===
-    image: images[0] || "",
-    images: images,
-
-    // === Stock ===
-    inStock: stockQty > 0,
-    stock: stockQty,
-    stockQuantity: stockQty,
-
-    // === Product flags ===
-    rating: parseFloat(product.rating) || 0,
-    reviews: product.review_count || product.reviews || 0,
-    hasVariants: safeVariants.length > 0,
-    return_applicable: product.return_applicable !== false,
-    return_days: product.return_days || 0,
-    vertical: product.vertical || "qwik",
-    active: product.active !== false,
-    created_at: product.created_at,
-
-    // === Variants (safe - no nested objects) ===
-    variants: safeVariants,
-    defaultVariant: safeDefaultVariant,
-
-    // === Misc ===
+    name: product.name,
+    description: product.description,
+    price: product.price,
+    oldPrice: product.old_price,
+    rating: product.rating || 4.0,
+    reviews: product.review_count || 0,
+    discount: product.discount || 0,
+    image: product.image,
+    images: product.images,
+    inStock: (product.stock_quantity || product.stock || 0) > 0,
+    stock: product.stock_quantity || product.stock || 0,
+    stockQuantity: product.stock_quantity || product.stock || 0,
+    popular: product.popular,
+    featured: product.featured,
+    most_orders: product.most_orders,
+    top_sale: product.top_sale,
+    category: product.category?.name || product.category_name || product.category,
+    weight: product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
+    brand: product.brand_name || "BigandBest",
     shipping_amount: product.shipping_amount || 0,
-    warehouse_assignments: assignments,
-    delivery_available: true,
+    specifications: product.specifications,
+    created_at: product.created_at,
+    delivery_type: product.delivery_type || "nationwide",
+    return_applicable: product.return_applicable !== false,
+    return_days: product.return_days || 7,
+    quick_delivery: product.quick_delivery || false,
+    hasVariants: activeVariants.length > 0,
+    variants: activeVariants,
+    defaultVariant: defaultVariant || null,
+    warehouse_assignments: assignments
   };
 };
-
-
 
 export const getAllProducts = async (req, res) => {
   try {
@@ -209,11 +62,9 @@ export const getAllProducts = async (req, res) => {
       { limit: 1000, page: 1 },
     );
 
-    const transformedItems = (products.items || []).map(item => transformProduct(item));
-
     res.status(200).json({
       success: true,
-      products: transformedItems,
+      products: products.items || [],
       total: products.total || 0,
     });
   } catch (err) {
@@ -246,7 +97,7 @@ export const getProductsByCategory = async (req, res) => {
 
 export const getAllCategories = async (req, res) => {
   try {
-    const categories = await categoryDao.listCategories(true);
+    const categories = await categoryDao.list({ active: true });
 
     const transformedCategories = categories.map((cat) => ({
       id: cat.id,
@@ -424,33 +275,19 @@ export const getProductById = async (req, res) => {
 
     const transformedProduct = transformProduct(product);
 
-    // Re-attach raw Prisma relation objects needed by the single-product page
-    // (which reads product.brands[0].brand.name, product.category.name, etc.)
     res.status(200).json({
       success: true,
       product: {
         ...transformedProduct,
-        // Raw relation objects the single-product page JSX reads directly
-        brands: product.brands || [],
-        category: product.category || null,          // { id, name } object
-        subcategory: product.subcategory || null,    // { id, name } object
-        group: product.group || null,               // { id, name } object
-        store: product.store || null,               // { id, name } object
-        product_recommended_store: product.product_recommended_store || [],
-        // Additional flat fields
         delivery_info: deliveryInfo,
         store_id: product.store_id,
         store_name: product.store?.name || null,
-        brand_id: transformedProduct.brand_id,
-        brand_name: transformedProduct.brand,
+        brand_id: product.brand_id,
+        brand_name: product.brand_name,
         enable_bulk_pricing: product.enable_bulk_pricing,
         bulk_min_quantity: product.bulk_min_quantity,
         bulk_discount_percentage: product.bulk_discount_percentage,
         faq: product.faq,
-        reviews: product.reviews || [],
-        hsn_or_sac_code: product.hsn_or_sac_code,
-        gst_rate: product.gst_rate,
-        cess_rate: product.cess_rate,
       },
     });
   } catch (error) {
@@ -606,7 +443,34 @@ export const getProductsByDeliveryZone = async (req, res) => {
     }
 
     // Transform products
-    const transformedProducts = products.map((product) => transformProduct(product));
+    const transformedProducts = products.map((product) => ({
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      oldPrice: product.old_price,
+      rating: product.rating || 4.0,
+      reviews: product.review_count || 0,
+      discount: product.discount || 0,
+      image: product.image,
+      images: product.images,
+      inStock: (product.stock || 0) > 0,
+      stock: product.stock || 0,
+      popular: product.popular,
+      featured: product.featured,
+      category: product.category,
+      weight:
+        product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
+      brand: product.brand_name || "BigandBest",
+      shipping_amount: product.shipping_amount || 0,
+      delivery_type: product.delivery_type,
+      delivery_available: true,
+      created_at: product.created_at,
+      hasVariants: product.product_variants?.length > 0,
+      variants: product.product_variants || [],
+      defaultVariant:
+        product.product_variants?.find((v) => v.is_default === true) || null,
+    }));
 
     res.status(200).json({
       success: true,
@@ -879,7 +743,50 @@ export const getQuickPicks = async (req, res) => {
     console.log("Quick picks data:", products.length, "products found");
 
     // Transform the data to match frontend expectations
-    const transformedProducts = products.map((product) => transformProduct(product));
+    const transformedProducts = products.map((product) => {
+      const defaultVariant = product.product_variants?.find(
+        (v) => v.is_default === true
+      );
+
+      return {
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        // ✅ ALWAYS use main product pricing for card display (NEVER variant pricing)
+        price: product.price,
+        oldPrice: product.old_price,
+        rating: product.rating || 4.0,
+        reviews: product.review_count || 0,
+        discount: product.discount || 0,
+        image: product.image,
+        images: product.images,
+        inStock: (product.stock || 0) > 0,
+        stock: product.stock || 0,
+        popular: product.popular,
+        featured: product.featured,
+        most_orders: product.most_orders,
+        top_sale: product.top_sale,
+        category: product.category,
+        category_info: product.categories,
+        weight:
+          product.uom ||
+          `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
+        brand: product.brand_name || "BigandBest",
+        shipping_amount: product.shipping_amount || 0,
+        specifications: product.specifications,
+        created_at: product.created_at,
+        hasVariants: product.product_variants?.length > 0,
+        variants: product.product_variants || [],
+        defaultVariant: defaultVariant,
+        // ✅ Preserve original product data (for card display)
+        originalPrice: product.price,
+        originalOldPrice: product.old_price,
+        originalStock: product.stock || 0,
+        // ✅ Ensure main product data is never overridden
+        cardPrice: product.price,
+        cardOldPrice: product.old_price,
+      };
+    });
 
     res.status(200).json({
       success: true,
@@ -891,59 +798,6 @@ export const getQuickPicks = async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 };
-
-// BBM Super Saver - Top 50 lowest priced products
-export const getSuperSaver = async (req, res) => {
-  try {
-    const products = await productDao.getSuperSaver(50);
-    const transformed = products.map(p => transformProduct(p));
-
-    res.status(200).json({
-      success: true,
-      products: transformed,
-      total: transformed.length
-    });
-  } catch (error) {
-    console.error("getSuperSaver error:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-};
-
-// New Arrivals - Latest 100 products
-export const getNewArrivals = async (req, res) => {
-  try {
-    const products = await productDao.getNewArrivals(100);
-    const transformed = products.map(p => transformProduct(p));
-
-    res.status(200).json({
-      success: true,
-      products: transformed,
-      total: transformed.length
-    });
-  } catch (error) {
-    console.error("getNewArrivals error:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-};
-
-// Get related products by subcategory (for single product page)
-export const getRelatedProductsBySubcategory = async (req, res) => {
-  try {
-    const { productId } = req.params;
-    const products = await productDao.getRelatedProductsBySubcategory(productId, 10);
-    const transformed = products.map(p => transformProduct(p));
-
-    res.status(200).json({
-      success: true,
-      products: transformed,
-      total: transformed.length
-    });
-  } catch (error) {
-    console.error("getRelatedProductsBySubcategory error:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-};
-
 
 // Get products by subcategory
 export const getProductsBySubcategory = async (req, res) => {
@@ -1130,15 +984,7 @@ export const getRelatedProducts = async (req, res) => {
       return res.status(400).json({ success: false, error: "product_ids array is required" });
     }
 
-    // Filter out non-UUID IDs (e.g. old-style IDs with underscores) to prevent Prisma P2023 crash
-    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const validIds = product_ids.filter(id => typeof id === 'string' && UUID_REGEX.test(id));
-
-    if (validIds.length === 0) {
-      return res.status(200).json({ success: true, products: [] });
-    }
-
-    const products = await productDao.getRelatedProducts(validIds);
+    const products = await productDao.getRelatedProducts(product_ids);
     const transformedProducts = products.map(product => transformProduct(product));
 
     res.status(200).json({
@@ -1547,7 +1393,7 @@ export const checkCartAvailability = async (req, res) => {
 
     for (const item of items) {
       const { product_id, quantity } = item;
-      const product = await productDao.getProductById(product_id);
+      const product = await productDao.getById(product_id);
       if (!product) {
         results.push({ product_id, available: false, error: "Product not found" });
         allAvailable = false;
@@ -1687,6 +1533,64 @@ export const monitorAndAutoTransfer = async (req, res) => {
     res.json({ success: true, message: `Processed ${transfers.length} transfers` });
   } catch (error) {
     console.error("Error in monitorAndAutoTransfer:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+// NEW: New Arrivals - Latest 100 products
+export const getNewArrivals = async (req, res) => {
+  try {
+    const products = await productDao.getNewArrivals(100);
+    const transformedProducts = products.map(product => transformProduct(product));
+
+    res.status(200).json({
+      success: true,
+      products: transformedProducts,
+      total: transformedProducts.length,
+    });
+  } catch (error) {
+    console.error("Error in getNewArrivals:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+// NEW: BBM Super Saver - Top 50 lowest price
+export const getSuperSaver = async (req, res) => {
+  try {
+    const products = await productDao.getSuperSaver(50);
+    const transformedProducts = products.map(product => transformProduct(product));
+
+    res.status(200).json({
+      success: true,
+      products: transformedProducts,
+      total: transformedProducts.length,
+    });
+  } catch (error) {
+    console.error("Error in getSuperSaver:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+// NEW: Related products by subcategory for single product page
+export const getRelatedProductsBySubcategory = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const { limit = 10 } = req.query;
+
+    if (!productId) {
+      return res.status(400).json({ success: false, error: "Product ID is required" });
+    }
+
+    const products = await productDao.getRelatedProductsBySubcategory(productId, parseInt(limit));
+    const transformedProducts = products.map(product => transformProduct(product));
+
+    res.status(200).json({
+      success: true,
+      products: transformedProducts,
+      total: transformedProducts.length,
+    });
+  } catch (error) {
+    console.error("Error in getRelatedProductsBySubcategory:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
   }
 };
