@@ -121,6 +121,9 @@ class ProductDAO {
                 select: {
                     id: true,
                     sku: true,
+                    title: true,
+                    net_quantity: true,
+                    photo_url: true,
                     price: true,
                     old_price: true,
                     discount_percentage: true,
@@ -131,6 +134,11 @@ class ProductDAO {
                     bulk_min_quantity: true,
                     bulk_discount_percentage: true,
                     bulk_price: true,
+                    // Include inventory for stock status
+                    inventory: {
+                        select: { stock_qty: true, reserved_qty: true },
+                        take: 1,
+                    },
                 },
             };
 
@@ -462,9 +470,24 @@ class ProductDAO {
             },
             take: limit,
             include: {
-                category: true,
-                variants: { where: { active: true } },
-                media: { orderBy: { sort_order: "asc" } },
+                category: { select: { id: true, name: true } },
+                subcategory: { select: { id: true, name: true } },
+                group: { select: { id: true, name: true } },
+                store: { select: { id: true, name: true } },
+                brands: {
+                    select: { brand: { select: { id: true, name: true } } },
+                    take: 1,
+                },
+                variants: {
+                    where: { active: true },
+                    include: { inventory: { select: { stock_qty: true }, take: 1 } },
+                },
+                media: {
+                    where: { is_primary: true },
+                    orderBy: { sort_order: 'asc' },
+                    take: 1,
+                    select: { url: true, media_type: true },
+                },
             },
             orderBy: { created_at: "desc" },
         });
@@ -496,9 +519,25 @@ class ProductDAO {
                     id: { in: productIds },
                 },
                 include: {
-                    category: true,
-                    variants: { where: { active: true }, orderBy: { price: "asc" } },
-                    media: { orderBy: { sort_order: "asc" } },
+                    category: { select: { id: true, name: true } },
+                    subcategory: { select: { id: true, name: true } },
+                    group: { select: { id: true, name: true } },
+                    store: { select: { id: true, name: true } },
+                    brands: {
+                        select: { brand: { select: { id: true, name: true } } },
+                        take: 1,
+                    },
+                    variants: {
+                        where: { active: true },
+                        orderBy: { price: "asc" },
+                        include: { inventory: { select: { stock_qty: true }, take: 1 } },
+                    },
+                    media: {
+                        where: { is_primary: true },
+                        orderBy: { sort_order: 'asc' },
+                        take: 1,
+                        select: { url: true, media_type: true },
+                    },
                 },
             });
 
@@ -612,7 +651,24 @@ class ProductDAO {
         return await prisma.products.findMany({
             where,
             include: {
-                variants: { where: { active: true } },
+                category: { select: { id: true, name: true } },
+                subcategory: { select: { id: true, name: true } },
+                group: { select: { id: true, name: true } },
+                store: { select: { id: true, name: true } },
+                brands: {
+                    select: { brand: { select: { id: true, name: true } } },
+                    take: 1,
+                },
+                variants: {
+                    where: { active: true },
+                    include: { inventory: { select: { stock_qty: true }, take: 1 } },
+                },
+                media: {
+                    where: { is_primary: true },
+                    orderBy: { sort_order: 'asc' },
+                    take: 1,
+                    select: { url: true, media_type: true },
+                },
             },
             orderBy: { created_at: "desc" },
         });

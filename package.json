@@ -14,6 +14,7 @@
     "build": "echo \"No build step required\"",
     "seed": "node seed-database.js",
     "seed:products": "node scripts/seed-products-from-excel.js",
+    "seed:products:admin": "node scripts/seed-products-admin-format.js",
     "seed:product-sections": "node scripts/seed-product-sections.js",
     "verify:product-sections": "node scripts/verify-product-sections.js",
     "start:cluster": "CLUSTER_MODE=true node server.js",

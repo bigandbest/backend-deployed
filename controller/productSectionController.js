@@ -578,17 +578,19 @@ export const getSectionWithContent = async (req, res) => {
 
       // Ensures fields match frontend expectation (similar to transformProduct)
       products = products.map(p => {
-        const stockQty = p.stock_info?.available_stock || 0;
+        // Default to in-stock (99) if no inventory data at all
+        const hasInventory = p.stock_info != null || p.stock_quantity != null || p.stock != null;
+        const stockQty = p.stock_info?.available_stock ?? p.stock_quantity ?? p.stock ?? (hasInventory ? 0 : 99);
         return {
           ...p,
           stock: stockQty,
           stock_quantity: stockQty,
-          inStock: stockQty > 0, // Frontend often checks 'inStock'
-          is_in_stock: stockQty > 0, // Keep snake_case for legacy compatibility if needed
+          inStock: stockQty > 0,
+          is_in_stock: stockQty > 0,
           // Ensure image field is set correctly if missing
           image: p.image || p.media?.find(m => m.is_primary)?.url || p.media?.[0]?.url || "",
           images: p.images || p.media?.map(m => m.url) || [],
-          brand: p.brands?.[0]?.brand?.name || "BigandBest"
+          brand: p.brands?.[0]?.brand?.name || p.brand || "BigandBest"
         };
       });
     }
