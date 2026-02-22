@@ -221,7 +221,7 @@ class WarehouseDAO {
         } else {
             return await prisma.product_warehouse_stock.create({
                 data: {
-                    warehouse_id: warehouseId,
+                    warehouse_id: numericId,
                     product_id: productId,
                     variant_id: variantId,
                     ...data,
