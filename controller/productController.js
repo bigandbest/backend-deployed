@@ -1537,7 +1537,7 @@ export const monitorAndAutoTransfer = async (req, res) => {
   }
 };
 
-// NEW: New Arrivals - Latest 100 products
+// Get New Arrivals - Latest 100 products
 export const getNewArrivals = async (req, res) => {
   try {
     const products = await productDao.getNewArrivals(100);
@@ -1554,7 +1554,7 @@ export const getNewArrivals = async (req, res) => {
   }
 };
 
-// NEW: BBM Super Saver - Top 50 lowest price
+// BBM Super Saver - Top 50 lowest price
 export const getSuperSaver = async (req, res) => {
   try {
     const products = await productDao.getSuperSaver(50);
@@ -1571,7 +1571,8 @@ export const getSuperSaver = async (req, res) => {
   }
 };
 
-// NEW: Related products by subcategory for single product page
+
+// Get related products by subcategory
 export const getRelatedProductsBySubcategory = async (req, res) => {
   try {
     const { productId } = req.params;
