@@ -1,7 +1,7 @@
-import { supabase } from "../config/supabaseClient.js";
+import prisma from "../config/prisma.js";
 
 /**
- * Unified search across products, categories, stores, and brands
+ * Unified search across products, categories, subcategories, stores, and brands
  * GET /api/search?q={query}
  */
 export async function unifiedSearch(req, res) {
@@ -17,61 +17,129 @@ export async function unifiedSearch(req, res) {
         }
 
         const searchQuery = q.trim();
-        const searchPattern = `%${searchQuery}%`;
 
-        // Parallel search across all entities
-        const [productsResult, categoriesResult, storesResult] = await Promise.all([
-            // Search products by name and category
-            supabase
-                .from("products")
-                .select("id, name, image, price, category, rating")
-                .or(`name.ilike.${searchPattern},category.ilike.${searchPattern}`)
-                .limit(5),
+        // Parallel search across all entities using Prisma
+        const [productsResult, categoriesResult, subcategoriesResult, storesResult, brandsResult] = await Promise.all([
+            // Search products by name, category, subcategory or brand name
+            prisma.products.findMany({
+                where: {
+                    active: true,
+                    OR: [
+                        { name: { contains: searchQuery, mode: 'insensitive' } },
+                        {
+                            category: {
+                                name: { contains: searchQuery, mode: 'insensitive' }
+                            }
+                        },
+                        {
+                            subcategory: {
+                                name: { contains: searchQuery, mode: 'insensitive' }
+                            }
+                        },
+                        {
+                            brands: {
+                                some: {
+                                    brand: {
+                                        name: { contains: searchQuery, mode: 'insensitive' }
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                },
+                select: {
+                    id: true,
+                    name: true,
+                    media: true,
+                    variants: {
+                        select: { price: true },
+                        take: 1
+                    },
+                    rating: true,
+                    category: {
+                        select: { name: true }
+                    }
+                },
+                take: 5
+            }),
 
-            // Search categories (get unique categories from products)
-            supabase
-                .from("products")
-                .select("category")
-                .ilike("category", searchPattern)
-                .limit(10), // Get more to filter unique
+            // Search categories directly
+            prisma.categories.findMany({
+                where: {
+                    name: { contains: searchQuery, mode: 'insensitive' },
+                    active: true
+                },
+                select: {
+                    id: true,
+                    name: true,
+                    image_url: true
+                },
+                take: 5
+            }),
+
+            // Search subcategories directly
+            prisma.subcategories.findMany({
+                where: {
+                    name: { contains: searchQuery, mode: 'insensitive' },
+                    active: true
+                },
+                select: {
+                    id: true,
+                    name: true,
+                    image_url: true,
+                    category_id: true
+                },
+                take: 5
+            }),
 
             // Search recommended stores
-            supabase
-                .from("recommended_store")
-                .select("id, name, image_url, description, is_active")
-                .ilike("name", searchPattern)
-                .eq("is_active", true)
-                .limit(5),
+            prisma.recommended_store.findMany({
+                where: {
+                    name: { contains: searchQuery, mode: 'insensitive' },
+                    is_active: true
+                },
+                select: {
+                    id: true,
+                    name: true,
+                    image_url: true,
+                    description: true,
+                    is_active: true
+                },
+                take: 5
+            }),
+
+            // Search brands directly
+            prisma.brand.findMany({
+                where: {
+                    name: { contains: searchQuery, mode: 'insensitive' }
+                },
+                select: {
+                    id: true,
+                    name: true,
+                    image_url: true
+                },
+                take: 5
+            }),
         ]);
 
-        // Handle errors
-        if (productsResult.error) {
-            console.error("Error searching products:", productsResult.error);
-        }
-        if (categoriesResult.error) {
-            console.error("Error searching categories:", categoriesResult.error);
-        }
-        if (storesResult.error) {
-            console.error("Error searching stores:", storesResult.error);
-        }
-
-        // Process categories to get unique values
-        const uniqueCategories = categoriesResult.data
-            ? [...new Set(categoriesResult.data.map((item) => item.category))]
-                .filter(Boolean)
-                .slice(0, 5)
-                .map((category) => ({ name: category }))
-            : [];
+        // Map and format results for the frontend
+        const formattedProducts = productsResult.map(p => ({
+            id: p.id,
+            name: p.name,
+            image: p.media?.[0]?.url || null,
+            price: p.variants?.[0]?.price || 0,
+            category: p.category?.name || null,
+            rating: p.rating
+        }));
 
         // Prepare response
         const results = {
-            products: productsResult.data || [],
-            categories: uniqueCategories,
-            stores: storesResult.data || [],
-            total:
-                (productsResult.data?.length || 0) +
-                uniqueCategories.length +
-                (storesResult.data?.length || 0),
+            products: formattedProducts,
+            categories: categoriesResult || [],
+            subcategories: subcategoriesResult || [],
+            stores: storesResult || [],
+            brands: brandsResult || [],
+            total: formattedProducts.length + categoriesResult.length + subcategoriesResult.length + storesResult.length + brandsResult.length,
         };
 
         return res.status(200).json({
@@ -104,29 +172,63 @@ export async function searchProducts(req, res) {
         }
 
         const searchQuery = q.trim();
-        const searchPattern = `%${searchQuery}%`;
+        const take = parseInt(limit);
+        const skip = parseInt(offset);
 
-        const { data, error, count } = await supabase
-            .from("products")
-            .select("*", { count: "exact" })
-            .or(`name.ilike.${searchPattern},category.ilike.${searchPattern}`)
-            .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
+        const whereClause = {
+            active: true,
+            OR: [
+                { name: { contains: searchQuery, mode: 'insensitive' } },
+                {
+                    category: {
+                        name: { contains: searchQuery, mode: 'insensitive' }
+                    }
+                },
+                {
+                    brands: {
+                        some: {
+                            brand: {
+                                name: { contains: searchQuery, mode: 'insensitive' }
+                            }
+                        }
+                    }
+                }
+            ]
+        };
 
-        if (error) {
-            console.error("Error searching products:", error);
-            return res.status(500).json({
-                success: false,
-                error: "Error searching products",
-            });
-        }
+        const [products, totalCount] = await Promise.all([
+            prisma.products.findMany({
+                where: whereClause,
+                skip,
+                take,
+                include: {
+                    media: true,
+                    category: true,
+                    variants: {
+                        take: 1
+                    }
+                }
+            }),
+            prisma.products.count({
+                where: whereClause
+            })
+        ]);
+
+        // Map data formatting for consistency
+        const formattedProducts = products.map(p => ({
+            ...p,
+            image: p.media?.[0]?.url || null,
+            price: p.variants?.[0]?.price || 0,
+            category: p.category?.name || p.category_id
+        }));
 
         return res.status(200).json({
             success: true,
             query: searchQuery,
-            products: data,
-            total: count,
-            limit: parseInt(limit),
-            offset: parseInt(offset),
+            products: formattedProducts,
+            total: totalCount,
+            limit: take,
+            offset: skip,
         });
     } catch (error) {
         console.error("Product search error:", error);
