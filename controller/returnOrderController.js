@@ -115,6 +115,9 @@ export const checkReturnEligibility = async (req, res) => {
       days_since_delivery: 0,
     };
 
+    let item_eligibility = {};
+    let atLeastOneEligible = false;
+
     const isCODOrder = ["cod", "cash", "cash on delivery"].some(method =>
       order.payment_method?.toLowerCase().includes(method)
     );

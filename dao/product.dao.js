@@ -622,6 +622,7 @@ class ProductDAO {
             maxPrice,
             rating,
             brandIds,
+            brandName,
             categoryId,
             subcategoryId,
             vertical,
@@ -633,7 +634,7 @@ class ProductDAO {
             category_id: categoryId,
             subcategory_id: subcategoryId,
             rating: rating ? { gte: rating } : undefined,
-            brands: brandIds ? { some: { brand_id: { in: brandIds } } } : undefined,
+            brands: brandName ? { some: { brand: { name: brandName } } } : (brandIds ? { some: { brand_id: { in: brandIds } } } : undefined),
             variants:
                 minPrice !== undefined || maxPrice !== undefined
                     ? {

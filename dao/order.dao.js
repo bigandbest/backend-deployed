@@ -53,9 +53,15 @@ class OrderDAO {
             coupon: true,
           },
         },
+        return_orders: {
+          include: {
+            return_order_items: true,
+          },
+        },
       },
     });
   }
+
 
   async update(id, data) {
     return await prisma.orders.update({
