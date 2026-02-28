@@ -316,15 +316,34 @@ export const getSellerOrders = async (req, res) => {
                 id: o.id,
                 order_number: o.order_number,
                 status: o.status,
+                total: o.total, // For frontend totalAmount
                 total_amount: o.total_amount,
+                totalAmount: o.total, // Added Explicitly for Rider App
                 customer_name: o.user?.name,
+                userAddress: o.address,
+                address: o.address,
+                userPincode: o.address?.split(',').pop()?.trim() || '',
+                createdAt: o.created_at,
+                created_at: o.created_at,
+                fulfillmentType: o.is_bulk_order ? 'WHOLESALE' : 'DROPSHIP',
+                is_bulk_order: o.is_bulk_order,
+                order_items: o.order_items?.map(oi => ({
+                    product_id: oi.product_id,
+                    variant_id: oi.variant_id,
+                    product_name: oi.variant?.product?.name || oi.product?.name,
+                    productName: oi.variant?.product?.name || oi.product?.name,
+                    variant_name: oi.variant?.title,
+                    quantity: oi.quantity,
+                    price: oi.price,
+                    variant: oi.variant
+                })),
                 items: o.order_items?.map(oi => ({
-                    product_name: oi.product?.name,
+                    product_name: oi.variant?.product?.name || oi.product?.name,
+                    productName: oi.variant?.product?.name || oi.product?.name,
                     variant_name: oi.variant?.title,
                     quantity: oi.quantity,
                     price: oi.price,
                 })),
-                created_at: o.created_at,
             })),
         });
     } catch (error) {
