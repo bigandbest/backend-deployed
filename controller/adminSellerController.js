@@ -65,13 +65,36 @@ export const approveSellerProduct = async (req, res) => {
             return res.status(400).json({ success: false, error: 'Request is already approved' });
         }
 
-        const zonalWarehouseId = sellerProduct.warehouse?.zonal_warehouse_id;
-        const divisionWarehouseId = sellerProduct.warehouse_id;
+        let zonalWarehouseId = sellerProduct.warehouse?.parent_warehouse_id;
+        let divisionWarehouseId = sellerProduct.warehouse_id;
         const variantId = sellerProduct.variant_id;
         const quantity = sellerProduct.stock_quantity;
 
-        if (!zonalWarehouseId || !variantId) {
-            return res.status(400).json({ success: false, error: 'Cannot approve: missing zonal warehouse mapping or variant ID' });
+        // If warehouse mapping is missing on the product itself, try fetching from seller's allocation
+        if (!divisionWarehouseId || !zonalWarehouseId) {
+            const allocation = await prisma.warehouse_sellers.findFirst({
+                where: { seller_id: sellerProduct.seller_id, is_active: true },
+                include: { warehouse: true }
+            });
+
+            if (allocation && allocation.warehouse) {
+                divisionWarehouseId = allocation.warehouse_id;
+                zonalWarehouseId = allocation.warehouse.parent_warehouse_id;
+            }
+        }
+
+        if (!zonalWarehouseId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Cannot approve: seller is not allocated to a warehouse with a valid zonal mapping. Please check seller warehouse allocation.'
+            });
+        }
+
+        if (!variantId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Cannot approve: missing product variant ID. This product must have a variant selected.'
+            });
         }
 
         // 1. Update status to APPROVED
@@ -289,8 +312,8 @@ export const getPincodeRequests = async (req, res) => {
 
         res.status(200).json({ success: true, data: mappedRequests });
     } catch (error) {
-        console.error('getPincodeRequests error:', error);
-        res.status(500).json({ success: false, error: 'Failed to fetch seller pincode requests' });
+        console.error('getPincodeRequests error details:', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch seller pincode requests: ' + error.message });
     }
 };
 

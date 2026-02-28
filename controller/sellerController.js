@@ -33,6 +33,7 @@ export const getSellerProducts = async (req, res) => {
                 admin_selling_price: sp.admin_selling_price,
                 mrp: sp.mrp,
                 status: sp.status,
+                sku: sp.variant?.sku || '',
                 created_at: sp.created_at,
             })),
             count: products.length,
