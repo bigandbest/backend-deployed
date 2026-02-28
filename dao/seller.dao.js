@@ -82,12 +82,20 @@ class SellerDAO {
             where,
             include: {
                 product: {
-                    include: {
-                        media: { take: 1 },
-                        category: { select: { id: true, name: true } },
+                    select: {
+                        id: true,
+                        name: true,
+                        media: { take: 1 }
                     }
                 },
-                variant: true,
+                variant: {
+                    select: {
+                        id: true,
+                        title: true,
+                        sku: true,
+                        price: true
+                    }
+                },
                 warehouse: {
                     select: { id: true, name: true, type: true }
                 }
@@ -118,15 +126,47 @@ class SellerDAO {
         const existing = await prisma.seller_products.findFirst({ where });
 
         if (existing) {
-            return prisma.seller_products.update({
+            // Check if quantity or price changed
+            const isChanged =
+                parseInt(stock_quantity) !== existing.stock_quantity ||
+                parseFloat(seller_offer_price) !== parseFloat(existing.seller_offer_price);
+
+            const updated = await prisma.seller_products.update({
                 where: { id: existing.id },
                 data: {
                     stock_quantity: parseInt(stock_quantity) || 0,
                     seller_offer_price: parseFloat(seller_offer_price) || 0,
+                    offer_price: parseFloat(seller_offer_price) || 0, // Sync both fields
                     mrp: mrp ? parseFloat(mrp) : null,
+                    status: isChanged ? 'PENDING_APPROVAL' : existing.status,
                     updated_at: new Date(),
                 }
             });
+
+            // If it was already approved and we just changed it to pending, 
+            // we should return the stock to the admin (Zonal Warehouse) and recalculate
+            if (isChanged && existing.status === 'APPROVED') {
+                const sellerProduct = await prisma.seller_products.findUnique({
+                    where: { id: existing.id },
+                    include: { warehouse: true }
+                });
+
+                const zonalWarehouseId = sellerProduct.warehouse?.parent_warehouse_id;
+                if (zonalWarehouseId && variant_id) {
+                    await prisma.$executeRaw`
+                        UPDATE inventory 
+                        SET admin_stock = admin_stock + ${existing.stock_quantity},
+                            stock_qty = stock_qty + ${existing.stock_quantity},
+                            updated_at = NOW()
+                        WHERE warehouse_id = ${zonalWarehouseId} 
+                          AND variant_id = ${variant_id}::uuid
+                    `;
+                }
+
+                await this.recalculateSellerStock(warehouse_id, variant_id);
+            }
+
+            return updated;
         } else {
             return prisma.seller_products.create({
                 data: {
@@ -136,6 +176,7 @@ class SellerDAO {
                     warehouse_id: parseInt(warehouse_id),
                     stock_quantity: parseInt(stock_quantity) || 0,
                     seller_offer_price: parseFloat(seller_offer_price) || 0,
+                    offer_price: parseFloat(seller_offer_price) || 0, // Sync both fields
                     mrp: mrp ? parseFloat(mrp) : null,
                     status: 'PENDING_APPROVAL',
                 }
@@ -264,7 +305,10 @@ class SellerDAO {
         const where = {
             order_items: {
                 some: {
-                    product_id: { in: productIds }
+                    OR: sellerProducts.map(sp => ({
+                        product_id: sp.product_id,
+                        variant_id: sp.variant_id
+                    }))
                 }
             }
         };
@@ -278,7 +322,10 @@ class SellerDAO {
             include: {
                 order_items: {
                     where: {
-                        product_id: { in: productIds }
+                        OR: sellerProducts.map(sp => ({
+                            product_id: sp.product_id,
+                            variant_id: sp.variant_id
+                        }))
                     },
                     include: {
                         product: { select: { id: true, name: true } },
@@ -394,6 +441,54 @@ class SellerDAO {
             WHERE warehouse_id = ${parseInt(warehouseId)} 
               AND variant_id = ${variantId}::uuid
         `;
+
+        // Also update product_warehouse_stock for frontend visibility
+        // First get the product_id for this variant
+        const variant = await prisma.product_variants.findUnique({
+            where: { id: variantId },
+            select: { product_id: true }
+        });
+
+        if (variant) {
+            await prisma.product_warehouse_stock.upsert({
+                where: {
+                    // Assuming there might not be a unique constraint on (variant_id, warehouse_id) 
+                    // in the same way as inventory, but we should try to update the existing record
+                    id: (await prisma.product_warehouse_stock.findFirst({
+                        where: {
+                            variant_id: variantId,
+                            warehouse_id: parseInt(warehouseId)
+                        },
+                        select: { id: true }
+                    }))?.id || '00000000-0000-0000-0000-000000000000' // dummy if not found
+                },
+                update: {
+                    stock_quantity: sellerStock,
+                    updated_at: new Date()
+                },
+                create: {
+                    product_id: variant.product_id,
+                    variant_id: variantId,
+                    warehouse_id: parseInt(warehouseId),
+                    stock_quantity: sellerStock,
+                    reserved_quantity: 0
+                }
+            }).catch(async (e) => {
+                // If ID was dummy, findFirst failed to provide a valid ID for 'where', 
+                // but upsert might still fail if we don't have a unique constraint to target.
+                // Let's use a simpler approach if the above fails: delete and create or just updateMany
+                await prisma.product_warehouse_stock.updateMany({
+                    where: {
+                        variant_id: variantId,
+                        warehouse_id: parseInt(warehouseId)
+                    },
+                    data: {
+                        stock_quantity: sellerStock,
+                        updated_at: new Date()
+                    }
+                });
+            });
+        }
 
         return sellerStock;
     }
