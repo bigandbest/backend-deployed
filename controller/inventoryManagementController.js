@@ -1,6 +1,7 @@
 import ProductWarehouseStockDAO from "../dao/product-warehouse-stock.dao.js";
 import WarehouseDAO from "../dao/warehouse.dao.js";
 import prisma from "../config/prisma.js";
+import { syncInventoryForVariant } from "../utils/inventorySync.js";
 
 /**
  * Get all inventory for a specific warehouse
@@ -263,6 +264,11 @@ export const updateWarehouseStock = async (req, res) => {
       );
     }
 
+    // Sync to inventory table
+    if (variant_id) {
+      await syncInventoryForVariant(variant_id, warehouseId).catch(e => console.error('Inventory sync error:', e.message));
+    }
+
     res.status(200).json({
       success: true,
       message: "Stock updated successfully",
@@ -369,6 +375,13 @@ export const updateMultiWarehouseStock = async (req, res) => {
       return updatedRecords;
     });
 
+    // Sync inventory for each updated variant
+    for (const record of results) {
+      if (record.variant_id) {
+        await syncInventoryForVariant(record.variant_id, record.warehouse_id).catch(e => console.error('Inventory sync error:', e.message));
+      }
+    }
+
     res.status(200).json({
       success: true,
       message: "Stock updated across warehouses successfully",
@@ -459,6 +472,13 @@ export const allocateStockToZonal = async (req, res) => {
 
       return allocatedRecords;
     });
+
+    // Sync inventory for each allocated record
+    for (const record of results) {
+      if (record.variant_id) {
+        await syncInventoryForVariant(record.variant_id, record.warehouse_id).catch(e => console.error('Inventory sync error:', e.message));
+      }
+    }
 
     res.status(200).json({
       success: true,
@@ -589,6 +609,13 @@ export const bulkUpdateInventory = async (req, res) => {
 
       return updatedRecords;
     });
+
+    // Sync inventory for each updated record
+    for (const record of results) {
+      if (record.variant_id) {
+        await syncInventoryForVariant(record.variant_id, record.warehouse_id).catch(e => console.error('Inventory sync error:', e.message));
+      }
+    }
 
     res.status(200).json({
       success: true,

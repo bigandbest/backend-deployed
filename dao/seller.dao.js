@@ -290,27 +290,8 @@ class SellerDAO {
      * Get seller orders
      */
     async getSellerOrders(sellerId, filters = {}) {
-        // Get product IDs this seller supplies
-        const sellerProducts = await prisma.seller_products.findMany({
-            where: { seller_id: sellerId, status: 'APPROVED' },
-            select: { product_id: true, variant_id: true }
-        });
-
-        const productIds = sellerProducts.map(sp => sp.product_id);
-
-        if (productIds.length === 0) {
-            return [];
-        }
-
         const where = {
-            order_items: {
-                some: {
-                    OR: sellerProducts.map(sp => ({
-                        variant: { product_id: sp.product_id },
-                        ...(sp.variant_id ? { variant_id: sp.variant_id } : {})
-                    }))
-                }
-            }
+            seller_id: sellerId
         };
 
         if (filters.status) {
@@ -321,12 +302,6 @@ class SellerDAO {
             where,
             include: {
                 order_items: {
-                    where: {
-                        OR: sellerProducts.map(sp => ({
-                            variant: { product_id: sp.product_id },
-                            ...(sp.variant_id ? { variant_id: sp.variant_id } : {})
-                        }))
-                    },
                     include: {
                         variant: {
                             select: { id: true, title: true, price: true, product: { select: { id: true, name: true } } }
@@ -420,6 +395,8 @@ class SellerDAO {
      * Update seller stock in inventory (recalculate seller_stock)
      */
     async recalculateSellerStock(warehouseId, variantId) {
+        const { syncInventoryForVariant } = await import('../utils/inventorySync.js');
+
         // Sum stock from all sellers for this variant in this warehouse
         const result = await prisma.seller_products.aggregate({
             where: {
@@ -433,62 +410,44 @@ class SellerDAO {
 
         const sellerStock = result._sum.stock_quantity || 0;
 
-        // Update inventory using executeRaw because we need to calculate stock_qty from admin_stock
-        await prisma.$executeRaw`
-            UPDATE inventory 
-            SET seller_stock = ${sellerStock}, 
-                stock_qty = admin_stock + ${sellerStock},
-                updated_at = NOW()
-            WHERE warehouse_id = ${parseInt(warehouseId)} 
-              AND variant_id = ${variantId}::uuid
-        `;
-
-        // Also update product_warehouse_stock for frontend visibility
-        // First get the product_id for this variant
+        // Get the product_id for this variant
         const variant = await prisma.product_variants.findUnique({
             where: { id: variantId },
             select: { product_id: true }
         });
 
         if (variant) {
-            await prisma.product_warehouse_stock.upsert({
+            // Upsert into product_warehouse_stock
+            const existingPWS = await prisma.product_warehouse_stock.findFirst({
                 where: {
-                    // Assuming there might not be a unique constraint on (variant_id, warehouse_id) 
-                    // in the same way as inventory, but we should try to update the existing record
-                    id: (await prisma.product_warehouse_stock.findFirst({
-                        where: {
-                            variant_id: variantId,
-                            warehouse_id: parseInt(warehouseId)
-                        },
-                        select: { id: true }
-                    }))?.id || '00000000-0000-0000-0000-000000000000' // dummy if not found
-                },
-                update: {
-                    stock_quantity: sellerStock,
-                    updated_at: new Date()
-                },
-                create: {
-                    product_id: variant.product_id,
                     variant_id: variantId,
-                    warehouse_id: parseInt(warehouseId),
-                    stock_quantity: sellerStock,
-                    reserved_quantity: 0
-                }
-            }).catch(async (e) => {
-                // If ID was dummy, findFirst failed to provide a valid ID for 'where', 
-                // but upsert might still fail if we don't have a unique constraint to target.
-                // Let's use a simpler approach if the above fails: delete and create or just updateMany
-                await prisma.product_warehouse_stock.updateMany({
-                    where: {
-                        variant_id: variantId,
-                        warehouse_id: parseInt(warehouseId)
-                    },
+                    warehouse_id: parseInt(warehouseId)
+                },
+                select: { id: true }
+            });
+
+            if (existingPWS) {
+                await prisma.product_warehouse_stock.update({
+                    where: { id: existingPWS.id },
                     data: {
                         stock_quantity: sellerStock,
                         updated_at: new Date()
                     }
                 });
-            });
+            } else {
+                await prisma.product_warehouse_stock.create({
+                    data: {
+                        product_id: variant.product_id,
+                        variant_id: variantId,
+                        warehouse_id: parseInt(warehouseId),
+                        stock_quantity: sellerStock,
+                        reserved_quantity: 0
+                    }
+                });
+            }
+
+            // Sync to inventory table (this upserts — creates if missing, updates if exists)
+            await syncInventoryForVariant(variantId, warehouseId);
         }
 
         return sellerStock;

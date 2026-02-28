@@ -532,6 +532,20 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       .filter(Boolean)
       .join(", ");
 
+    // Fetch seller_id from the first item to group the order to that seller
+    let seller_id = null;
+    if (items && items.length > 0) {
+      const firstProductId = items[0].product_id || items[0].id;
+      try {
+        const firstProduct = await productDao.getProductById(firstProductId);
+        if (firstProduct && firstProduct.seller_id) {
+          seller_id = firstProduct.seller_id;
+        }
+      } catch (err) {
+        console.error("Error fetching first product for seller_id assignment:", err);
+      }
+    }
+
     const orderData = {
       user_id,
       subtotal: parseFloat(subtotal),
@@ -547,6 +561,7 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       receiver_name: receiver_name || detailedAddress.receiver_name || null,
       coupon_code: coupon_code || null,
       coupon_discount: coupon_discount ? parseFloat(coupon_discount) : 0,
+      seller_id,
       ...finalChargeSettings
     };
 

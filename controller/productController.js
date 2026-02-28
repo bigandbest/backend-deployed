@@ -19,6 +19,41 @@ const transformProduct = (product, assignments = []) => {
   const activeVariants = (product.variants || []).filter(v => v.active !== false);
   const defaultVariant = activeVariants.find(v => v.is_default === true);
 
+  // Derive image from product_media relation (primary image first)
+  const primaryMedia = product.media?.[0];
+  const resolvedImage = primaryMedia?.url || product.image || (defaultVariant?.photo_url) || null;
+  const resolvedImages = product.media?.map(m => m.url) || product.images || [];
+
+  // Calculate stock from inventory table (per variant, per warehouse)
+  // Stock flow: Admin/Seller → product_warehouse_stock → synced to inventory
+  let hasStockData = false;
+  const totalInventoryStock = activeVariants.reduce((sum, v) => {
+    const invRecords = v.inventory || [];
+    if (invRecords.length > 0) {
+      hasStockData = true;
+      return sum + invRecords.reduce((s, inv) => s + (inv.stock_qty || 0), 0);
+    }
+    return sum;
+  }, 0);
+
+  // If inventory records exist, use them. No inventory = out of stock (not yet stocked)
+  const resolvedStock = hasStockData ? totalInventoryStock : 0;
+  const resolvedInStock = hasStockData ? totalInventoryStock > 0 : false;
+
+  // Enrich each variant with computed stock from inventory
+  const enrichedVariants = activeVariants.map(v => {
+    const invRecords = v.inventory || [];
+    const hasInv = invRecords.length > 0;
+    const variantStock = hasInv
+      ? invRecords.reduce((s, inv) => s + (inv.stock_qty || 0), 0)
+      : 0;
+    return {
+      ...v,
+      computed_stock: variantStock,
+      in_stock: hasInv ? variantStock > 0 : false,
+    };
+  });
+
   return {
     id: product.id,
     name: product.name,
@@ -28,18 +63,18 @@ const transformProduct = (product, assignments = []) => {
     rating: product.rating || 4.0,
     reviews: product.review_count || 0,
     discount: product.discount || 0,
-    image: product.image,
-    images: product.images,
-    inStock: (product.stock_quantity || product.stock || 0) > 0,
-    stock: product.stock_quantity || product.stock || 0,
-    stockQuantity: product.stock_quantity || product.stock || 0,
+    image: resolvedImage,
+    images: resolvedImages,
+    inStock: resolvedInStock,
+    stock: resolvedStock > 0 ? resolvedStock : 0,
+    stockQuantity: resolvedStock > 0 ? resolvedStock : 0,
     popular: product.popular,
     featured: product.featured,
     most_orders: product.most_orders,
     top_sale: product.top_sale,
     category: product.category?.name || product.category_name || product.category,
     weight: product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
-    brand: product.brand_name || "BigandBest",
+    brand: product.brand_name || (product.brands?.[0]?.brand?.name) || "BigandBest",
     shipping_amount: product.shipping_amount || 0,
     specifications: product.specifications,
     created_at: product.created_at,
@@ -47,9 +82,9 @@ const transformProduct = (product, assignments = []) => {
     return_applicable: product.return_applicable !== false,
     return_days: product.return_days || 7,
     quick_delivery: product.quick_delivery || false,
-    hasVariants: activeVariants.length > 0,
-    variants: activeVariants,
-    defaultVariant: defaultVariant || null,
+    hasVariants: enrichedVariants.length > 0,
+    variants: enrichedVariants,
+    defaultVariant: defaultVariant ? enrichedVariants.find(v => v.id === defaultVariant.id) || defaultVariant : null,
     warehouse_assignments: assignments
   };
 };
@@ -279,6 +314,11 @@ export const getProductById = async (req, res) => {
       success: true,
       product: {
         ...transformedProduct,
+        media: product.media || [],
+        subcategory_id: product.subcategory_id,
+        brands: product.brands,
+        store: product.store,
+        reviews: product.reviews,
         delivery_info: deliveryInfo,
         store_id: product.store_id,
         store_name: product.store?.name || null,
@@ -1010,7 +1050,7 @@ export const getSuperSaver = async (req, res) => {
       orderBy: { created_at: 'desc' },
       take: parseInt(limit) * 2, // fetch extra to ensure enough after sorting by price
       include: {
-        variants: { where: { active: true } },
+        variants: { where: { active: true }, include: { inventory: true } },
         media: { take: 1 },
         category: { select: { id: true, name: true } },
       }
@@ -1050,7 +1090,7 @@ export const getNewArrivals = async (req, res) => {
       orderBy: { created_at: 'desc' },
       take: parseInt(limit),
       include: {
-        variants: { where: { active: true } },
+        variants: { where: { active: true }, include: { inventory: true } },
         media: { take: 1 },
         category: { select: { id: true, name: true } },
       }
@@ -1096,7 +1136,7 @@ export const getRelatedProductsBySubcategory = async (req, res) => {
       take: parseInt(limit),
       orderBy: { created_at: 'desc' },
       include: {
-        variants: { where: { active: true } },
+        variants: { where: { active: true }, include: { inventory: true } },
         media: { take: 1 },
         category: { select: { id: true, name: true } },
       }
@@ -1511,7 +1551,7 @@ export const checkCartAvailability = async (req, res) => {
 
     for (const item of items) {
       const { product_id, quantity } = item;
-      const product = await productDao.getById(product_id);
+      const product = await productDao.getProductById(product_id);
       if (!product) {
         results.push({ product_id, available: false, error: "Product not found" });
         allAvailable = false;
