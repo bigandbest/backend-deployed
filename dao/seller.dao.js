@@ -290,8 +290,27 @@ class SellerDAO {
      * Get seller orders
      */
     async getSellerOrders(sellerId, filters = {}) {
+        // Get product IDs this seller supplies
+        const sellerProducts = await prisma.seller_products.findMany({
+            where: { seller_id: sellerId, status: 'APPROVED' },
+            select: { product_id: true, variant_id: true }
+        });
+
+        const productIds = sellerProducts.map(sp => sp.product_id);
+
+        if (productIds.length === 0) {
+            return [];
+        }
+
         const where = {
-            seller_id: sellerId
+            order_items: {
+                some: {
+                    OR: sellerProducts.map(sp => ({
+                        variant: { product_id: sp.product_id },
+                        ...(sp.variant_id ? { variant_id: sp.variant_id } : {})
+                    }))
+                }
+            }
         };
 
         if (filters.status) {
@@ -302,6 +321,12 @@ class SellerDAO {
             where,
             include: {
                 order_items: {
+                    where: {
+                        OR: sellerProducts.map(sp => ({
+                            variant: { product_id: sp.product_id },
+                            ...(sp.variant_id ? { variant_id: sp.variant_id } : {})
+                        }))
+                    },
                     include: {
                         variant: {
                             select: { id: true, title: true, price: true, product: { select: { id: true, name: true } } }
