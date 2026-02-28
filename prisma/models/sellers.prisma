@@ -1,0 +1,38 @@
+model sellers {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id           String    @unique @db.Uuid
+  business_name     String?   @db.VarChar
+  business_type     String?   @db.VarChar // "individual", "company", "partnership"
+  seller_type       String    @default("SELLER") @db.VarChar // "SELLER" or "VENDOR"
+  
+  // Business details
+  gstin             String?   @db.VarChar
+  pan               String?   @db.VarChar
+  bank_account_no   String?   @db.VarChar
+  bank_ifsc         String?   @db.VarChar
+  bank_name         String?   @db.VarChar
+  
+  // Address
+  address           String?
+  city              String?   @db.VarChar
+  state             String?   @db.VarChar
+  pincode           String?   @db.VarChar
+  
+  // Status
+  is_active         Boolean   @default(true)
+  is_verified       Boolean   @default(false)
+  approved_at       DateTime? @db.Timestamptz
+  approved_by       String?   @db.Uuid
+
+  created_at        DateTime  @default(now()) @db.Timestamptz
+  updated_at        DateTime  @default(now()) @db.Timestamptz
+
+  // Relations
+  user              users     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  seller_products   seller_products[]
+  negotiations      seller_negotiations[]
+  warehouse_sellers warehouse_sellers[]
+
+  @@index([user_id])
+  @@index([seller_type])
+}

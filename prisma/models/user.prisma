@@ -1,6 +1,9 @@
 enum UserRole {
   USER
   ADMIN
+  SELLER
+  VENDOR
+  RIDER
 }
 
 model users {
@@ -51,4 +54,6 @@ model users {
   service_bookings service_bookings[]
   addresses        user_addresses[]
   audit_logs       wallet_audit_logs[] @relation("AdminAuditLogs")
+  seller_profile   sellers?
+  rider_profile    riders?
 }

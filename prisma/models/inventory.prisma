@@ -3,6 +3,8 @@ model inventory {
   variant_id   String            @db.Uuid
   stock_qty    Int               @default(0)
   reserved_qty Int               @default(0)
+  seller_stock Int               @default(0)   // Stock from all sellers combined
+  admin_stock  Int               @default(0)   // Stock added by admin
   bulk_stock_threshold Int?      @default(0) // Minimum stock required to allow bulk orders
   bulk_reserved_qty    Int?      @default(0)
   warehouse_id Int

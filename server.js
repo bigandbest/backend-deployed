@@ -93,6 +93,9 @@ import deliveryChargeRoutes from "./routes/deliveryChargeRoutes.js";
 import chargeSettingsRoutes from "./routes/chargeSettingsRoutes.js";
 import couponRoutes from "./routes/couponRoutes.js";
 import adminUserRoutes from "./routes/adminUserRoutes.js";
+import sellerAuthRoutes from "./routes/sellerAuthRoutes.js";
+import sellerRoutes from "./routes/sellerRoutes.js";
+import adminSellerRoutes from "./routes/adminSellerRoutes.js";
 
 // Configuration
 const PORT = process.env.PORT || 8000;
@@ -172,6 +175,8 @@ const createApp = () => {
   app.use("/api/business", authRoutes);
   app.use("/api/auth", authRoutes);
   app.use("/api/admin-auth", adminAuthRoutes);
+  app.use("/api/seller-auth", sellerAuthRoutes);
+  app.use("/api/seller", sellerRoutes);
   app.use("/api/print-requests", printRequestRoutes);
   app.use("/api/geo-address", geoAddressRoute);
   app.use("/api/warehouses", warehouseRoute);
@@ -257,6 +262,7 @@ const createApp = () => {
   app.use("/api/upload", uploadRoutes);
   app.use("/api/admin", adminProductRoutes);
   app.use("/api/admin/users", adminUserRoutes);
+  app.use("/api/admin/sellers", adminSellerRoutes);
 
   app.use("/api/enquiries", enquiriesRoutes);
   app.use("/api/wallet", walletRoutes);

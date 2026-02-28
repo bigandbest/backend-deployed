@@ -337,6 +337,8 @@ model inventory {
   mrp                  Decimal?         @db.Decimal
   offer_price          Decimal?         @db.Decimal
   status               InventoryStatus? @default(ACTIVE)
+  seller_stock         Int              @default(0)
+  admin_stock          Int              @default(0)
   variant              product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
   warehouse            warehouses       @relation(fields: [warehouse_id], references: [id])
 
@@ -436,23 +438,6 @@ model partners {
   sort_order Int?      @default(0)
   created_at DateTime? @default(now()) @db.Timestamptz(6)
   updated_at DateTime? @default(now()) @db.Timestamptz(6)
-}
-
-model business_partner_inquiries {
-  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  full_name        String    @db.VarChar
-  email            String    @db.VarChar
-  phone            String    @db.VarChar
-  city             String    @db.VarChar
-  state            String    @db.VarChar
-  partnership_type String    @db.VarChar
-  message          String?
-  status           String?   @default("Pending") @db.VarChar
-  created_at       DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime? @default(now()) @db.Timestamptz(6)
-
-  @@index([created_at], map: "idx_business_partner_inquiries_created_at")
-  @@index([status], map: "idx_business_partner_inquiries_status")
 }
 
 model payment_retry_logs {
@@ -644,6 +629,7 @@ model product_variants {
   media                    product_media[]
   product                  products                  @relation(fields: [product_id], references: [id], onDelete: Cascade)
   warehouse_stock          product_warehouse_stock[]
+  seller_products          seller_products[]
   service_bookings         service_bookings[]
   stock_proposals          stock_proposals[]
   attributes               variant_attributes[]
@@ -713,6 +699,8 @@ model products {
   store                     stores?                     @relation(fields: [store_id], references: [id])
   subcategory               subcategories?              @relation(fields: [subcategory_id], references: [id])
   quickpick_group_product   quickpick_group_product[]
+  seller_negotiations       seller_negotiations[]
+  seller_products           seller_products[]
   store_section_mappings    store_section_mappings[]
   wishlist_items            wishlist_items[]
   you_may_like              you_may_like[]
@@ -794,6 +782,25 @@ model recommended_store {
   store_section_mappings store_section_mappings[]
 }
 
+model riders {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id          String             @unique @db.Uuid
+  vehicle_type     String?            @db.VarChar
+  vehicle_number   String?            @db.VarChar
+  license_number   String?            @db.VarChar
+  is_available     Boolean            @default(true)
+  is_active        Boolean            @default(true)
+  is_verified      Boolean            @default(false)
+  current_lat      Float?
+  current_lng      Float?
+  created_at       DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime           @default(now()) @db.Timestamptz(6)
+  user             users              @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  warehouse_riders warehouse_riders[]
+
+  @@index([user_id])
+}
+
 model scheduled_order_slots {
   id             Int                   @id @default(autoincrement())
   warehouse_id   Int
@@ -860,6 +867,91 @@ model section_subcategory_mappings {
   updated_at     DateTime?        @default(now()) @db.Timestamptz(6)
   section        product_sections @relation(fields: [section_id], references: [id])
   subcategory    subcategories    @relation(fields: [subcategory_id], references: [id])
+}
+
+model seller_negotiations {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  seller_id             String   @db.Uuid
+  product_id            String   @db.Uuid
+  variant_id            String?  @db.Uuid
+  seller_offer_price    Decimal? @db.Decimal
+  admin_counter_price   Decimal? @db.Decimal
+  status                String   @default("PENDING_APPROVAL") @db.VarChar
+  admin_notes           String?
+  seller_notes          String?
+  created_at            DateTime @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime @default(now()) @db.Timestamptz(6)
+  final_agreed_price    Decimal? @db.Decimal
+  proposed_quantity     Int?     @default(0)
+  seller_proposed_price Decimal? @db.Decimal
+  product               products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  seller                sellers  @relation(fields: [seller_id], references: [id], onDelete: Cascade)
+
+  @@index([seller_id])
+  @@index([product_id])
+}
+
+model seller_products {
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  seller_id           String            @db.Uuid
+  product_id          String            @db.Uuid
+  variant_id          String?           @db.Uuid
+  warehouse_id        Int?
+  stock_quantity      Int               @default(0)
+  offer_price         Decimal?          @db.Decimal
+  mrp                 Decimal?          @db.Decimal
+  is_active           Boolean           @default(true)
+  created_at          DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime          @default(now()) @db.Timestamptz(6)
+  admin_selling_price Decimal?          @db.Decimal
+  seller_offer_price  Decimal?          @db.Decimal
+  status              String            @default("PENDING_APPROVAL") @db.VarChar
+  product             products          @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  seller              sellers           @relation(fields: [seller_id], references: [id], onDelete: Cascade)
+  variant             product_variants? @relation(fields: [variant_id], references: [id])
+  warehouse           warehouses?       @relation(fields: [warehouse_id], references: [id])
+
+  @@unique([seller_id, product_id, variant_id, warehouse_id])
+  @@index([seller_id])
+  @@index([product_id])
+  @@index([warehouse_id])
+}
+
+model sellers {
+  id                String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id           String                @unique @db.Uuid
+  business_name     String?               @db.VarChar
+  business_type     String?               @db.VarChar
+  seller_type       String                @default("SELLER") @db.VarChar
+  gstin             String?               @db.VarChar
+  pan               String?               @db.VarChar
+  bank_account_no   String?               @db.VarChar
+  bank_ifsc         String?               @db.VarChar
+  bank_name         String?               @db.VarChar
+  address           String?
+  city              String?               @db.VarChar
+  state             String?               @db.VarChar
+  pincode           String?               @db.VarChar
+  is_active         Boolean               @default(true)
+  is_verified       Boolean               @default(false)
+  approved_at       DateTime?             @db.Timestamptz(6)
+  city              String?                   @db.VarChar
+  state             String?                   @db.VarChar
+  pincode           String?                   @db.VarChar
+  is_active         Boolean                   @default(true)
+  is_verified       Boolean                   @default(false)
+  approved_at       DateTime?                 @db.Timestamptz(6)
+  approved_by       String?                   @db.Uuid
+  created_at        DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime                  @default(now()) @db.Timestamptz(6)
+  negotiations      seller_negotiations[]
+  seller_products   seller_products[]
+  user              users                     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  warehouse_sellers warehouse_sellers[]
+  seller_pincode_requests seller_pincode_requests[]
+
+  @@index([user_id])
+  @@index([seller_type])
 }
 
 model service_bookings {
@@ -1006,6 +1098,8 @@ model users {
   orders                 orders[]
   product_requests       product_requests[]
   return_orders          return_orders[]
+  rider_profile          riders?
+  seller_profile         sellers?
   service_bookings       service_bookings[]
   stock_proposals        stock_proposals[]
   addresses              user_addresses[]
@@ -1145,6 +1239,20 @@ model warehouse_pincodes {
   warehouse     warehouses @relation(fields: [warehouse_id], references: [id])
 }
 
+model warehouse_riders {
+  id           Int        @id @default(autoincrement())
+  warehouse_id Int
+  rider_id     String     @db.Uuid
+  is_active    Boolean    @default(true)
+  assigned_at  DateTime   @default(now()) @db.Timestamptz(6)
+  rider        riders     @relation(fields: [rider_id], references: [id], onDelete: Cascade)
+  warehouse    warehouses @relation(fields: [warehouse_id], references: [id], onDelete: Cascade)
+
+  @@unique([warehouse_id, rider_id])
+  @@index([warehouse_id])
+  @@index([rider_id])
+}
+
 model warehouse_scheduling_config {
   id                      Int                   @id @default(autoincrement())
   warehouse_id            Int
@@ -1157,6 +1265,20 @@ model warehouse_scheduling_config {
   updated_at              DateTime?             @default(now()) @db.Timestamptz(6)
   slot                    scheduling_time_slots @relation(fields: [slot_id], references: [id])
   warehouse               warehouses            @relation(fields: [warehouse_id], references: [id])
+}
+
+model warehouse_sellers {
+  id           Int        @id @default(autoincrement())
+  warehouse_id Int
+  seller_id    String     @db.Uuid
+  is_active    Boolean    @default(true)
+  assigned_at  DateTime   @default(now()) @db.Timestamptz(6)
+  seller       sellers    @relation(fields: [seller_id], references: [id], onDelete: Cascade)
+  warehouse    warehouses @relation(fields: [warehouse_id], references: [id], onDelete: Cascade)
+
+  @@unique([warehouse_id, seller_id])
+  @@index([warehouse_id])
+  @@index([seller_id])
 }
 
 model warehouse_zones {
@@ -1196,10 +1318,14 @@ model warehouses {
   warehouse_stock     product_warehouse_stock[]
   scheduled_slots     scheduled_order_slots[]
   scheduled_orders    scheduled_orders[]
+  seller_products     seller_products[]
   movements           stock_movements[]
   warehouse_pincodes  warehouse_pincodes[]
+  warehouse_riders    warehouse_riders[]
   scheduling_configs  warehouse_scheduling_config[]
+  warehouse_sellers   warehouse_sellers[]
   warehouse_zones     warehouse_zones[]
+  seller_pincode_requests seller_pincode_requests[]
   parent_warehouse    warehouses?                   @relation("WarehouseHierarchy", fields: [parent_warehouse_id], references: [id])
   child_warehouses    warehouses[]                  @relation("WarehouseHierarchy")
   users               users?                        @relation(fields: [seller_id], references: [id])
@@ -1239,6 +1365,24 @@ model zone_pincodes {
   zone          delivery_zones @relation(fields: [zone_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
 
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model business_partner_inquiries {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  full_name        String    @db.VarChar
+  email            String    @db.VarChar
+  phone            String    @db.VarChar
+  city             String    @db.VarChar
+  state            String    @db.VarChar
+  partnership_type String    @db.VarChar
+  message          String?
+  status           String?   @default("Pending") @db.VarChar
+  created_at       DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([created_at], map: "idx_business_partner_inquiries_created_at")
+  @@index([status], map: "idx_business_partner_inquiries_status")
+}
+
 model product_requests {
   id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   requester_id String        @db.Uuid
@@ -1253,23 +1397,6 @@ model product_requests {
 
   @@index([requester_id])
   @@index([status])
-}
-
-model stock_proposals {
-  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  vendor_id         String           @db.Uuid
-  variant_id        String           @db.Uuid
-  quantity          Int
-  proposed_price    Decimal          @db.Decimal
-  admin_offer_price Decimal?         @db.Decimal
-  status            ProposalStatus   @default(PENDING_APPROVAL)
-  created_at        DateTime         @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime         @db.Timestamptz(6)
-  product_variants  product_variants @relation(fields: [variant_id], references: [id])
-  users             users            @relation(fields: [vendor_id], references: [id])
-
-  @@index([status])
-  @@index([vendor_id])
 }
 
 model return_order_items {
@@ -1311,6 +1438,23 @@ model return_orders {
   @@index([user_id])
 }
 
+model stock_proposals {
+  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  vendor_id         String           @db.Uuid
+  variant_id        String           @db.Uuid
+  quantity          Int
+  proposed_price    Decimal          @db.Decimal
+  admin_offer_price Decimal?         @db.Decimal
+  status            ProposalStatus   @default(PENDING_APPROVAL)
+  created_at        DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime         @db.Timestamptz(6)
+  product_variants  product_variants @relation(fields: [variant_id], references: [id])
+  users             users            @relation(fields: [vendor_id], references: [id])
+
+  @@index([status])
+  @@index([vendor_id])
+}
+
 enum Vertical {
   qwik
   eato
@@ -1335,6 +1479,7 @@ enum UserRole {
   USER
   ADMIN
   SELLER
+  RIDER
 }
 
 enum AdminClassification {
@@ -1366,4 +1511,19 @@ enum RequestStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+model seller_pincode_requests {
+  id               Int           @id @default(autoincrement())
+  seller_id        String        @db.Uuid
+  warehouse_id     Int
+  pincodes         String?       @db.Text
+  status           RequestStatus @default(PENDING)
+  created_at       DateTime?     @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime?     @default(now()) @db.Timestamptz(6)
+  seller           sellers       @relation(fields: [seller_id], references: [id], onDelete: Cascade)
+  warehouse        warehouses    @relation(fields: [warehouse_id], references: [id], onDelete: Cascade)
+
+  @@index([seller_id])
+  @@index([status])
 }

@@ -43,6 +43,7 @@ cess_rate_override   Decimal? @db.Decimal
   order_items         order_items[]
   service_bookings    service_bookings[]
   warehouse_stock     product_warehouse_stock[]
+  seller_products     seller_products[]
 
   @@index([product_id])
   @@index([sku])

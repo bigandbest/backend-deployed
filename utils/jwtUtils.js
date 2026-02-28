@@ -4,12 +4,7 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const DEFAULT_EXPIRY = "7d";
 const REFRESH_TOKEN_EXPIRY = "30d";
 
-/**
- * Generate a JWT token
- * @param {Object} payload - Data to encode in the token
- * @param {string} expiresIn - Token expiry time (default: 7d)
- * @returns {string} JWT token
- */
+
 export function generateToken(payload, expiresIn = DEFAULT_EXPIRY) {
   if (!JWT_SECRET) {
     throw new Error("JWT_SECRET is not defined in environment variables");

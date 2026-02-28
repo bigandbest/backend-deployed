@@ -536,11 +536,6 @@ const getWarehouseMovements = async (req, res) => {
     const movements = await prisma.stock_movements.findMany({
       where: { warehouse_id: warehouseIdInt },
       include: {
-        product: {
-          select: {
-            name: true
-          }
-        },
         warehouse: {
           select: {
             name: true
@@ -551,11 +546,18 @@ const getWarehouseMovements = async (req, res) => {
       take: parseInt(limit)
     });
 
+    const productIds = [...new Set(movements.map(m => m.product_id))];
+    const products = await prisma.products.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true, name: true }
+    });
+    const productMap = products.reduce((acc, p) => ({ ...acc, [p.id]: p.name }), {});
+
     res.json({
       success: true,
       data: movements.map(m => ({
         ...m,
-        product_name: m.product?.name,
+        product_name: productMap[m.product_id] || 'Unknown Product',
         warehouse_name: m.warehouse?.name
       }))
     });

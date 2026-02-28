@@ -38,7 +38,15 @@ export function requireRole(...allowedRoles) {
  */
 export const requireAdmin = requireRole("ADMIN");
 
+/**
+ * Middleware to require seller or vendor role
+ */
+export const requireSeller = requireRole("SELLER", "VENDOR");
 
+/**
+ * Middleware to require rider role
+ */
+export const requireRider = requireRole("RIDER");
 
 /**
  * Middleware to require user role (customer)
@@ -86,6 +94,38 @@ export function hasPermission(user, permission) {
       "wishlist:read",
       "wishlist:create",
       "wishlist:delete",
+    ],
+
+    SELLER: [
+      "products:read",
+      "products:create",
+      "orders:read",
+      "seller:read",
+      "seller:update",
+      "stock:read",
+      "stock:create",
+      "stock:update",
+    ],
+
+    VENDOR: [
+      "products:read",
+      "products:create",
+      "orders:read",
+      "seller:read",
+      "seller:update",
+      "stock:read",
+      "stock:create",
+      "stock:update",
+      "negotiations:read",
+      "negotiations:create",
+      "negotiations:update",
+    ],
+
+    RIDER: [
+      "orders:read",
+      "orders:update",
+      "delivery:read",
+      "delivery:update",
     ],
   };
 

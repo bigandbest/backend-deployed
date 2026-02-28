@@ -21,9 +21,17 @@ class WarehouseDAO {
                 include: {
                     parent_warehouse: true,
                     child_warehouses: true,
-                    warehouse_zones: { include: { zone: true } },
+                    warehouse_zones: { include: { zone: { include: { zone_pincodes: true } } } },
                     warehouse_pincodes: true,
-                    scheduling_configs: { include: { slot: true } }
+                    scheduling_configs: { include: { slot: true } },
+                    warehouse_sellers: {
+                        where: { is_active: true },
+                        include: { seller: { include: { user: { select: { id: true, name: true, email: true, phone: true } } } } }
+                    },
+                    warehouse_riders: {
+                        where: { is_active: true },
+                        include: { rider: { include: { user: { select: { id: true, name: true, email: true, phone: true } } } } }
+                    }
                 }
             });
             if (warehouse) return warehouse;
@@ -35,9 +43,17 @@ class WarehouseDAO {
             include: {
                 parent_warehouse: true,
                 child_warehouses: true,
-                warehouse_zones: { include: { zone: true } },
+                warehouse_zones: { include: { zone: { include: { zone_pincodes: true } } } },
                 warehouse_pincodes: true,
-                scheduling_configs: { include: { slot: true } }
+                scheduling_configs: { include: { slot: true } },
+                warehouse_sellers: {
+                    where: { is_active: true },
+                    include: { seller: { include: { user: { select: { id: true, name: true, email: true, phone: true } } } } }
+                },
+                warehouse_riders: {
+                    where: { is_active: true },
+                    include: { rider: { include: { user: { select: { id: true, name: true, email: true, phone: true } } } } }
+                }
             }
         });
     }
@@ -89,7 +105,7 @@ class WarehouseDAO {
     }
 
     async createWithRelations(data, relations) {
-        const { zone_ids, pincode_assignments } = relations;
+        const { zone_ids, pincode_assignments, seller_ids, rider_ids } = relations;
         return await prisma.$transaction(async (tx) => {
             const warehouse = await tx.warehouses.create({ data });
 
@@ -113,6 +129,31 @@ class WarehouseDAO {
                     }))
                 });
             }
+
+            // Assign sellers to division warehouse
+            if (data.type === 'division' && seller_ids?.length) {
+                await tx.warehouse_sellers.createMany({
+                    data: seller_ids.map(sid => ({
+                        warehouse_id: warehouse.id,
+                        seller_id: sid,
+                        is_active: true
+                    })),
+                    skipDuplicates: true
+                });
+            }
+
+            // Assign riders to division warehouse
+            if (data.type === 'division' && rider_ids?.length) {
+                await tx.warehouse_riders.createMany({
+                    data: rider_ids.map(rid => ({
+                        warehouse_id: warehouse.id,
+                        rider_id: rid,
+                        is_active: true
+                    })),
+                    skipDuplicates: true
+                });
+            }
+
             return warehouse;
         });
     }
@@ -122,14 +163,14 @@ class WarehouseDAO {
         if (isNaN(numericId)) {
             throw new Error('Invalid warehouse ID');
         }
-        const { zone_ids, pincode_assignments } = relations;
+        const { zone_ids, pincode_assignments, seller_ids, rider_ids } = relations;
         return await prisma.$transaction(async (tx) => {
             const warehouse = await tx.warehouses.update({
                 where: { id: numericId },
                 data: { ...data, updated_at: new Date() }
             });
 
-            if (data.type === 'zonal' && zone_ids) { // Only update if provided
+            if (data.type === 'zonal' && zone_ids) {
                 await tx.warehouse_zones.deleteMany({ where: { warehouse_id: numericId } });
                 if (zone_ids.length > 0) {
                     await tx.warehouse_zones.createMany({
@@ -155,6 +196,37 @@ class WarehouseDAO {
                     });
                 }
             }
+
+            // Update seller assignments for division warehouses
+            if (data.type === 'division' && seller_ids !== undefined) {
+                await tx.warehouse_sellers.deleteMany({ where: { warehouse_id: numericId } });
+                if (seller_ids?.length > 0) {
+                    await tx.warehouse_sellers.createMany({
+                        data: seller_ids.map(sid => ({
+                            warehouse_id: numericId,
+                            seller_id: sid,
+                            is_active: true
+                        })),
+                        skipDuplicates: true
+                    });
+                }
+            }
+
+            // Update rider assignments for division warehouses
+            if (data.type === 'division' && rider_ids !== undefined) {
+                await tx.warehouse_riders.deleteMany({ where: { warehouse_id: numericId } });
+                if (rider_ids?.length > 0) {
+                    await tx.warehouse_riders.createMany({
+                        data: rider_ids.map(rid => ({
+                            warehouse_id: numericId,
+                            rider_id: rid,
+                            is_active: true
+                        })),
+                        skipDuplicates: true
+                    });
+                }
+            }
+
             return warehouse;
         });
     }
@@ -197,38 +269,26 @@ class WarehouseDAO {
         if (isNaN(numericId)) {
             throw new Error('Invalid warehouse ID');
         }
-        // Upsert logic
-        const where = {
-            warehouse_id_product_id_variant_id: {
-                warehouse_id: numericId,
-                product_id: productId,
-                variant_id: variantId || 0 // Assuming 0 or specific value for no variant if constraint requires? 
-                // Actually relying on findFirst unique check is safer if schema is unknown.
-            }
-        };
 
-        // Revised upsert using findFirst for safety
-        const existing = await this.getProductStock(numericId, productId, variantId);
-
-        if (existing) {
-            return await prisma.product_warehouse_stock.update({
-                where: { id: existing.id },
-                data: {
-                    ...data,
-                    last_restocked_at: new Date()
-                }
-            });
-        } else {
-            return await prisma.product_warehouse_stock.create({
-                data: {
-                    warehouse_id: warehouseId,
-                    product_id: productId,
+        return await prisma.inventory.upsert({
+            where: {
+                variant_id_warehouse_id: {
                     variant_id: variantId,
-                    ...data,
-                    last_restocked_at: new Date()
+                    warehouse_id: numericId
                 }
-            });
-        }
+            },
+            update: {
+                stock_qty: parseInt(data.stock_quantity) || 0,
+                bulk_stock_threshold: parseInt(data.minimum_threshold) || 0,
+                updated_at: new Date()
+            },
+            create: {
+                variant_id: variantId,
+                warehouse_id: numericId,
+                stock_qty: parseInt(data.stock_quantity) || 0,
+                bulk_stock_threshold: parseInt(data.minimum_threshold) || 0,
+            }
+        });
     }
 
     async deleteProductStock(warehouseId, productId) {
@@ -236,11 +296,20 @@ class WarehouseDAO {
         if (isNaN(numericId)) {
             throw new Error('Invalid warehouse ID');
         }
-        // Delete all stock records for this product in this warehouse (base + variants)
-        return await prisma.product_warehouse_stock.deleteMany({
+
+        // Find all variants for this product
+        const variants = await prisma.product_variants.findMany({
+            where: { product_id: productId },
+            select: { id: true }
+        });
+
+        const variantIds = variants.map(v => v.id);
+
+        // Delete inventory records for these variants in this warehouse
+        return await prisma.inventory.deleteMany({
             where: {
                 warehouse_id: numericId,
-                product_id: productId
+                variant_id: { in: variantIds }
             }
         });
     }
@@ -315,11 +384,14 @@ class WarehouseDAO {
         if (isNaN(numericId)) {
             throw new Error('Invalid warehouse ID');
         }
-        return await prisma.product_warehouse_stock.findMany({
-            where: { warehouse_id: numericId, is_active: true },
+        return await prisma.inventory.findMany({
+            where: { warehouse_id: numericId },
             include: {
-                products: true,
-                product_variants: true
+                variant: {
+                    include: {
+                        product: true
+                    }
+                }
             }
         });
     }
@@ -354,6 +426,76 @@ class WarehouseDAO {
         return await prisma.warehouse_scheduling_config.findFirst({
             where: { warehouse_id: numericId },
             include: { slot: true }
+        });
+    }
+
+    // ======= Seller Assignment Methods =======
+    async assignSellers(warehouseId, sellerIds) {
+        const numericId = parseInt(warehouseId, 10);
+        if (isNaN(numericId)) throw new Error('Invalid warehouse ID');
+        return await prisma.warehouse_sellers.createMany({
+            data: sellerIds.map(sid => ({
+                warehouse_id: numericId,
+                seller_id: sid,
+                is_active: true
+            })),
+            skipDuplicates: true
+        });
+    }
+
+    async removeSeller(warehouseId, sellerId) {
+        const numericId = parseInt(warehouseId, 10);
+        if (isNaN(numericId)) throw new Error('Invalid warehouse ID');
+        return await prisma.warehouse_sellers.deleteMany({
+            where: { warehouse_id: numericId, seller_id: sellerId }
+        });
+    }
+
+    async getWarehouseSellers(warehouseId) {
+        const numericId = parseInt(warehouseId, 10);
+        if (isNaN(numericId)) throw new Error('Invalid warehouse ID');
+        return await prisma.warehouse_sellers.findMany({
+            where: { warehouse_id: numericId, is_active: true },
+            include: {
+                seller: {
+                    include: { user: { select: { id: true, name: true, email: true, phone: true } } }
+                }
+            }
+        });
+    }
+
+    // ======= Rider Assignment Methods =======
+    async assignRiders(warehouseId, riderIds) {
+        const numericId = parseInt(warehouseId, 10);
+        if (isNaN(numericId)) throw new Error('Invalid warehouse ID');
+        return await prisma.warehouse_riders.createMany({
+            data: riderIds.map(rid => ({
+                warehouse_id: numericId,
+                rider_id: rid,
+                is_active: true
+            })),
+            skipDuplicates: true
+        });
+    }
+
+    async removeRider(warehouseId, riderId) {
+        const numericId = parseInt(warehouseId, 10);
+        if (isNaN(numericId)) throw new Error('Invalid warehouse ID');
+        return await prisma.warehouse_riders.deleteMany({
+            where: { warehouse_id: numericId, rider_id: riderId }
+        });
+    }
+
+    async getWarehouseRiders(warehouseId) {
+        const numericId = parseInt(warehouseId, 10);
+        if (isNaN(numericId)) throw new Error('Invalid warehouse ID');
+        return await prisma.warehouse_riders.findMany({
+            where: { warehouse_id: numericId, is_active: true },
+            include: {
+                rider: {
+                    include: { user: { select: { id: true, name: true, email: true, phone: true } } }
+                }
+            }
         });
     }
 }
