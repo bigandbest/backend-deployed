@@ -1004,10 +1004,11 @@ export const getSuperSaver = async (req, res) => {
   try {
     const { limit = 50 } = req.query;
 
+    // Fetch active products with their variants (price lives on variants, not products)
     const products = await prisma.products.findMany({
       where: { active: true },
-      orderBy: { price: 'asc' },
-      take: parseInt(limit),
+      orderBy: { created_at: 'desc' },
+      take: parseInt(limit) * 2, // fetch extra to ensure enough after sorting by price
       include: {
         variants: { where: { active: true } },
         media: { take: 1 },
@@ -1015,7 +1016,18 @@ export const getSuperSaver = async (req, res) => {
       }
     });
 
-    const transformedProducts = products.map(product => transformProduct(product));
+    // Sort by lowest variant price in JS (since price is on variants, not the products table)
+    const sorted = products
+      .map(product => {
+        const lowestPrice = product.variants?.length > 0
+          ? Math.min(...product.variants.map(v => v.variant_price || Infinity))
+          : Infinity;
+        return { ...product, _lowestPrice: lowestPrice };
+      })
+      .sort((a, b) => a._lowestPrice - b._lowestPrice)
+      .slice(0, parseInt(limit));
+
+    const transformedProducts = sorted.map(product => transformProduct(product));
 
     res.status(200).json({
       success: true,

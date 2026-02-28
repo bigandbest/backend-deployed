@@ -306,8 +306,8 @@ class SellerDAO {
             order_items: {
                 some: {
                     OR: sellerProducts.map(sp => ({
-                        product_id: sp.product_id,
-                        variant_id: sp.variant_id
+                        variant: { product_id: sp.product_id },
+                        ...(sp.variant_id ? { variant_id: sp.variant_id } : {})
                     }))
                 }
             }
@@ -323,13 +323,14 @@ class SellerDAO {
                 order_items: {
                     where: {
                         OR: sellerProducts.map(sp => ({
-                            product_id: sp.product_id,
-                            variant_id: sp.variant_id
+                            variant: { product_id: sp.product_id },
+                            ...(sp.variant_id ? { variant_id: sp.variant_id } : {})
                         }))
                     },
                     include: {
-                        product: { select: { id: true, name: true } },
-                        variant: { select: { id: true, title: true, price: true } }
+                        variant: {
+                            select: { id: true, title: true, price: true, product: { select: { id: true, name: true } } }
+                        }
                     }
                 },
                 user: {
