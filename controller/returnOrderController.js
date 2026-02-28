@@ -93,7 +93,7 @@ export const checkReturnEligibility = async (req, res) => {
     // Check for existing return items to mark them as ineligible
     const existingReturnItems = await prisma.return_order_items.findMany({
       where: {
-        return_order: {
+        return_orders: {
           order_id: order_id
         }
       },
