@@ -10,14 +10,14 @@ class ProductWarehouseStockDAO {
             where: {
                 product_id: productId,
                 is_active: true,
-                warehouse_zones: {
-                    some: {
-                        zone_id: zoneId
-                    }
-                },
                 warehouses: {
                     type: 'zonal',
-                    is_active: true
+                    is_active: true,
+                    warehouse_zones: {
+                        some: {
+                            zone_id: zoneId
+                        }
+                    }
                 },
                 stock_quantity: {
                     gte: quantity
