@@ -1,0 +1,15 @@
+model warehouse_riders {
+  id            Int       @id @default(autoincrement())
+  warehouse_id  Int
+  rider_id      String    @db.Uuid
+  is_active     Boolean   @default(true)
+  assigned_at   DateTime  @default(now()) @db.Timestamptz
+
+  // Relations
+  warehouse     warehouses @relation(fields: [warehouse_id], references: [id], onDelete: Cascade)
+  rider         riders     @relation(fields: [rider_id], references: [id], onDelete: Cascade)
+
+  @@unique([warehouse_id, rider_id])
+  @@index([warehouse_id])
+  @@index([rider_id])
+}

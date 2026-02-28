@@ -67,6 +67,8 @@ cess_rate          Decimal?           @default(0) @db.Decimal
   store_section_mappings    store_section_mappings[]
   daily_deals_products      daily_deals_product[]
   warehouse_stock           product_warehouse_stock[]
+  seller_products           seller_products[]
+  seller_negotiations       seller_negotiations[]
 
   @@index([vertical])
   @@index([category_id])

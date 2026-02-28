@@ -1,0 +1,27 @@
+model riders {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id           String    @unique @db.Uuid
+  
+  // Personal details
+  vehicle_type      String?   @db.VarChar // "bike", "scooter", "bicycle", "van"
+  vehicle_number    String?   @db.VarChar
+  license_number    String?   @db.VarChar
+  
+  // Status
+  is_active         Boolean   @default(true)
+  is_verified       Boolean   @default(false)
+  is_available      Boolean   @default(true)
+  
+  approved_at       DateTime? @db.Timestamptz
+  approved_by       String?   @db.Uuid
+
+  created_at        DateTime  @default(now()) @db.Timestamptz
+  updated_at        DateTime  @default(now()) @db.Timestamptz
+
+  // Relations
+  user              users     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  warehouse_riders  warehouse_riders[]
+
+  @@index([user_id])
+  @@index([is_available])
+}

@@ -1,0 +1,32 @@
+model seller_negotiations {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  seller_id             String    @db.Uuid
+  product_id            String    @db.Uuid
+  variant_id            String?   @db.Uuid
+  
+  // Quantities
+  proposed_quantity     Int       @default(0)
+  
+  // Pricing negotiation
+  seller_proposed_price Decimal   @db.Decimal  // Vendor's initial price
+  admin_counter_price   Decimal?  @db.Decimal  // Admin's counter-offer
+  final_agreed_price    Decimal?  @db.Decimal  // Locked-in price
+  
+  // Status 
+  status                String    @default("PENDING_APPROVAL") @db.VarChar
+  // PENDING_APPROVAL, COUNTER_OFFERED, ACCEPTED, DECLINED, EXPIRED
+  
+  // Notes
+  seller_notes          String?
+  admin_notes           String?
+  
+  created_at            DateTime  @default(now()) @db.Timestamptz
+  updated_at            DateTime  @default(now()) @db.Timestamptz
+
+  // Relations
+  seller                sellers   @relation(fields: [seller_id], references: [id], onDelete: Cascade)
+  product               products  @relation(fields: [product_id], references: [id])
+
+  @@index([seller_id])
+  @@index([status])
+}

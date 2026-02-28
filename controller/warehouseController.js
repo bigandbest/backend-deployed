@@ -22,15 +22,32 @@ export const getWarehouses = async (req, res) => {
 
         let zones = [];
         let pincodes = [];
+        let sellers = [];
+        let riders = [];
 
         if (warehouse.type === "zonal") {
           zones = detailed.warehouse_zones?.map(wz => ({
             ...wz.zone,
-            // If zone has pincodes included in relation:
             pincodes: wz.zone?.zone_pincodes || []
           })).filter(Boolean) || [];
         } else if (warehouse.type === "division") {
           pincodes = detailed.warehouse_pincodes || [];
+          sellers = detailed.warehouse_sellers?.map(ws => ({
+            id: ws.seller?.id,
+            user_id: ws.seller?.user_id,
+            business_name: ws.seller?.business_name,
+            seller_type: ws.seller?.seller_type,
+            user: ws.seller?.user,
+            assigned_at: ws.assigned_at,
+          })).filter(Boolean) || [];
+          riders = detailed.warehouse_riders?.map(wr => ({
+            id: wr.rider?.id,
+            user_id: wr.rider?.user_id,
+            vehicle_type: wr.rider?.vehicle_type,
+            is_available: wr.rider?.is_available,
+            user: wr.rider?.user,
+            assigned_at: wr.assigned_at,
+          })).filter(Boolean) || [];
         }
 
         return {
@@ -38,6 +55,8 @@ export const getWarehouses = async (req, res) => {
           pincode: warehouse.location,
           zones: zones,
           pincodes: pincodes,
+          sellers: sellers,
+          riders: riders,
         };
       })
     );
@@ -63,7 +82,7 @@ export const createWarehouse = async (req, res) => {
   try {
     const {
       name, type, location, pincode, address, contact_person, contact_phone, contact_email,
-      zone_ids, parent_warehouse_id, pincode_assignments
+      zone_ids, parent_warehouse_id, pincode_assignments, seller_ids, rider_ids
     } = req.body;
 
     if (!name || !type || !["zonal", "division"].includes(type)) {
@@ -100,7 +119,7 @@ export const createWarehouse = async (req, res) => {
       hierarchy_level: type === "zonal" ? 0 : 1
     };
 
-    const warehouse = await WarehouseDAO.createWithRelations(data, { zone_ids, pincode_assignments });
+    const warehouse = await WarehouseDAO.createWithRelations(data, { zone_ids, pincode_assignments, seller_ids, rider_ids });
 
     res.status(201).json({
       success: true,
@@ -131,10 +150,34 @@ export const getSingleWarehouse = async (req, res) => {
       }));
     }
 
+    // Transform sellers and riders (for division warehouses)
+    let sellers = [];
+    let riders = [];
+    if (warehouse.type === 'division') {
+      sellers = warehouse.warehouse_sellers?.map(ws => ({
+        id: ws.seller?.id,
+        user_id: ws.seller?.user_id,
+        business_name: ws.seller?.business_name,
+        seller_type: ws.seller?.seller_type,
+        user: ws.seller?.user,
+        assigned_at: ws.assigned_at,
+      })).filter(Boolean) || [];
+      riders = warehouse.warehouse_riders?.map(wr => ({
+        id: wr.rider?.id,
+        user_id: wr.rider?.user_id,
+        vehicle_type: wr.rider?.vehicle_type,
+        is_available: wr.rider?.is_available,
+        user: wr.rider?.user,
+        assigned_at: wr.assigned_at,
+      })).filter(Boolean) || [];
+    }
+
     const warehouseWithZones = {
       ...warehouse,
       pincode: warehouse.location,
       zones: zones,
+      sellers: sellers,
+      riders: riders,
     };
 
     res.status(200).json({ success: true, data: warehouseWithZones });
@@ -151,7 +194,7 @@ export const updateWarehouse = async (req, res) => {
     const { id } = req.params;
     const {
       name, type, location, pincode, address, contact_person, contact_phone, contact_email,
-      parent_warehouse_id, zone_ids, pincode_assignments, ...otherUpdates
+      parent_warehouse_id, zone_ids, pincode_assignments, seller_ids, rider_ids, ...otherUpdates
     } = req.body;
 
     if (!name || !type) return res.status(400).json({ success: false, error: "Name and type required" });
@@ -168,7 +211,7 @@ export const updateWarehouse = async (req, res) => {
       ...otherUpdates
     };
 
-    const warehouse = await WarehouseDAO.updateWithRelations(id, warehouseUpdates, { zone_ids, pincode_assignments });
+    const warehouse = await WarehouseDAO.updateWithRelations(id, warehouseUpdates, { zone_ids, pincode_assignments, seller_ids, rider_ids });
 
     res.status(200).json({ success: true, message: "Warehouse updated successfully", data: warehouse });
   } catch (error) {
@@ -689,6 +732,134 @@ export const getGlobalStockMovements = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in getGlobalStockMovements:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ======= Seller Management for Warehouses =======
+
+/**
+ * Get sellers assigned to a warehouse
+ */
+export const getWarehouseSellers = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const sellers = await WarehouseDAO.getWarehouseSellers(id);
+    res.status(200).json({
+      success: true,
+      data: sellers.map(ws => ({
+        id: ws.seller?.id,
+        user_id: ws.seller?.user_id,
+        business_name: ws.seller?.business_name,
+        seller_type: ws.seller?.seller_type,
+        user: ws.seller?.user,
+        assigned_at: ws.assigned_at,
+      })),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * Assign sellers to a warehouse
+ */
+export const assignWarehouseSellers = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { seller_ids } = req.body;
+
+    if (!seller_ids || !Array.isArray(seller_ids) || seller_ids.length === 0) {
+      return res.status(400).json({ success: false, error: 'seller_ids array is required' });
+    }
+
+    // Verify warehouse is division type
+    const warehouse = await WarehouseDAO.getById(id);
+    if (!warehouse) return res.status(404).json({ success: false, error: 'Warehouse not found' });
+    if (warehouse.type !== 'division') {
+      return res.status(400).json({ success: false, error: 'Sellers can only be assigned to division warehouses' });
+    }
+
+    await WarehouseDAO.assignSellers(id, seller_ids);
+    res.status(201).json({ success: true, message: 'Sellers assigned successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * Remove seller from a warehouse
+ */
+export const removeWarehouseSeller = async (req, res) => {
+  try {
+    const { id, sellerId } = req.params;
+    await WarehouseDAO.removeSeller(id, sellerId);
+    res.status(200).json({ success: true, message: 'Seller removed from warehouse' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ======= Rider Management for Warehouses =======
+
+/**
+ * Get riders assigned to a warehouse
+ */
+export const getWarehouseRiders = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const riders = await WarehouseDAO.getWarehouseRiders(id);
+    res.status(200).json({
+      success: true,
+      data: riders.map(wr => ({
+        id: wr.rider?.id,
+        user_id: wr.rider?.user_id,
+        vehicle_type: wr.rider?.vehicle_type,
+        is_available: wr.rider?.is_available,
+        user: wr.rider?.user,
+        assigned_at: wr.assigned_at,
+      })),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * Assign riders to a warehouse
+ */
+export const assignWarehouseRiders = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rider_ids } = req.body;
+
+    if (!rider_ids || !Array.isArray(rider_ids) || rider_ids.length === 0) {
+      return res.status(400).json({ success: false, error: 'rider_ids array is required' });
+    }
+
+    // Verify warehouse is division type
+    const warehouse = await WarehouseDAO.getById(id);
+    if (!warehouse) return res.status(404).json({ success: false, error: 'Warehouse not found' });
+    if (warehouse.type !== 'division') {
+      return res.status(400).json({ success: false, error: 'Riders can only be assigned to division warehouses' });
+    }
+
+    await WarehouseDAO.assignRiders(id, rider_ids);
+    res.status(201).json({ success: true, message: 'Riders assigned successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * Remove rider from a warehouse
+ */
+export const removeWarehouseRider = async (req, res) => {
+  try {
+    const { id, riderId } = req.params;
+    await WarehouseDAO.removeRider(id, riderId);
+    res.status(200).json({ success: true, message: 'Rider removed from warehouse' });
+  } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 };

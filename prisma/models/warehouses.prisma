@@ -30,4 +30,7 @@ model warehouses {
   warehouse_pincodes  warehouse_pincodes[]
   inventory           inventory[]
   warehouse_stock     product_warehouse_stock[]
+  seller_products     seller_products[]
+  warehouse_sellers   warehouse_sellers[]
+  warehouse_riders    warehouse_riders[]
 }
