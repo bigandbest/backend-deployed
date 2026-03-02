@@ -118,6 +118,20 @@ class DeliveryZoneDAO {
         // Postgres functions return array of rows.
         return result[0]?.can_deliver_to_pincode;
     }
+
+    async getZonalWarehouses(zoneId) {
+        const zone = await prisma.delivery_zones.findUnique({
+            where: { id: zoneId },
+            include: {
+                warehouse_zones: {
+                    include: {
+                        warehouse: true
+                    }
+                }
+            }
+        });
+        return zone?.warehouse_zones?.map(wz => wz.warehouse) || [];
+    }
 }
 
 export default new DeliveryZoneDAO();

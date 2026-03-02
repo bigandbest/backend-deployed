@@ -308,16 +308,38 @@ export const getSellerOrders = async (req, res) => {
         const seller = await prisma.sellers.findUnique({ where: { user_id: req.user.id } });
         if (!seller) return res.status(404).json({ success: false, error: 'Seller profile not found' });
 
-        const orders = await SellerDAO.getSellerOrders(seller.id, req.query);
+        // Status mapping for Seller/Rider App
+        const statusMap = {
+            'PENDING': 'pending',
+            'ACCEPTED': 'confirmed',
+            'SHIPPED': 'shipped',
+            'NEW': 'pending' // For compatibility with other app versions if any
+        };
+
+        const reverseStatusMap = {
+            'pending': 'PENDING',
+            'confirmed': 'ACCEPTED',
+            'shipped': 'SHIPPED',
+            'shipped_out': 'SHIPPED',
+            'out_for_delivery': 'SHIPPED',
+            'delivered': 'DELIVERED', // For lists that might show delivered
+        };
+
+        const queryFilters = { ...req.query };
+        if (queryFilters.status && statusMap[queryFilters.status]) {
+            queryFilters.status = statusMap[queryFilters.status];
+        }
+
+        const orders = await SellerDAO.getSellerOrders(seller.id, queryFilters);
 
         res.status(200).json({
             success: true,
             data: orders.map(o => ({
                 id: o.id,
-                order_number: o.order_number,
-                status: o.status,
+                order_number: o.tracking_number || o.id.slice(0, 8).toUpperCase(),
+                status: reverseStatusMap[o.status] || o.status,
                 total: o.total, // For frontend totalAmount
-                total_amount: o.total_amount,
+                total_amount: o.total,
                 totalAmount: o.total, // Added Explicitly for Rider App
                 customer_name: o.user?.name,
                 userAddress: o.address,
