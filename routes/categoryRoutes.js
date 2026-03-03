@@ -13,6 +13,7 @@ import {
   updateCategory,
   deleteCategory,
   getAllCategories,
+  getAllCategoriesWithSubs,
   addSubcategory,
   updateSubcategory,
   deleteSubcategory,
@@ -49,6 +50,9 @@ router.get("/subcategory/:subcategoryId", getSubcategoryDetails);
 
 // Full hierarchy route
 router.get("/hierarchy", getCategoriesHierarchy);
+
+// All categories with subcategories (no filtering) - for sidebar
+router.get("/all-with-subcategories", getAllCategoriesWithSubs);
 
 // Section-specific routes
 router.get("/section/:sectionKey/subcategories", getSubcategoriesForSection);

@@ -19,7 +19,7 @@ export async function unifiedSearch(req, res) {
         const searchQuery = q.trim();
 
         // Parallel search across all entities using Prisma
-        const [productsResult, categoriesResult, subcategoriesResult, storesResult, brandsResult] = await Promise.all([
+        const [productsResult, categoriesResult, subcategoriesResult, storesResult, brandsResult, groupsResult] = await Promise.all([
             // Search products by name, category, subcategory or brand name
             prisma.products.findMany({
                 where: {
@@ -120,6 +120,27 @@ export async function unifiedSearch(req, res) {
                 },
                 take: 5
             }),
+
+            // Search groups (sub-subcategories)
+            prisma.groups.findMany({
+                where: {
+                    name: { contains: searchQuery, mode: 'insensitive' },
+                    active: true
+                },
+                select: {
+                    id: true,
+                    name: true,
+                    image_url: true,
+                    subcategory_id: true,
+                    subcategory: {
+                        select: {
+                            name: true,
+                            category_id: true
+                        }
+                    }
+                },
+                take: 5
+            }),
         ]);
 
         // Map and format results for the frontend
@@ -139,7 +160,14 @@ export async function unifiedSearch(req, res) {
             subcategories: subcategoriesResult || [],
             stores: storesResult || [],
             brands: brandsResult || [],
-            total: formattedProducts.length + categoriesResult.length + subcategoriesResult.length + storesResult.length + brandsResult.length,
+            groups: (groupsResult || []).map(g => ({
+                id: g.id,
+                name: g.name,
+                image_url: g.image_url,
+                subcategory_name: g.subcategory?.name || null,
+                category_id: g.subcategory?.category_id || null,
+            })),
+            total: formattedProducts.length + categoriesResult.length + subcategoriesResult.length + storesResult.length + brandsResult.length + (groupsResult || []).length,
         };
 
         return res.status(200).json({

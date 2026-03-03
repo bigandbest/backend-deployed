@@ -1,9 +1,6 @@
 // Check current warehouse_mapping_type values in database
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = "https://vjveipltkwxnndrencbf.supabase.co";
-const supabaseKey =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZqdmVpcGx0a3d4bm5kcmVuY2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUyNzE3MDYsImV4cCI6MjA3MDg0NzcwNn0.XPHGvrMCRIFDj_gmFSDs1_Mzx8j7qDBuG7IEfS5yX8Q";
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
