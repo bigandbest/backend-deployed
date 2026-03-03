@@ -670,6 +670,35 @@ export const getCategoriesHierarchy = async (req, res) => {
   }
 };
 
+// Get ALL categories with subcategories - direct Prisma query, no DAO layer, no filtering
+// GET /api/categories/all-with-subcategories
+export const getAllCategoriesWithSubs = async (req, res) => {
+  try {
+    const categories = await prisma.categories.findMany({
+      include: {
+        subcategories: {
+          include: {
+            groups: {
+              orderBy: { sort_order: "asc" },
+            },
+          },
+          orderBy: { sort_order: "asc" },
+        },
+      },
+      orderBy: { name: "asc" },
+    });
+
+    res.status(200).json({
+      success: true,
+      categories: categories,
+      total: categories.length,
+    });
+  } catch (error) {
+    console.error("Error in getAllCategoriesWithSubs:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
 // Get subcategory details with category info
 export const getSubcategoryDetails = async (req, res) => {
   try {

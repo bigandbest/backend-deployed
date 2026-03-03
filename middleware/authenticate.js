@@ -1,5 +1,4 @@
 import jwt from "jsonwebtoken";
-import { supabase, supabaseAuth } from "../config/supabaseClient.js";
 import {
   verifyToken,
   decodeToken,
