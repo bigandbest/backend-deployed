@@ -262,7 +262,19 @@ export const getOrderDetails = async (req, res) => {
                     include: {
                         variant: {
                             include: {
-                                product: { select: { name: true, media: true } }
+                                product: {
+                                    select: {
+                                        name: true,
+                                        media: true,
+                                        seller_id: true
+                                    }
+                                }
+                            }
+                        },
+                        warehouse: {
+                            select: {
+                                name: true,
+                                address: true
                             }
                         }
                     }
@@ -280,27 +292,55 @@ export const getOrderDetails = async (req, res) => {
         // Prepare item details and aggregate warehouse/seller sources
         const sources = new Map();
 
-        const items = order.order_items.map(item => {
-            const productImg = item.variant?.product?.media?.[0]?.url || 'https://via.placeholder.com/150';
-            const productName = item.variant?.product?.name || 'Unknown Product';
-            const variantName = item.variant?.variant_name || '';
+        // Unique set of seller IDs to fetch their addresses
+        const sellerIds = [...new Set(order.order_items
+            .map(item => item.variant?.product?.seller_id)
+            .filter(Boolean))];
 
-            // We use assigned_warehouse_id if available (from placeOrder)
-            // If not, we fall back to a generic default
-            let pickupLocation = { type: 'Warehouse', name: item.warehouse_name || 'Central Warehouse', id: item.assigned_warehouse_id };
-            if (!item.assigned_warehouse_id) {
-                pickupLocation.name = 'Seller/Central Warehouse';
+        const sellers = await prisma.sellers.findMany({
+            where: { id: { in: sellerIds } },
+            select: {
+                id: true,
+                business_name: true,
+                address: true,
+                city: true,
+                state: true,
+                pincode: true
+            }
+        });
+
+        const sellerMap = new Map(sellers.map(s => [s.id, s]));
+
+        const items = order.order_items.map(item => {
+            const product = item.variant?.product;
+            const productImg = product?.media?.[0]?.url || 'https://via.placeholder.com/150';
+            const productName = product?.name || 'Unknown Product';
+            const variantName = item.variant?.title || ''; // title is corrected from variant_name
+
+            const sellerId = product?.seller_id;
+            const seller = sellerId ? sellerMap.get(sellerId) : null;
+
+            let pickupLocation;
+            if (seller) {
+                pickupLocation = {
+                    type: 'Seller',
+                    name: seller.business_name || 'Seller',
+                    id: seller.id,
+                    address: `${seller.address || ''}, ${seller.city || ''}, ${seller.state || ''} ${seller.pincode || ''}`.trim().replace(/^, |, $/g, '') || 'Address not found'
+                };
+            } else {
+                pickupLocation = {
+                    type: 'Warehouse',
+                    name: item.warehouse?.name || 'Central Warehouse',
+                    id: item.assigned_warehouse_id,
+                    address: item.warehouse?.address || 'Warehouse Address not found'
+                };
             }
 
             // Keep track of unique sources to show rider where to go
             const sourceKey = `${pickupLocation.type}-${pickupLocation.id || pickupLocation.name}`;
             if (!sources.has(sourceKey)) {
-                sources.set(sourceKey, {
-                    type: pickupLocation.type,
-                    name: pickupLocation.name,
-                    id: pickupLocation.id,
-                    address: pickupLocation.id ? 'Loading address...' : 'Address from DB', // To be expanded if needed
-                });
+                sources.set(sourceKey, pickupLocation);
             }
 
             return {

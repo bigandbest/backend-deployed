@@ -40,6 +40,7 @@ model orders {
   order_items         order_items[]
   tracking            order_tracking[]
   coupon_usage        coupon_usage?
+  return_orders       return_orders[]
 
   @@index([rider_id])
   @@index([delivery_pincode])

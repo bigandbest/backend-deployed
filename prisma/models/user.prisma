@@ -42,6 +42,8 @@ model users {
   // Relations
   notifications    user_notifications[]
   posts            Post[]
+  return_orders    return_orders[]
+  processed_returns return_orders[] @relation("AdminProcessedReturns")
   cart_items       cart_items[]
   wishlist_items   wishlist_items[]
   orders           orders[]

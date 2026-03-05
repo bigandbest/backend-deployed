@@ -493,6 +493,7 @@ model order_items {
   variant               product_variants       @relation(fields: [variant_id], references: [id])
   warehouse             warehouses?            @relation(fields: [assigned_warehouse_id], references: [id])
   service_booking       service_bookings?
+  return_order_items    return_order_items[]
 
   @@index([order_id])
   @@index([variant_id])
@@ -556,6 +557,7 @@ model orders {
   order_items         order_items[]
   tracking            order_tracking[]
   coupon_usage        coupon_usage?
+  return_orders       return_orders[]
 
   @@index([rider_id])
   @@index([delivery_pincode])
@@ -1030,6 +1032,55 @@ model recommended_store {
   banner      banners?                       @relation(fields: [banner_id], references: [id])
   products    product_recommended_store[]
   store_section_mappings store_section_mappings[]
+}
+
+
+// --- Model: return_order_items.prisma ---
+model return_order_items {
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  return_order_id String      @db.Uuid
+  order_item_id   String      @db.Uuid
+  quantity        Int         @default(1)
+  return_reason   String?
+  created_at      DateTime?   @default(now()) @db.Timestamp
+
+  // Relations
+  return_order    return_orders @relation(fields: [return_order_id], references: [id], onDelete: Cascade)
+  order_item      order_items   @relation(fields: [order_item_id], references: [id])
+
+  @@index([return_order_id])
+  @@index([order_item_id])
+}
+
+
+// --- Model: return_orders.prisma ---
+model return_orders {
+  id                        String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  order_id                  String             @db.Uuid
+  user_id                   String             @db.Uuid
+  return_type               String             @db.VarChar // 'return' or 'cancellation'
+  reason                    String
+  additional_details        String?
+  bank_account_holder_name  String?            @db.VarChar
+  bank_account_number       String?            @db.VarChar
+  bank_ifsc_code            String?            @db.VarChar
+  bank_name                 String?            @db.VarChar
+  refund_amount             Decimal            @db.Decimal
+  status                    String?            @default("pending") @db.VarChar
+  admin_notes               String?
+  admin_id                  String?            @db.Uuid
+  processed_at              DateTime?          @db.Timestamp
+  created_at                DateTime?          @default(now()) @db.Timestamp
+  updated_at                DateTime?          @default(now()) @db.Timestamp
+
+  // Relations
+  order                     orders             @relation(fields: [order_id], references: [id])
+  user                      users              @relation(fields: [user_id], references: [id])
+  admin                     users?             @relation("AdminProcessedReturns", fields: [admin_id], references: [id])
+  return_order_items        return_order_items[]
+
+  @@index([order_id])
+  @@index([user_id])
 }
 
 
@@ -1513,6 +1564,8 @@ model users {
   // Relations
   notifications    user_notifications[]
   posts            Post[]
+  return_orders    return_orders[]
+  processed_returns return_orders[] @relation("AdminProcessedReturns")
   cart_items       cart_items[]
   wishlist_items   wishlist_items[]
   orders           orders[]
