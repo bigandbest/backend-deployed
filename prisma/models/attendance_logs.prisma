@@ -1,0 +1,20 @@
+model attendance_logs {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rider_id        String    @db.Uuid
+  check_in_time   DateTime  @db.Timestamptz
+  check_out_time  DateTime? @db.Timestamptz
+  total_hours     Decimal?  @db.Decimal(5, 2)
+  auto_checkout   Boolean   @default(false)
+  date            DateTime  @db.Date
+
+  created_at      DateTime  @default(now()) @db.Timestamptz
+  updated_at      DateTime  @default(now()) @db.Timestamptz
+
+  // Relations
+  rider           riders    @relation(fields: [rider_id], references: [id], onDelete: Cascade)
+
+  @@index([rider_id])
+  @@index([date])
+  @@index([rider_id, date])
+  @@index([check_out_time])
+}

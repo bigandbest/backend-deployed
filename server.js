@@ -96,6 +96,11 @@ import adminUserRoutes from "./routes/adminUserRoutes.js";
 import sellerAuthRoutes from "./routes/sellerAuthRoutes.js";
 import sellerRoutes from "./routes/sellerRoutes.js";
 import adminSellerRoutes from "./routes/adminSellerRoutes.js";
+import riderAuthRoutes from "./routes/riderAuthRoutes.js";
+import riderAdminRoutes from "./routes/riderAdminRoutes.js";
+import attendanceRoutes from "./routes/attendanceRoutes.js";
+import riderOrderRoutes from "./routes/riderOrderRoutes.js";
+import { startAutoCheckoutCron } from "./services/autoCheckoutCron.js";
 
 // Configuration
 const PORT = process.env.PORT || 8000;
@@ -263,6 +268,12 @@ const createApp = () => {
   app.use("/api/admin", adminProductRoutes);
   app.use("/api/admin/users", adminUserRoutes);
   app.use("/api/admin/sellers", adminSellerRoutes);
+
+  // Rider Management Routes
+  app.use("/api/rider-auth", riderAuthRoutes);
+  app.use("/api/admin/riders", riderAdminRoutes);
+  app.use("/api/attendance", attendanceRoutes);
+  app.use("/api/rider/orders", riderOrderRoutes);
 
   app.use("/api/enquiries", enquiriesRoutes);
   app.use("/api/wallet", walletRoutes);
@@ -601,6 +612,9 @@ const startServer = async () => {
     // if (!IS_CLUSTERED || workerId === 1) {
     //   startScheduledJobs();
     // }
+
+    // Start rider auto-checkout cron job
+    startAutoCheckoutCron();
   });
 
   // Graceful shutdown for workers
