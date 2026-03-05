@@ -1024,7 +1024,19 @@ export const getRelatedProducts = async (req, res) => {
       return res.status(400).json({ success: false, error: "product_ids array is required" });
     }
 
-    const products = await productDao.getRelatedProducts(product_ids);
+    // Sanitize product_ids: extract UUID part if composite (e.g., productId_variantId) and filter valid UUIDs
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const cleanIds = [...new Set(
+      product_ids
+        .map(id => typeof id === 'string' ? id.split('_')[0] : '')
+        .filter(id => uuidRegex.test(id))
+    )];
+
+    if (cleanIds.length === 0) {
+      return res.status(200).json({ success: true, products: [] });
+    }
+
+    const products = await productDao.getRelatedProducts(cleanIds);
     const transformedProducts = products.map(product => transformProduct(product));
 
     res.status(200).json({

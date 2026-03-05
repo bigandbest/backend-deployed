@@ -18,6 +18,18 @@ model orders {
   gst_number          String?          @db.VarChar
   is_deleted          Boolean?         @default(false)
 
+  // Customer & Coupon Fields
+  mobile              String?          @db.VarChar
+  receiver_name       String?          @db.VarChar
+  coupon_code         String?          @db.VarChar
+  coupon_discount     Decimal?         @default(0) @db.Decimal
+  discount_charge     Decimal?         @default(0) @db.Decimal
+  razorpay_signature  String?          @db.VarChar
+
+  // Rider Delivery Assignment
+  rider_id            String?          @db.Uuid
+  delivery_pincode    String?          @db.VarChar
+
   // Charge Breakdown (Snapshotted at order creation)
   handling_charge     Decimal?         @default(0) @db.Decimal
   surge_charge        Decimal?         @default(0) @db.Decimal
@@ -28,4 +40,7 @@ model orders {
   order_items         order_items[]
   tracking            order_tracking[]
   coupon_usage        coupon_usage?
+
+  @@index([rider_id])
+  @@index([delivery_pincode])
 }
