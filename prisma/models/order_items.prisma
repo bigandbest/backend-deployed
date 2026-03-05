@@ -15,6 +15,7 @@ model order_items {
   variant               product_variants       @relation(fields: [variant_id], references: [id])
   warehouse             warehouses?            @relation(fields: [assigned_warehouse_id], references: [id])
   service_booking       service_bookings?
+  return_order_items    return_order_items[]
 
   @@index([order_id])
   @@index([variant_id])
