@@ -340,17 +340,22 @@ export const approvePincodeRequest = async (req, res) => {
             // Update request status
             const updatedReq = await tx.seller_pincode_requests.update({
                 where: { id: parseInt(id) },
-                data: { status: 'APPROVED' }
+                data: { status: 'APPROVED', updated_at: new Date() }
             });
 
-            // Update seller's actual pincode
+            // Update seller's actual pincode and address
             await tx.sellers.update({
                 where: { id: request.seller_id },
-                data: { pincode: request.pincodes }
+                data: {
+                    pincode: request.pincode,
+                    address: request.address,
+                    is_active: true
+                }
             });
 
             return updatedReq;
         });
+
 
         res.status(200).json({ success: true, message: 'Pincode request approved successfully', data: result });
     } catch (error) {
@@ -365,10 +370,14 @@ export const approvePincodeRequest = async (req, res) => {
 export const rejectPincodeRequest = async (req, res) => {
     try {
         const { id } = req.params;
+        const { rejection_reason } = req.body;
 
         const updatedReq = await prisma.seller_pincode_requests.update({
             where: { id: parseInt(id) },
-            data: { status: 'REJECTED' }
+            data: {
+                status: 'REJECTED',
+                rejection_reason: rejection_reason || null
+            }
         });
 
         res.status(200).json({ success: true, message: 'Pincode request rejected', data: updatedReq });

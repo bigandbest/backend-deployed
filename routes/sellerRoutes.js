@@ -17,7 +17,8 @@ import {
     getOrderDetails,
     getSellerDashboard,
     getSellerEarnings,
-    requestWalletWithdrawal
+    requestWalletWithdrawal,
+    toggleStoreStatus
 } from '../controller/sellerController.js';
 
 const router = express.Router();
@@ -35,6 +36,9 @@ router.get('/products/search', authenticateToken, requireSeller, searchMasterPro
 router.post('/products/request', authenticateToken, requireSeller, requestNewProduct);
 router.post('/products/stock', authenticateToken, requireSeller, addProductStock);
 router.patch('/products/:id/offer-price', authenticateToken, requireSeller, updateOfferPrice);
+
+// Store open/close toggle
+router.post('/toggle-store', authenticateToken, requireSeller, toggleStoreStatus);
 
 // Negotiation management
 router.get('/negotiations', authenticateToken, requireSeller, getNegotiations);

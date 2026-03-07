@@ -2,7 +2,6 @@ import prisma from "../config/prisma.js";
 
 class ReturnOrderDAO {
   async create(data, items = []) {
-    // use prisma transaction if items are present
     return await prisma.$transaction(async (tx) => {
       const returnOrder = await tx.return_orders.create({
         data: {

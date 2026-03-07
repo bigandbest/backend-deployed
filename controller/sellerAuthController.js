@@ -188,6 +188,19 @@ export const getSellerMe = async (req, res) => {
             return res.status(404).json({ success: false, error: 'Seller not found' });
         }
 
+        let activePincodesCount = 0;
+        if (user.seller_profile) {
+            const requests = await prisma.seller_pincode_requests.findMany({
+                where: { seller_id: user.seller_profile.id, status: 'APPROVED' }
+            });
+            let allPins = new Set();
+            if (user.seller_profile.pincode) {
+                user.seller_profile.pincode.split(',').forEach(p => p.trim() && allPins.add(p.trim()));
+            }
+            requests.forEach(r => allPins.add(r.pincode));
+            activePincodesCount = allPins.size;
+        }
+
         res.status(200).json({
             success: true,
             data: {
@@ -207,6 +220,8 @@ export const getSellerMe = async (req, res) => {
                 pincode: user.seller_profile?.pincode,
                 is_verified: user.seller_profile?.is_verified,
                 is_active: user.seller_profile?.is_active,
+                is_open: user.seller_profile?.is_open,
+                activePincodes: activePincodesCount,
                 gstin: user.seller_profile?.gstin,
                 pan: user.seller_profile?.pan,
                 bank_account_no: user.seller_profile?.bank_account_no,
