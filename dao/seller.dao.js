@@ -136,7 +136,6 @@ class SellerDAO {
                 data: {
                     stock_quantity: parseInt(stock_quantity) || 0,
                     seller_offer_price: parseFloat(seller_offer_price) || 0,
-                    offer_price: parseFloat(seller_offer_price) || 0, // Sync both fields
                     mrp: mrp ? parseFloat(mrp) : null,
                     status: isChanged ? 'PENDING_APPROVAL' : existing.status,
                     updated_at: new Date(),
@@ -176,7 +175,6 @@ class SellerDAO {
                     warehouse_id: parseInt(warehouse_id),
                     stock_quantity: parseInt(stock_quantity) || 0,
                     seller_offer_price: parseFloat(seller_offer_price) || 0,
-                    offer_price: parseFloat(seller_offer_price) || 0, // Sync both fields
                     mrp: mrp ? parseFloat(mrp) : null,
                     status: 'PENDING_APPROVAL',
                 }
@@ -346,7 +344,7 @@ class SellerDAO {
      * Get seller dashboard summary
      */
     async getDashboardStats(sellerId) {
-        const [products, pendingNegotiations, totalStock, sellerRecord] = await Promise.all([
+        const [products, pendingNegotiations, totalStock, sellerRecord, pincodeRequests] = await Promise.all([
             prisma.seller_products.count({ where: { seller_id: sellerId, is_active: true } }),
             prisma.seller_negotiations.count({ where: { seller_id: sellerId, status: 'COUNTER_OFFERED' } }),
             prisma.seller_products.aggregate({
@@ -354,45 +352,51 @@ class SellerDAO {
                 _sum: { stock_quantity: true }
             }),
             prisma.sellers.findUnique({
-                where: { id: sellerId },
-                include: {
-                    seller_pincode_requests: {
-                        where: { status: 'PENDING' },
-                        orderBy: { created_at: 'desc' },
-                        take: 1
-                    }
-                }
+                where: { id: sellerId }
+            }),
+            prisma.seller_pincode_requests.findMany({
+                where: { seller_id: sellerId },
+                orderBy: { created_at: 'desc' }
             })
         ]);
 
         let allPincodes = [];
         let idCounter = 1;
 
+        // 1. Add currently approved pincode from seller record (legacy/direct field)
         if (sellerRecord && sellerRecord.pincode) {
             const activePins = sellerRecord.pincode.split(',').map(p => p.trim()).filter(Boolean);
             activePins.forEach(pin => {
-                allPincodes.push({ id: idCounter++, pincode: pin, status: 'APPROVED' });
+                allPincodes.push({ id: `approved-${idCounter++}`, pincode: pin, status: 'APPROVED' });
             });
         }
 
-        if (sellerRecord && sellerRecord.seller_pincode_requests && sellerRecord.seller_pincode_requests.length > 0) {
-            const pendingReq = sellerRecord.seller_pincode_requests[0];
-            const pendingPins = pendingReq.pincodes ? pendingReq.pincodes.split(',').map(p => p.trim()).filter(Boolean) : [];
-
-            pendingPins.forEach(pin => {
-                if (!allPincodes.some(ap => ap.pincode === pin)) {
-                    allPincodes.push({ id: idCounter++, pincode: pin, status: 'PENDING' });
+        // 2. Add requests from the new requests table (including non-pending if not already in list)
+        if (pincodeRequests && pincodeRequests.length > 0) {
+            pincodeRequests.forEach(req => {
+                // Check if this pincode is already in allPincodes (as approved)
+                const exists = allPincodes.some(p => p.pincode === req.pincode);
+                if (!exists) {
+                    allPincodes.push({
+                        id: req.id,
+                        pincode: req.pincode,
+                        status: req.status
+                    });
                 }
             });
         }
+
+        const approvedCount = allPincodes.filter(p => p.status === 'APPROVED').length;
 
         return {
             total_products: products,
             pending_negotiations: pendingNegotiations,
             total_stock: totalStock._sum.stock_quantity || 0,
-            pincodes: allPincodes
+            pincodes: allPincodes,
+            activePincodes: approvedCount
         };
     }
+
 
     /**
      * Get seller earnings
@@ -476,6 +480,16 @@ class SellerDAO {
         }
 
         return sellerStock;
+    }
+
+    /**
+     * Toggle Store Open/Close Status
+     */
+    async toggleStoreStatus(sellerId, isOpen) {
+        return await prisma.sellers.update({
+            where: { id: sellerId },
+            data: { is_open: isOpen }
+        });
     }
 }
 

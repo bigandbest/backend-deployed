@@ -664,3 +664,36 @@ export const allocateWarehouse = async (req, res) => {
         res.status(500).json({ success: false, error: 'Failed to allocate warehouse' });
     }
 };
+
+/**
+ * Toggle Store Open/Close Status
+ */
+export const toggleStoreStatus = async (req, res) => {
+    try {
+        const sellerId = req.user.sellerId;
+        const { is_open } = req.body;
+
+        if (typeof is_open !== 'boolean') {
+            return res.status(400).json({ success: false, error: 'is_open boolean is required' });
+        }
+
+        // We use sellerId from the token's user. If it's not present, we get it via user_id
+        let realSellerId = sellerId;
+        if (!realSellerId) {
+            const seller = await prisma.sellers.findUnique({ where: { user_id: req.user.id } });
+            if (!seller) return res.status(404).json({ success: false, error: 'Seller profile not found' });
+            realSellerId = seller.id;
+        }
+
+        const updatedSeller = await SellerDAO.toggleStoreStatus(realSellerId, is_open);
+
+        res.status(200).json({
+            success: true,
+            message: `Store is now ${is_open ? 'open' : 'closed'}`,
+            data: { is_open: updatedSeller.is_open }
+        });
+    } catch (error) {
+        console.error('Error toggling store status:', error);
+        res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+};

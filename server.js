@@ -95,6 +95,7 @@ import couponRoutes from "./routes/couponRoutes.js";
 import adminUserRoutes from "./routes/adminUserRoutes.js";
 import sellerAuthRoutes from "./routes/sellerAuthRoutes.js";
 import sellerRoutes from "./routes/sellerRoutes.js";
+import sellerPincodeRoutes from "./routes/sellerPincodeRoutes.js";
 import adminSellerRoutes from "./routes/adminSellerRoutes.js";
 import riderAuthRoutes from "./routes/riderAuthRoutes.js";
 import riderAdminRoutes from "./routes/riderAdminRoutes.js";
@@ -182,6 +183,7 @@ const createApp = () => {
   app.use("/api/admin-auth", adminAuthRoutes);
   app.use("/api/seller-auth", sellerAuthRoutes);
   app.use("/api/seller", sellerRoutes);
+  app.use("/api/seller-pincode", sellerPincodeRoutes);
   app.use("/api/print-requests", printRequestRoutes);
   app.use("/api/geo-address", geoAddressRoute);
   app.use("/api/warehouses", warehouseRoute);
