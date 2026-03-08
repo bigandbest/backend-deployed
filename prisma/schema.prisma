@@ -546,6 +546,8 @@ model orders {
   // Rider Delivery Assignment
   rider_id            String?          @db.Uuid
   delivery_pincode    String?          @db.VarChar
+  delivery_distance_km Decimal?        @default(0) @db.Decimal
+  rider_payout_amount  Decimal?        @default(0) @db.Decimal
 
   // Charge Breakdown (Snapshotted at order creation)
   handling_charge     Decimal?         @default(0) @db.Decimal
@@ -882,6 +884,11 @@ enum MediaType {
   video
 }
 
+enum ProductSourceType {
+  WAREHOUSE
+  DROP_SHIP
+}
+
 model products {
   id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name               String
@@ -892,6 +899,7 @@ model products {
   gst_rate           Decimal?           @default(0) @db.Decimal
 cess_rate          Decimal?           @default(0) @db.Decimal
   vertical           Vertical           @default(qwik)
+  source_type        ProductSourceType  @default(WAREHOUSE)
 
   category_id        String?            @db.Uuid
   subcategory_id     String?            @db.Uuid
@@ -1117,6 +1125,18 @@ model rider_documents {
   @@index([rider_id])
   @@index([status])
   @@unique([rider_id, document_type])
+}
+
+
+// --- Model: rider_payout_milestones.prisma ---
+model rider_payout_milestones {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  min_order_value   Decimal   @db.Decimal
+  max_order_value   Decimal   @db.Decimal
+  base_pay_per_km   Decimal   @db.Decimal
+
+  created_at        DateTime? @default(now()) @db.Timestamptz
+  updated_at        DateTime? @default(now()) @db.Timestamptz
 }
 
 

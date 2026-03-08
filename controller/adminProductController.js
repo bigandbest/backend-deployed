@@ -16,6 +16,7 @@ export const createProduct = async (req, res) => {
       gst_rate,
       cess_rate,
       vertical,
+      source_type,
       category_id,
       subcategory_id,
       group_id,
@@ -44,6 +45,7 @@ export const createProduct = async (req, res) => {
       gst_rate,
       cess_rate,
       vertical,
+      source_type,
       return_applicable,
       return_days,
       active,
@@ -122,6 +124,7 @@ export const createProduct = async (req, res) => {
       gst_rate: gst_rate ? parseFloat(gst_rate) : 0,
       cess_rate: req.body.cess_rate ? parseFloat(req.body.cess_rate) : 0,
       vertical: vertical || "qwik",
+      source_type: source_type || "WAREHOUSE",
       return_applicable: !!return_applicable,
       return_days: return_days ? parseInt(return_days) : 0,
       active: active !== undefined ? active : true,
@@ -583,7 +586,7 @@ export const getProductForAdmin = async (req, res) => {
         : null;
     const storeObj =
       product.product_recommended_store &&
-      product.product_recommended_store.length > 0
+        product.product_recommended_store.length > 0
         ? product.product_recommended_store[0].recommended_store
         : null;
 
@@ -685,6 +688,7 @@ export const updateProduct = async (req, res) => {
     console.log("  - gst_rate:", updateData.gst_rate);
     console.log("  - cess_rate:", updateData.cess_rate);
     console.log("  - vertical:", updateData.vertical);
+    console.log("  - source_type:", updateData.source_type);
     console.log("  - category_id:", updateData.category_id);
     console.log("  - subcategory_id:", updateData.subcategory_id);
     console.log("  - group_id:", updateData.group_id);
@@ -734,6 +738,7 @@ export const updateProduct = async (req, res) => {
       "name",
       "description",
       "vertical",
+      "source_type",
       "hsn_or_sac_code",
       "gst_rate",
       "cess_rate",

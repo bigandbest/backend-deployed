@@ -1,5 +1,5 @@
 import prisma from '../config/prisma.js';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { generateToken, verifyToken } from '../utils/jwtUtils.js';
 import { uploadToCloudinary } from '../services/uploadService.js';
 import multer from 'multer';
@@ -268,7 +268,7 @@ export const uploadDocument = async (req, res) => {
         if (!document_type || !validTypes.includes(document_type)) {
             return res.status(400).json({
                 success: false,
-                error: `document_type is required and must be one of: ${validTypes.join(', ')}`
+                error: `document_type is required and must be one of: ${validTypes.join(', ')} `
             });
         }
 

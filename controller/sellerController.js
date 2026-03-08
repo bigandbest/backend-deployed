@@ -22,6 +22,7 @@ export const getSellerProducts = async (req, res) => {
                 id: sp.id,
                 product_id: sp.product_id,
                 product_name: sp.product?.name,
+                source_type: sp.product?.source_type,
                 product_image: sp.product?.media?.[0]?.url || null,
                 category: sp.product?.category?.name,
                 variant_id: sp.variant_id,
@@ -144,6 +145,83 @@ export const requestNewProduct = async (req, res) => {
         });
     } catch (error) {
         console.error('requestNewProduct error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+
+export const requestToSellProduct = async (req, res) => {
+    try {
+        const { productIds } = req.body;
+
+        if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+            return res.status(400).json({ success: false, error: 'productIds array is required' });
+        }
+
+        // Get seller profile and their assigned warehouse(s)
+        const seller = await prisma.sellers.findUnique({
+            where: { user_id: req.user.id },
+            include: { warehouse_sellers: true }
+        });
+
+        if (!seller) return res.status(404).json({ success: false, error: 'Seller profile not found' });
+
+        if (!seller.warehouse_sellers || seller.warehouse_sellers.length === 0) {
+            return res.status(403).json({
+                success: false,
+                error: 'You are not assigned to any warehouse.'
+            });
+        }
+
+        // Use the seller's primary assigned warehouse
+        const assignedWarehouseId = seller.warehouse_sellers[0].warehouse_id;
+
+        // Fetch all active variants for the given products
+        const products = await prisma.products.findMany({
+            where: { id: { in: productIds } },
+            include: { variants: { where: { active: true } } }
+        });
+
+        if (!products || products.length === 0) {
+            return res.status(404).json({ success: false, error: 'Products not found' });
+        }
+
+        let newEntries = [];
+
+        products.forEach(product => {
+            const variants = product.variants;
+            if (variants && variants.length > 0) {
+                variants.forEach(v => {
+                    newEntries.push({
+                        seller_id: seller.id,
+                        product_id: product.id,
+                        variant_id: v.id,
+                        warehouse_id: assignedWarehouseId,
+                        stock_quantity: 0,
+                        seller_offer_price: 0,
+                        admin_selling_price: 0,
+                        mrp: 0,
+                        status: 'PENDING_APPROVAL',
+                    });
+                });
+            }
+        });
+
+        if (newEntries.length === 0) {
+            return res.status(400).json({ success: false, error: 'Provided products have no active variants to sell' });
+        }
+
+        await prisma.seller_products.createMany({
+            data: newEntries,
+            skipDuplicates: true,
+        });
+
+        res.status(201).json({
+            success: true,
+            message: 'Product requests submitted. Awaiting admin approval.',
+        });
+    } catch (error) {
+        console.error('requestToSellProduct error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 };

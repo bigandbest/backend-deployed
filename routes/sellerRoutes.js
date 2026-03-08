@@ -5,6 +5,7 @@ import {
     getSellerProducts,
     searchMasterProducts,
     requestNewProduct,
+    requestToSellProduct,
     addProductStock,
     updateOfferPrice,
     getNegotiations,
@@ -34,6 +35,7 @@ router.get('/earnings', authenticateToken, requireSeller, getSellerEarnings);
 router.get('/products', authenticateToken, requireSeller, getSellerProducts);
 router.get('/products/search', authenticateToken, requireSeller, searchMasterProducts);
 router.post('/products/request', authenticateToken, requireSeller, requestNewProduct);
+router.post('/products/request-access', authenticateToken, requireSeller, requestToSellProduct);
 router.post('/products/stock', authenticateToken, requireSeller, addProductStock);
 router.patch('/products/:id/offer-price', authenticateToken, requireSeller, updateOfferPrice);
 

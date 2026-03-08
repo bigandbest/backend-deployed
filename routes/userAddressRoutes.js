@@ -8,6 +8,7 @@ import {
   setDefaultAddress,
   getDefaultAddress,
   reverseGeocode,
+  checkServiceability,
 } from "../controller/userAddressController.js";
 import { authenticateToken } from "../middleware/authenticate.js";
 
@@ -19,8 +20,11 @@ router.get("/", authenticateToken, getUserAddresses);
 // Get default address
 router.get("/default", authenticateToken, getDefaultAddress);
 
-// Reverse Geocode (Proxy)
-router.get("/geocode", authenticateToken, reverseGeocode);
+// Reverse Geocode (Proxy) - PUBLIC
+router.get("/geocode", reverseGeocode);
+
+// Serviceability Check - PUBLIC
+router.get("/serviceability/:pincode", checkServiceability);
 
 // Get a specific address by ID
 router.get("/:id", authenticateToken, getAddressById);
