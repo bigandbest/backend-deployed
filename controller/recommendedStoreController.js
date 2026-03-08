@@ -9,18 +9,7 @@ export async function addRecommendedStore(req, res) {
     const imageFile = req.file;
     let imageUrl = null;
 
-    // Check availability logic for active stores
-    if (String(is_active) === "true" || is_active === true) {
-      const activeStores = await RecommendedStoreDAO.list({ activeOnly: true });
-      if (activeStores.length >= 8) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            error: "Cannot activate more than 8 stores",
-          });
-      }
-    }
+    // No restriction on number of active stores
 
     if (imageFile) {
       console.log(
@@ -65,22 +54,6 @@ export async function editRecommendedStore(req, res) {
 
     if (is_active !== undefined) {
       const isActiveBool = String(is_active) === "true" || is_active === true;
-      if (isActiveBool) {
-        const currentStore = await RecommendedStoreDAO.getStoreById(id);
-        if (!currentStore.is_active) {
-          const activeStores = await RecommendedStoreDAO.list({
-            activeOnly: true,
-          });
-          if (activeStores.length >= 8) {
-            return res
-              .status(400)
-              .json({
-                success: false,
-                error: "Cannot activate more than 8 stores",
-              });
-          }
-        }
-      }
       updateData.is_active = isActiveBool;
     }
 
@@ -315,12 +288,10 @@ export async function bulkMapByNames(req, res) {
     // If we were to implement it, we'd need to fetch store by name, fetch products by name IN operator, then link.
 
     // Stub implementation to fix syntax error and allow server start
-    res
-      .status(501)
-      .json({
-        error:
-          "Bulk mapping by names is not yet implemented in the migration phase.",
-      });
+    res.status(501).json({
+      error:
+        "Bulk mapping by names is not yet implemented in the migration phase.",
+    });
   } catch (err) {
     console.error("Bulk map error:", err.message);
     res.status(500).json({ error: "Server error" });
