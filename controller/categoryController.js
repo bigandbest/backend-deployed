@@ -842,60 +842,33 @@ export const getCategoriesForSection = async (req, res) => {
       }),
     ]);
 
-    // Build category IDs set from both category and subcategory mappings
-    const categoryIdsSet = new Set();
+    const hasCategoryMappings = categoryMappings && categoryMappings.length > 0;
+    const hasSubcategoryMappings =
+      subcategoryMappings && subcategoryMappings.length > 0;
 
-    // Add directly mapped categories
-    if (categoryMappings && categoryMappings.length > 0) {
-      categoryMappings.forEach((m) => categoryIdsSet.add(m.category_id));
-    }
-
-    // Add categories from mapped subcategories
-    if (subcategoryMappings && subcategoryMappings.length > 0) {
-      const mappedSubcategoryIds = subcategoryMappings.map(
-        (m) => m.subcategory_id,
+    // Always return ALL active categories.
+    // Subcategory mappings are used only for ordering if they exist.
+    const filteredCategories = allCategories.map((category) => {
+      let subcategories = allSubcategories.filter(
+        (sub) => sub.category_id === category.id,
       );
-      allSubcategories
-        .filter((sub) => mappedSubcategoryIds.includes(sub.id))
-        .forEach((sub) => categoryIdsSet.add(sub.category_id));
-    }
 
-    // Filter categories and build hierarchy
-    const filteredCategories = allCategories
-      .filter((cat) => categoryIdsSet.has(cat.id))
-      .map((category) => {
-        // Get subcategories for this category
-        let subcategories = allSubcategories.filter(
-          (sub) => sub.category_id === category.id,
-        );
-
-        // If we have subcategory mappings, filter and order them
-        if (subcategoryMappings && subcategoryMappings.length > 0) {
-          const mappedSubIds = subcategoryMappings.map((m) => m.subcategory_id);
-          subcategories = subcategories.filter((sub) =>
-            mappedSubIds.includes(sub.id),
+      // If subcategory section mappings exist, use display_order for ordering
+      if (hasSubcategoryMappings) {
+        subcategories = subcategories.map((sub) => {
+          const mapping = subcategoryMappings.find(
+            (m) => m.subcategory_id === sub.id,
           );
+          return {
+            ...sub,
+            display_order: mapping ? mapping.display_order : 999,
+          };
+        });
+        subcategories.sort((a, b) => a.display_order - b.display_order);
+      }
 
-          // Add display_order from mappings
-          subcategories = subcategories.map((sub) => {
-            const mapping = subcategoryMappings.find(
-              (m) => m.subcategory_id === sub.id,
-            );
-            return {
-              ...sub,
-              display_order: mapping ? mapping.display_order : 999,
-            };
-          });
-
-          // Sort by display_order
-          subcategories.sort((a, b) => a.display_order - b.display_order);
-        }
-
-        return {
-          ...category,
-          subcategories,
-        };
-      });
+      return { ...category, subcategories };
+    });
 
     res.status(200).json({
       success: true,
