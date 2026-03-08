@@ -1,4 +1,5 @@
 import prisma from '../config/prisma.js';
+import { calculateDistanceKm } from '../utils/distanceUtils.js';
 
 // ============ GET ASSIGNABLE ORDERS ============
 export const getAssignableOrders = async (req, res) => {
@@ -55,20 +56,80 @@ export const getAssignableOrders = async (req, res) => {
             take: 50,
         });
 
+        // Calculate estimated payout 
+        const milestones = await prisma.rider_payout_milestones.findMany({
+            orderBy: { min_order_value: 'asc' }
+        });
+
+        const pincodesToFetch = [...new Set([
+            ...orders.map(o => o.delivery_pincode),
+            ...rider.warehouse_riders.map(wr => wr.warehouse.location).filter(Boolean),
+            ...riderPincodes // Fallback origins
+        ])].filter(Boolean);
+
+        const pincodeLocations = await prisma.pincode_locations.findMany({
+            where: { pincode: { in: pincodesToFetch } }
+        });
+
+        const locationMap = pincodeLocations.reduce((acc, loc) => {
+            if (loc.latitude && loc.longitude) {
+                acc[loc.pincode] = { lat: loc.latitude, lon: loc.longitude };
+            }
+            return acc;
+        }, {});
+
         res.status(200).json({
             success: true,
-            data: orders.map(o => ({
-                id: o.id,
-                customer_name: o.user?.name,
-                customer_phone: o.user?.phone,
-                address: o.address,
-                delivery_pincode: o.delivery_pincode,
-                total: o.total,
-                status: o.status,
-                items_count: o.order_items.length,
-                payment_method: o.payment_method,
-                created_at: o.created_at,
-            })),
+            data: orders.map(o => {
+                let estimatedPayout = 0;
+                let distance = 0;
+
+                // Determine Warehouse origin
+                let originPincode = null;
+                for (const wr of rider.warehouse_riders) {
+                    if (wr.warehouse.location && locationMap[wr.warehouse.location]) {
+                        originPincode = wr.warehouse.location;
+                        break;
+                    }
+                }
+                if (!originPincode && riderPincodes.length > 0) {
+                    originPincode = riderPincodes.find(p => locationMap[p]); // Find first mapped pincode for this warehouse
+                }
+
+                if (originPincode && o.delivery_pincode && locationMap[originPincode] && locationMap[o.delivery_pincode]) {
+                    distance = calculateDistanceKm(
+                        locationMap[originPincode].lat,
+                        locationMap[originPincode].lon,
+                        locationMap[o.delivery_pincode].lat,
+                        locationMap[o.delivery_pincode].lon
+                    );
+
+                    // Find suitable milestone
+                    const totalValue = Number(o.total) || 0;
+                    const applicableMilestone = milestones.find(m =>
+                        totalValue >= Number(m.min_order_value) && totalValue <= Number(m.max_order_value)
+                    );
+
+                    if (applicableMilestone) {
+                        estimatedPayout = Number((distance * Number(applicableMilestone.base_pay_per_km)).toFixed(2));
+                    }
+                }
+
+                return {
+                    id: o.id,
+                    customer_name: o.user?.name,
+                    customer_phone: o.user?.phone,
+                    address: o.address,
+                    delivery_pincode: o.delivery_pincode,
+                    total: o.total,
+                    status: o.status,
+                    items_count: o.order_items.length,
+                    payment_method: o.payment_method,
+                    created_at: o.created_at,
+                    delivery_distance_km: distance,
+                    estimated_payout: estimatedPayout,
+                };
+            }),
             serving_pincodes: riderPincodes,
         });
     } catch (error) {
@@ -134,12 +195,52 @@ export const acceptOrder = async (req, res) => {
             });
         }
 
+        // Calculate Final Payout before freezing
+        let finalDistance = 0;
+        let finalPayout = 0;
+
+        const milestones = await prisma.rider_payout_milestones.findMany({
+            orderBy: { min_order_value: 'asc' }
+        });
+
+        let originPincode = null;
+        for (const wr of rider.warehouse_riders) {
+            if (wr.warehouse.location) {
+                originPincode = wr.warehouse.location;
+                break;
+            }
+        }
+        if (!originPincode && riderPincodes.length > 0) originPincode = riderPincodes[0];
+
+        if (originPincode && order.delivery_pincode) {
+            const locs = await prisma.pincode_locations.findMany({
+                where: { pincode: { in: [originPincode, order.delivery_pincode] } }
+            });
+            const originLoc = locs.find(l => l.pincode === originPincode);
+            const destLoc = locs.find(l => l.pincode === order.delivery_pincode);
+
+            if (originLoc && destLoc && originLoc.latitude && destLoc.latitude) {
+                finalDistance = calculateDistanceKm(
+                    originLoc.latitude, originLoc.longitude,
+                    destLoc.latitude, destLoc.longitude
+                );
+
+                const totalValue = Number(order.total) || 0;
+                const m = milestones.find(m => totalValue >= Number(m.min_order_value) && totalValue <= Number(m.max_order_value));
+                if (m) {
+                    finalPayout = Number((finalDistance * Number(m.base_pay_per_km)).toFixed(2));
+                }
+            }
+        }
+
         // Assign order to rider
         const updated = await prisma.orders.update({
             where: { id: orderId },
             data: {
                 rider_id: rider.id,
                 status: 'Confirmed',
+                delivery_distance_km: finalDistance,
+                rider_payout_amount: finalPayout,
                 updated_at: new Date(),
             }
         });
@@ -181,6 +282,49 @@ export const completeDelivery = async (req, res) => {
                 updated_at: new Date(),
             }
         });
+
+        // Rider Payout Logic
+        if (updated.rider_payout_amount && Number(updated.rider_payout_amount) > 0) {
+            const isPrepaid = ['online', 'prepaid', 'wallet'].includes(updated.payment_method?.toLowerCase());
+
+            if (isPrepaid) {
+                // Ensure rider has a wallet
+                let wallet = await prisma.wallets.findFirst({ where: { user_id: req.user.id } });
+                if (!wallet) {
+                    wallet = await prisma.wallets.create({
+                        data: {
+                            user_id: req.user.id,
+                            balance: 0,
+                            currency: 'INR',
+                            status: 'active'
+                        }
+                    });
+                }
+
+                // Credit Wallet
+                await prisma.wallets.update({
+                    where: { id: wallet.id },
+                    data: {
+                        balance: { increment: updated.rider_payout_amount }
+                    }
+                });
+
+                // Log Transaction
+                await prisma.wallet_transactions.create({
+                    data: {
+                        wallet_id: wallet.id,
+                        user_id: req.user.id,
+                        amount: updated.rider_payout_amount,
+                        type: 'credit',
+                        status: 'completed',
+                        description: `Payout for order #${orderId}`,
+                        reference_id: orderId,
+                        reference_type: 'rider_payout',
+                        balance_after: Number(wallet.balance) + Number(updated.rider_payout_amount)
+                    }
+                });
+            }
+        }
 
         res.status(200).json({
             success: true,
@@ -251,7 +395,10 @@ export const getOrderDetails = async (req, res) => {
     try {
         const { orderId } = req.params;
 
-        const rider = await prisma.riders.findUnique({ where: { user_id: req.user.id } });
+        const rider = await prisma.riders.findUnique({
+            where: { user_id: req.user.id },
+            include: { warehouse_riders: { include: { warehouse: true } } }
+        });
         if (!rider) return res.status(404).json({ success: false, error: 'Rider profile not found' });
 
         const order = await prisma.orders.findUnique({
@@ -287,6 +434,45 @@ export const getOrderDetails = async (req, res) => {
         // Ensure the order is either assignable or assigned to this rider
         if (order.rider_id !== rider.id && order.rider_id !== null) {
             return res.status(403).json({ success: false, error: 'Not authorized to view this order' });
+        }
+
+        let finalDistance = Number(order.delivery_distance_km) || 0;
+        let estimatedPayout = Number(order.rider_payout_amount) || 0;
+
+        // If not assigned yet, calculate it dynamically
+        if (!order.rider_id) {
+            const milestones = await prisma.rider_payout_milestones.findMany({
+                orderBy: { min_order_value: 'asc' }
+            });
+
+            let originPincode = null;
+            for (const wr of rider.warehouse_riders || []) {
+                if (wr.warehouse?.location) {
+                    originPincode = wr.warehouse.location;
+                    break;
+                }
+            }
+
+            if (originPincode && order.delivery_pincode) {
+                const locs = await prisma.pincode_locations.findMany({
+                    where: { pincode: { in: [originPincode, order.delivery_pincode] } }
+                });
+                const originLoc = locs.find(l => l.pincode === originPincode);
+                const destLoc = locs.find(l => l.pincode === order.delivery_pincode);
+
+                if (originLoc && destLoc && originLoc.latitude && destLoc.latitude) {
+                    finalDistance = calculateDistanceKm(
+                        originLoc.latitude, originLoc.longitude,
+                        destLoc.latitude, destLoc.longitude
+                    );
+
+                    const totalValue = Number(order.total) || 0;
+                    const m = milestones.find(m => totalValue >= Number(m.min_order_value) && totalValue <= Number(m.max_order_value));
+                    if (m) {
+                        estimatedPayout = Number((finalDistance * Number(m.base_pay_per_km)).toFixed(2));
+                    }
+                }
+            }
         }
 
         // Prepare item details and aggregate warehouse/seller sources
@@ -375,6 +561,8 @@ export const getOrderDetails = async (req, res) => {
                 status: order.status,
                 created_at: order.created_at,
                 rider_id: order.rider_id,
+                estimated_payout: estimatedPayout,
+                delivery_distance_km: finalDistance,
                 // additional charges
                 handling_charge: order.handling_charge,
                 surge_charge: order.surge_charge,

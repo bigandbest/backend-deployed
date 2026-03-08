@@ -347,9 +347,10 @@ export const getDefaultAddress = async (req, res) => {
 
 export const reverseGeocode = async (req, res) => {
   try {
-    const { lat, lng } = req.query;
+    const { lat, lng, lon } = req.query;
+    const longitude = lng || lon;
 
-    if (!lat || !lng) {
+    if (!lat || !longitude) {
       return res.status(400).json({
         success: false,
         error: "Latitude and Longitude are required",
@@ -362,7 +363,7 @@ export const reverseGeocode = async (req, res) => {
         params: {
           format: "json",
           lat,
-          lon: lng,
+          lon: longitude,
           zoom: 18,
           addressdetails: 1,
         },
@@ -381,6 +382,61 @@ export const reverseGeocode = async (req, res) => {
     return res.status(502).json({
       success: false,
       error: "Failed to fetch address from geocoding service",
+    });
+  }
+};
+
+export const checkServiceability = async (req, res) => {
+  try {
+    const { pincode } = req.params;
+
+    if (!pincode || !/^\d{6}$/.test(pincode)) {
+      return res.status(400).json({
+        success: false,
+        error: "Valid 6-digit pincode is required",
+      });
+    }
+
+    // Find if this pincode is mapped to any warehouse
+    const mapping = await prisma.warehouse_pincodes.findFirst({
+      where: { pincode, is_active: true },
+      include: { warehouse: true },
+    });
+
+    if (!mapping) {
+      return res.json({
+        success: true,
+        serviceable: false,
+        tagline: "Quick Delivery",
+      });
+    }
+
+    const warehouseType = mapping.warehouse.type?.toLowerCase();
+
+    // Default tagline
+    let tagline = "Quick Delivery";
+    let estimation = null;
+
+    if (warehouseType === 'division') {
+      tagline = "Ghar tak in 2 hours";
+      estimation = "2hours and 20min";
+    } else {
+      tagline = "Same Day Delivery";
+    }
+
+    return res.json({
+      success: true,
+      serviceable: true,
+      warehouse_type: warehouseType,
+      tagline,
+      estimation,
+      delivery_days: mapping.delivery_days
+    });
+  } catch (error) {
+    console.error("Serviceability Check Error:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
     });
   }
 };

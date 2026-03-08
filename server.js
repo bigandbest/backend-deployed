@@ -99,6 +99,7 @@ import sellerPincodeRoutes from "./routes/sellerPincodeRoutes.js";
 import adminSellerRoutes from "./routes/adminSellerRoutes.js";
 import riderAuthRoutes from "./routes/riderAuthRoutes.js";
 import riderAdminRoutes from "./routes/riderAdminRoutes.js";
+import riderPayoutRoutes from "./routes/riderPayoutRoutes.js";
 import attendanceRoutes from "./routes/attendanceRoutes.js";
 import riderOrderRoutes from "./routes/riderOrderRoutes.js";
 import { startAutoCheckoutCron } from "./services/autoCheckoutCron.js";
@@ -274,6 +275,7 @@ const createApp = () => {
   // Rider Management Routes
   app.use("/api/rider-auth", riderAuthRoutes);
   app.use("/api/admin/riders", riderAdminRoutes);
+  app.use("/api/admin/rider-payouts", riderPayoutRoutes);
   app.use("/api/attendance", attendanceRoutes);
   app.use("/api/rider/orders", riderOrderRoutes);
 

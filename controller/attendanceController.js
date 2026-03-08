@@ -1,10 +1,16 @@
 import prisma from '../config/prisma.js';
+import { assignRiderToPincode } from '../services/riderAssignmentService.js';
 
 // ============ CHECK IN ============
 export const checkIn = async (req, res) => {
     try {
+        const { pincode } = req.body || {};
+        if (!pincode) {
+            return res.status(200).json({ success: false, error: 'Pincode is required for check-in to determine your service area.' });
+        }
+
         const rider = await prisma.riders.findUnique({ where: { user_id: req.user.id } });
-        if (!rider) return res.status(404).json({ success: false, error: 'Rider profile not found' });
+        if (!rider) return res.status(200).json({ success: false, error: 'Rider profile not found' });
 
         // Guard: Rider must be verified
         if (rider.verification_status !== 'VERIFIED') {
@@ -40,6 +46,16 @@ export const checkIn = async (req, res) => {
         const now = new Date();
         const today = new Date(now);
         today.setHours(0, 0, 0, 0);
+
+        // Assign to warehouse by pincode if provided
+        // Do this FIRST to throw an error if unserviceable, preventing check-in.
+        if (pincode) {
+            try {
+                await assignRiderToPincode(rider.id, pincode);
+            } catch (pincodeErr) {
+                return res.status(200).json({ success: false, error: pincodeErr.message });
+            }
+        }
 
         // Create attendance log
         const log = await prisma.attendance_logs.create({

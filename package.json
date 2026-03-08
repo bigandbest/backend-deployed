@@ -38,9 +38,11 @@
   "author": "Big and Best Mart",
   "license": "ISC",
   "dependencies": {
+    "@prisma/client": "^5.22.0",
     "@supabase/supabase-js": "^2.50.4",
     "axios": "^1.10.0",
     "bcrypt": "^6.0.0",
+    "bcryptjs": "^3.0.3",
     "cloudinary": "^2.7.0",
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.7",
@@ -54,12 +56,11 @@
     "multer": "^2.0.2",
     "node-cron": "^4.2.1",
     "nodemon": "^3.1.10",
+    "prisma": "^5.22.0",
     "razorpay": "^2.9.6",
     "twilio": "^5.11.2",
     "uuid": "^13.0.0",
-    "xlsx": "^0.18.5",
-    "@prisma/client": "^5.22.0",
-    "prisma": "^5.22.0"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/jest": "^29.5.12",

@@ -85,6 +85,7 @@ class SellerDAO {
                     select: {
                         id: true,
                         name: true,
+                        source_type: true,
                         media: { take: 1 }
                     }
                 },
