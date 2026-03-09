@@ -709,7 +709,7 @@ model products {
   seller_id                 String?                     @db.Uuid
   source_type               ProductSourceType           @default(WAREHOUSE)
   daily_deals_product       daily_deals_product[]
-  product_brand             product_brand[]
+  brands                    product_brand[]
   product_enquiries         product_enquiries[]
   product_media             product_media[]
   product_recommended_store product_recommended_store[]
