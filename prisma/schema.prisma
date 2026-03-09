@@ -220,7 +220,7 @@ model daily_deals {
   banner_id           String?               @db.Uuid
   created_at          DateTime?             @default(now()) @db.Timestamptz(6)
   updated_at          DateTime?             @default(now()) @db.Timestamptz(6)
-  add_banner          add_banner?           @relation(fields: [banner_id], references: [id])
+  banner              add_banner?           @relation(fields: [banner_id], references: [id])
   daily_deals_product daily_deals_product[]
 }
 
@@ -651,7 +651,7 @@ model product_variants {
   order_items              order_items[]
   product_media            product_media[]
   products                 products                  @relation(fields: [product_id], references: [id], onDelete: Cascade)
-  product_warehouse_stock  product_warehouse_stock[]
+  warehouse_stock          product_warehouse_stock[]
   seller_products          seller_products[]
   service_bookings         service_bookings[]
   variant_attributes       variant_attributes[]
@@ -711,7 +711,7 @@ model products {
   daily_deals_product       daily_deals_product[]
   brands                    product_brand[]
   product_enquiries         product_enquiries[]
-  product_media             product_media[]
+  media                     product_media[]
   product_recommended_store product_recommended_store[]
   product_reviews           product_reviews[]
   section_products          product_section_products[]
@@ -982,7 +982,7 @@ model section_subcategory_mappings {
   created_at       DateTime?        @default(now()) @db.Timestamptz(6)
   updated_at       DateTime?        @default(now()) @db.Timestamptz(6)
   product_sections product_sections @relation(fields: [section_id], references: [id])
-  subcategories    subcategories    @relation(fields: [subcategory_id], references: [id])
+  subcategory      subcategories    @relation(fields: [subcategory_id], references: [id])
 }
 
 model seller_negotiations {
