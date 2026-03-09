@@ -802,7 +802,7 @@ model recommended_store {
   is_active                 Boolean?                    @default(false)
   banner_id                 String?                     @db.Uuid
   product_recommended_store product_recommended_store[]
-  banners                   banners?                    @relation(fields: [banner_id], references: [id])
+  banner                    banners?                    @relation(fields: [banner_id], references: [id])
   store_section_mappings    store_section_mappings[]
 }
 
@@ -1360,7 +1360,7 @@ model warehouse_pincodes {
   is_active     Boolean?   @default(true)
   created_at    DateTime?  @default(now()) @db.Timestamptz(6)
   updated_at    DateTime?  @default(now()) @db.Timestamptz(6)
-  warehouses    warehouses @relation(fields: [warehouse_id], references: [id])
+  warehouse     warehouses @relation(fields: [warehouse_id], references: [id])
 }
 
 model warehouse_riders {
