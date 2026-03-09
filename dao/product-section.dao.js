@@ -9,7 +9,7 @@ class ProductSectionDAO {
         return await prisma.product_sections.findUnique({
             where: { id },
             include: {
-                product_section_products: {
+                section_products: {
                     include: { product: true },
                     orderBy: { display_order: 'asc' }
                 },
@@ -25,7 +25,7 @@ class ProductSectionDAO {
         return await prisma.product_sections.findUnique({
             where: { section_key: key },
             include: {
-                product_section_products: {
+                section_products: {
                     include: { product: true },
                     orderBy: { display_order: 'asc' }
                 }

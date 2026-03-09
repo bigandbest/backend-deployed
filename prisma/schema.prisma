@@ -618,7 +618,7 @@ model product_sections {
   is_marketing                 Boolean?                       @default(false)
   product_section_categories   product_section_categories[]
   product_section_groups       product_section_groups[]
-  product_section_products     product_section_products[]
+  section_products             product_section_products[]
   section_subcategory_mappings section_subcategory_mappings[]
   store_section_mappings       store_section_mappings[]
 }
@@ -714,8 +714,8 @@ model products {
   product_media             product_media[]
   product_recommended_store product_recommended_store[]
   product_reviews           product_reviews[]
-  product_section_products  product_section_products[]
-  product_variants          product_variants[]
+  section_products          product_section_products[]
+  variants                  product_variants[]
   product_warehouse_stock   product_warehouse_stock[]
   categories                categories?                 @relation(fields: [category_id], references: [id])
   groups                    groups?                     @relation(fields: [group_id], references: [id])
