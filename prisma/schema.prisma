@@ -727,6 +727,7 @@ model products {
   store_section_mappings    store_section_mappings[]
   wishlist_items            wishlist_items[]
   you_may_like              you_may_like[]
+  stock_movements           stock_movements[]
 
   @@index([active])
   @@index([category_id])
@@ -1132,6 +1133,7 @@ model stock_movements {
   notes          String?
   created_at     DateTime?  @default(now()) @db.Timestamptz(6)
   warehouses     warehouses @relation(fields: [warehouse_id], references: [id])
+  product        products   @relation(fields: [product_id], references: [id])
 }
 
 model store_section_mappings {
