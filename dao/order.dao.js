@@ -20,7 +20,7 @@ class OrderDAO {
     return await prisma.orders.findUnique({
       where: { id },
       include: {
-        user: {
+        users: {
           select: {
             id: true,
             name: true,
@@ -30,29 +30,27 @@ class OrderDAO {
         },
         order_items: {
           include: {
-            variant: {
+            product_variants: {
               include: {
-                product: {
-                  select: {
-                    name: true,
-                    media: true,
-                    return_days: true,
+                products: {
+                  include: {
+                    product_media: {
+                      where: { is_primary: true },
+                      orderBy: { sort_order: "asc" },
+                      take: 1,
+                    },
                   },
                 },
               },
             },
           },
         },
-        tracking: {
+        order_tracking: {
           orderBy: {
             timestamp: "desc",
           },
         },
-        coupon_usage: {
-          include: {
-            coupon: true,
-          },
-        },
+        coupon_usage: true,
         return_orders: {
           include: {
             return_order_items: true,
@@ -107,12 +105,15 @@ class OrderDAO {
         order_items: {
           take: 5,
           include: {
-            variant: {
+            product_variants: {
               include: {
-                product: {
-                  select: {
-                    name: true,
-                    media: true,
+                products: {
+                  include: {
+                    product_media: {
+                      where: { is_primary: true },
+                      orderBy: { sort_order: "asc" },
+                      take: 1,
+                    },
                   },
                 },
               },
@@ -148,18 +149,20 @@ class OrderDAO {
           created_at: "desc",
         },
         include: {
-          user: {},
+          users: {},
           order_items: {
             include: {
-              variant: {
+              product_variants: {
                 include: {
-                  product: {
-                    select: {
-                      name: true,
-                      media: true,
+                  products: {
+                    include: {
+                      product_media: {
+                        where: { is_primary: true },
+                        orderBy: { sort_order: "asc" },
+                        take: 1,
+                      },
                     },
                   },
-                  media: true,
                 },
               },
             },

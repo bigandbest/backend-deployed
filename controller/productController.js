@@ -13,46 +13,46 @@ import warehouseDao from "../dao/warehouse.dao.js";
 import prisma from "../config/prisma.js";
 
 const VARIANT_JOIN = "product_variants(*)";
+const MEDIA_JOIN = "product_media(url, media_type, is_primary, sort_order)";
+
+const extractMediaUrls = (product) => {
+  const mediaRaw = Array.isArray(product?.product_media)
+    ? product.product_media
+    : Array.isArray(product?.media)
+      ? product.media
+      : [];
+
+  const mediaSorted = [...mediaRaw].sort((a, b) => {
+    const ap = a?.is_primary ? 1 : 0;
+    const bp = b?.is_primary ? 1 : 0;
+    if (ap !== bp) return bp - ap;
+    const ao = typeof a?.sort_order === "number" ? a.sort_order : 0;
+    const bo = typeof b?.sort_order === "number" ? b.sort_order : 0;
+    return ao - bo;
+  });
+
+  const urls = mediaSorted.map((m) => m?.url).filter(Boolean);
+  const primaryUrl = urls[0] || product?.image || null;
+  return { primaryUrl, urls };
+};
 
 // Helper for consistency in transformations
 const transformProduct = (product, assignments = []) => {
   const activeVariants = (product.variants || []).filter(v => v.active !== false);
   const defaultVariant = activeVariants.find(v => v.is_default === true);
 
-  // Derive image from product_media relation (primary image first)
-  const primaryMedia = product.media?.[0];
-  const resolvedImage = primaryMedia?.url || product.image || (defaultVariant?.photo_url) || null;
-  const resolvedImages = product.media?.map(m => m.url) || product.images || [];
-
-  // Calculate stock from inventory table (per variant, per warehouse)
-  // Stock flow: Admin/Seller → product_warehouse_stock → synced to inventory
-  let hasStockData = false;
-  const totalInventoryStock = activeVariants.reduce((sum, v) => {
-    const invRecords = v.inventory || [];
-    if (invRecords.length > 0) {
-      hasStockData = true;
-      return sum + invRecords.reduce((s, inv) => s + (inv.stock_qty || 0), 0);
-    }
-    return sum;
+  // Calculate total stock from all variant warehouse stocks
+  const totalStock = activeVariants.reduce((sum, variant) => {
+    const variantStock = (variant.product_warehouse_stock || []).reduce(
+      (variantSum, ws) => variantSum + (ws.stock_quantity || 0),
+      0
+    );
+    return sum + variantStock;
   }, 0);
 
-  // If inventory records exist, use them. No inventory = out of stock (not yet stocked)
-  const resolvedStock = hasStockData ? totalInventoryStock : 0;
-  const resolvedInStock = hasStockData ? totalInventoryStock > 0 : false;
-
-  // Enrich each variant with computed stock from inventory
-  const enrichedVariants = activeVariants.map(v => {
-    const invRecords = v.inventory || [];
-    const hasInv = invRecords.length > 0;
-    const variantStock = hasInv
-      ? invRecords.reduce((s, inv) => s + (inv.stock_qty || 0), 0)
-      : 0;
-    return {
-      ...v,
-      computed_stock: variantStock,
-      in_stock: hasInv ? variantStock > 0 : false,
-    };
-  });
+  // Extract image from product_media
+  const productImage = product.product_media?.[0]?.url || product.image || null;
+  const productImages = (product.product_media || []).map(media => media.url).filter(Boolean);
 
   return {
     id: product.id,
@@ -63,18 +63,18 @@ const transformProduct = (product, assignments = []) => {
     rating: product.rating || 4.0,
     reviews: product.review_count || 0,
     discount: product.discount || 0,
-    image: resolvedImage,
-    images: resolvedImages,
-    inStock: resolvedInStock,
-    stock: resolvedStock > 0 ? resolvedStock : 0,
-    stockQuantity: resolvedStock > 0 ? resolvedStock : 0,
+    image: productImage,
+    images: productImages.length > 0 ? productImages : product.images,
+    inStock: totalStock > 0,
+    stock: totalStock,
+    stockQuantity: totalStock,
     popular: product.popular,
     featured: product.featured,
     most_orders: product.most_orders,
     top_sale: product.top_sale,
     category: product.category?.name || product.category_name || product.category,
     weight: product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
-    brand: product.brand_name || (product.brands?.[0]?.brand?.name) || "BigandBest",
+    brand: product.brand_name || "BigandBest",
     shipping_amount: product.shipping_amount || 0,
     specifications: product.specifications,
     created_at: product.created_at,
@@ -82,9 +82,9 @@ const transformProduct = (product, assignments = []) => {
     return_applicable: product.return_applicable !== false,
     return_days: product.return_days || 7,
     quick_delivery: product.quick_delivery || false,
-    hasVariants: enrichedVariants.length > 0,
-    variants: enrichedVariants,
-    defaultVariant: defaultVariant ? enrichedVariants.find(v => v.id === defaultVariant.id) || defaultVariant : null,
+    hasVariants: activeVariants.length > 0,
+    variants: activeVariants,
+    defaultVariant: defaultVariant || null,
     warehouse_assignments: assignments
   };
 };
@@ -92,15 +92,40 @@ const transformProduct = (product, assignments = []) => {
 export const getAllProducts = async (req, res) => {
   try {
     // Use Prisma through ProductDAO instead of Supabase
-    const products = await productDao.listProducts(
+    const result = await productDao.listProducts(
       { active: true },
       { limit: 1000, page: 1 },
     );
 
+    // Transform products to include proper stock calculation and images
+    const transformedProducts = (result.items || []).map((product) => {
+      const activeVariants = (product.variants || []).filter(v => v.active !== false);
+      const totalStock = activeVariants.reduce((sum, variant) => {
+        const variantStock = (variant.product_warehouse_stock || []).reduce(
+          (variantSum, ws) => variantSum + (ws.stock_quantity || 0),
+          0
+        );
+        return sum + variantStock;
+      }, 0);
+
+      // Extract image from product_media
+      const productImage = product.product_media?.[0]?.url || product.image || null;
+      const productImages = (product.product_media || []).map(media => media.url).filter(Boolean);
+
+      return {
+        ...product,
+        image: productImage,
+        images: productImages.length > 0 ? productImages : product.images,
+        inStock: totalStock > 0,
+        stock: totalStock,
+        stockQuantity: totalStock,
+      };
+    });
+
     res.status(200).json({
       success: true,
-      products: products.items || [],
-      total: products.total || 0,
+      products: transformedProducts,
+      total: result.total || 0,
     });
   } catch (err) {
     console.error("Error fetching products:", err);
@@ -132,7 +157,7 @@ export const getProductsByCategory = async (req, res) => {
 
 export const getAllCategories = async (req, res) => {
   try {
-    const categories = await categoryDao.list({ active: true });
+    const categories = await categoryDao.listCategories(true);
 
     const transformedCategories = categories.map((cat) => ({
       id: cat.id,
@@ -303,7 +328,7 @@ export const getProductById = async (req, res) => {
 
     // Check pincode-specific delivery if pincode provided
     if (pincode && /^\d{6}$/.test(pincode)) {
-      const canDeliver = await productDao.canDeliverToPincode(parseInt(id), pincode);
+      const canDeliver = await productDao.canDeliverToPincode(id, pincode);
       deliveryInfo.can_deliver_to_pincode = canDeliver;
       deliveryInfo.checked_pincode = pincode;
     }
@@ -314,11 +339,6 @@ export const getProductById = async (req, res) => {
       success: true,
       product: {
         ...transformedProduct,
-        media: product.media || [],
-        subcategory_id: product.subcategory_id,
-        brands: product.brands,
-        store: product.store,
-        reviews: product.reviews,
         delivery_info: deliveryInfo,
         store_id: product.store_id,
         store_name: product.store?.name || null,
@@ -462,7 +482,7 @@ export const getProductsByDeliveryZone = async (req, res) => {
     // Build query for deliverable products
     let query = supabase
       .from("products")
-      .select(`*, ${VARIANT_JOIN}`)
+      .select(`*, ${VARIANT_JOIN}, ${MEDIA_JOIN}`)
       .eq("active", true)
       .or(
         `delivery_type.eq.nationwide,and(delivery_type.eq.zonal,allowed_zone_ids.ov.{${zoneIds.join(
@@ -483,34 +503,47 @@ export const getProductsByDeliveryZone = async (req, res) => {
     }
 
     // Transform products
-    const transformedProducts = products.map((product) => ({
-      id: product.id,
-      name: product.name,
-      description: product.description,
-      price: product.price,
-      oldPrice: product.old_price,
-      rating: product.rating || 4.0,
-      reviews: product.review_count || 0,
-      discount: product.discount || 0,
-      image: product.image,
-      images: product.images,
-      inStock: (product.stock || 0) > 0,
-      stock: product.stock || 0,
-      popular: product.popular,
-      featured: product.featured,
-      category: product.category,
-      weight:
-        product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
-      brand: product.brand_name || "BigandBest",
-      shipping_amount: product.shipping_amount || 0,
-      delivery_type: product.delivery_type,
-      delivery_available: true,
-      created_at: product.created_at,
-      hasVariants: product.product_variants?.length > 0,
-      variants: product.product_variants || [],
-      defaultVariant:
-        product.product_variants?.find((v) => v.is_default === true) || null,
-    }));
+    const transformedProducts = products.map((product) => {
+      const activeVariants = (product.product_variants || []).filter(v => v.active !== false);
+      const totalStock = activeVariants.reduce((sum, variant) => {
+        const variantStock = (variant.product_warehouse_stock || []).reduce(
+          (variantSum, ws) => variantSum + (ws.stock_quantity || 0),
+          0
+        );
+        return sum + variantStock;
+      }, 0);
+
+      const { primaryUrl: productImage, urls: productImages } = extractMediaUrls(product);
+
+      return {
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        price: product.price,
+        oldPrice: product.old_price,
+        rating: product.rating || 4.0,
+        reviews: product.review_count || 0,
+        discount: product.discount || 0,
+        image: productImage,
+        images: productImages.length > 0 ? productImages : product.images,
+        inStock: totalStock > 0,
+        stock: totalStock,
+        popular: product.popular,
+        featured: product.featured,
+        category: product.category,
+        weight:
+          product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
+        brand: product.brand_name || "BigandBest",
+        shipping_amount: product.shipping_amount || 0,
+        delivery_type: product.delivery_type,
+        delivery_available: true,
+        created_at: product.created_at,
+        hasVariants: product.product_variants?.length > 0,
+        variants: product.product_variants || [],
+        defaultVariant:
+          product.product_variants?.find((v) => v.is_default === true) || null,
+      };
+    });
 
     res.status(200).json({
       success: true,
@@ -553,7 +586,11 @@ export const getQuickPicks = async (req, res) => {
             .from("store_section_mappings")
             .select(
               `
-            products!inner(*)
+            products!inner(
+              *,
+              product_variants(*),
+              product_media(url, media_type, is_primary, sort_order)
+            )
           `
             )
             .eq("section_id", sectionData.id)
@@ -570,7 +607,7 @@ export const getQuickPicks = async (req, res) => {
       if (products.length === 0) {
         const { data: latestData, error: latestError } = await supabase
           .from("products")
-          .select(`*, ${VARIANT_JOIN}`)
+          .select(`*, ${VARIANT_JOIN}, ${MEDIA_JOIN}`)
           .eq("active", true)
           .order("created_at", { ascending: false })
           .limit(parseInt(limit));
@@ -583,7 +620,7 @@ export const getQuickPicks = async (req, res) => {
       // Get latest products
       const { data: productDetails, error: detailsError } = await supabase
         .from("products")
-        .select(`*, ${VARIANT_JOIN}`)
+        .select(`*, ${VARIANT_JOIN}, ${MEDIA_JOIN}`)
         .eq("active", true)
         .order("created_at", { ascending: false })
         .limit(parseInt(limit));
@@ -635,6 +672,12 @@ export const getQuickPicks = async (req, res) => {
               variant_unit,
               variant_image,
               is_default
+            ),
+            product_media(
+              url,
+              media_type,
+              is_primary,
+              sort_order
             )
           `
           )
@@ -661,7 +704,7 @@ export const getQuickPicks = async (req, res) => {
 
         let latestQuery = supabase
           .from("products")
-          .select(`*, ${VARIANT_JOIN}`)
+          .select(`*, ${VARIANT_JOIN}, ${MEDIA_JOIN}`)
           .eq("active", true)
           .order("created_at", { ascending: false })
           .limit(remainingLimit);
@@ -710,7 +753,7 @@ export const getQuickPicks = async (req, res) => {
       if (trendingProductIds.length > 0) {
         const { data: productDetails, error: detailsError } = await supabase
           .from("products")
-          .select(`*, ${VARIANT_JOIN}`)
+          .select(`*, ${VARIANT_JOIN}, ${MEDIA_JOIN}`)
           .in("id", trendingProductIds)
           .eq("active", true);
 
@@ -733,7 +776,7 @@ export const getQuickPicks = async (req, res) => {
 
         let latestQuery = supabase
           .from("products")
-          .select(`*, ${VARIANT_JOIN}`)
+          .select(`*, ${VARIANT_JOIN}, ${MEDIA_JOIN}`)
           .eq("active", true)
           .order("created_at", { ascending: false })
           .limit(remainingLimit);
@@ -756,7 +799,7 @@ export const getQuickPicks = async (req, res) => {
       // Get products marked as top sale
       const { data: productDetails, error: detailsError } = await supabase
         .from("products")
-        .select(`*, ${VARIANT_JOIN}`)
+        .select(`*, ${VARIANT_JOIN}, ${MEDIA_JOIN}`)
         .eq("active", true)
         .eq("top_sale", true)
         .order("created_at", { ascending: false })
@@ -769,7 +812,7 @@ export const getQuickPicks = async (req, res) => {
       // Get products marked as most ordered
       const { data: productDetails, error: detailsError } = await supabase
         .from("products")
-        .select(`*, ${VARIANT_JOIN}`)
+        .select(`*, ${VARIANT_JOIN}, ${MEDIA_JOIN}`)
         .eq("active", true)
         .eq("most_orders", true)
         .order("created_at", { ascending: false })
@@ -787,6 +830,16 @@ export const getQuickPicks = async (req, res) => {
       const defaultVariant = product.product_variants?.find(
         (v) => v.is_default === true
       );
+      const activeVariants = (product.product_variants || []).filter(v => v.active !== false);
+      const totalStock = activeVariants.reduce((sum, variant) => {
+        const variantStock = (variant.product_warehouse_stock || []).reduce(
+          (variantSum, ws) => variantSum + (ws.stock_quantity || 0),
+          0
+        );
+        return sum + variantStock;
+      }, 0);
+
+      const { primaryUrl: productImage, urls: productImages } = extractMediaUrls(product);
 
       return {
         id: product.id,
@@ -798,10 +851,10 @@ export const getQuickPicks = async (req, res) => {
         rating: product.rating || 4.0,
         reviews: product.review_count || 0,
         discount: product.discount || 0,
-        image: product.image,
-        images: product.images,
-        inStock: (product.stock || 0) > 0,
-        stock: product.stock || 0,
+        image: productImage,
+        images: productImages.length > 0 ? productImages : product.images,
+        inStock: totalStock > 0,
+        stock: totalStock,
         popular: product.popular,
         featured: product.featured,
         most_orders: product.most_orders,
@@ -1024,19 +1077,7 @@ export const getRelatedProducts = async (req, res) => {
       return res.status(400).json({ success: false, error: "product_ids array is required" });
     }
 
-    // Sanitize product_ids: extract UUID part if composite (e.g., productId_variantId) and filter valid UUIDs
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    const cleanIds = [...new Set(
-      product_ids
-        .map(id => typeof id === 'string' ? id.split('_')[0] : '')
-        .filter(id => uuidRegex.test(id))
-    )];
-
-    if (cleanIds.length === 0) {
-      return res.status(200).json({ success: true, products: [] });
-    }
-
-    const products = await productDao.getRelatedProducts(cleanIds);
+    const products = await productDao.getRelatedProducts(product_ids);
     const transformedProducts = products.map(product => transformProduct(product));
 
     res.status(200).json({
@@ -1049,65 +1090,11 @@ export const getRelatedProducts = async (req, res) => {
   }
 };
 
-// --- New Product Listing Endpoints ---
-
-// Get BBM Super Saver - Top 50 lowest priced products
-export const getSuperSaver = async (req, res) => {
-  try {
-    const { limit = 50 } = req.query;
-
-    // Fetch active products with their variants (price lives on variants, not products)
-    const products = await prisma.products.findMany({
-      where: { active: true },
-      orderBy: { created_at: 'desc' },
-      take: parseInt(limit) * 2, // fetch extra to ensure enough after sorting by price
-      include: {
-        variants: { where: { active: true }, include: { inventory: true } },
-        media: { take: 1 },
-        category: { select: { id: true, name: true } },
-      }
-    });
-
-    // Sort by lowest variant price in JS (since price is on variants, not the products table)
-    const sorted = products
-      .map(product => {
-        const lowestPrice = product.variants?.length > 0
-          ? Math.min(...product.variants.map(v => v.variant_price || Infinity))
-          : Infinity;
-        return { ...product, _lowestPrice: lowestPrice };
-      })
-      .sort((a, b) => a._lowestPrice - b._lowestPrice)
-      .slice(0, parseInt(limit));
-
-    const transformedProducts = sorted.map(product => transformProduct(product));
-
-    res.status(200).json({
-      success: true,
-      products: transformedProducts,
-      total: transformedProducts.length,
-    });
-  } catch (error) {
-    console.error("getSuperSaver error:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-};
-
-// Get New Arrivals - Latest 100 products
+// Get new arrivals - latest products
 export const getNewArrivals = async (req, res) => {
   try {
     const { limit = 100 } = req.query;
-
-    const products = await prisma.products.findMany({
-      where: { active: true },
-      orderBy: { created_at: 'desc' },
-      take: parseInt(limit),
-      include: {
-        variants: { where: { active: true }, include: { inventory: true } },
-        media: { take: 1 },
-        category: { select: { id: true, name: true } },
-      }
-    });
-
+    const products = await productDao.getNewArrivals(parseInt(limit));
     const transformedProducts = products.map(product => transformProduct(product));
 
     res.status(200).json({
@@ -1117,44 +1104,40 @@ export const getNewArrivals = async (req, res) => {
     });
   } catch (error) {
     console.error("getNewArrivals error:", error);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 };
 
-// Get related products by subcategory (for single product page)
+// Get super saver products - lowest priced products
+export const getSuperSaver = async (req, res) => {
+  try {
+    const { limit = 50 } = req.query;
+    const products = await productDao.getSuperSaver(parseInt(limit));
+    const transformedProducts = products.map(product => transformProduct(product));
+
+    res.status(200).json({
+      success: true,
+      products: transformedProducts,
+      total: transformedProducts.length,
+    });
+  } catch (error) {
+    console.error("getSuperSaver error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+// Get products related by subcategory
 export const getRelatedProductsBySubcategory = async (req, res) => {
   try {
     const { productId } = req.params;
-    const { limit = 12 } = req.query;
+    const { limit = 10 } = req.query;
 
-    const product = await productDao.getById(productId);
-    if (!product) {
-      return res.status(404).json({ success: false, error: "Product not found" });
+    if (!productId) {
+      return res.status(400).json({ success: false, error: "productId is required" });
     }
 
-    const where = {
-      active: true,
-      id: { not: productId },
-    };
-
-    if (product.subcategory_id) {
-      where.subcategory_id = product.subcategory_id;
-    } else if (product.category_id) {
-      where.category_id = product.category_id;
-    }
-
-    const relatedProducts = await prisma.products.findMany({
-      where,
-      take: parseInt(limit),
-      orderBy: { created_at: 'desc' },
-      include: {
-        variants: { where: { active: true }, include: { inventory: true } },
-        media: { take: 1 },
-        category: { select: { id: true, name: true } },
-      }
-    });
-
-    const transformedProducts = relatedProducts.map(product => transformProduct(product));
+    const products = await productDao.getRelatedProductsBySubcategory(productId, parseInt(limit));
+    const transformedProducts = products.map(product => transformProduct(product));
 
     res.status(200).json({
       success: true,

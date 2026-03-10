@@ -710,7 +710,7 @@ export const getSubcategoryDetails = async (req, res) => {
         active: true,
       },
       include: {
-        category: {
+        categories: {
           select: {
             id: true,
             name: true,
@@ -755,19 +755,18 @@ export const getSubcategoriesForSection = async (req, res) => {
     }
 
     // Get subcategory mappings for this section with subcategory inclusion
-    // Get subcategory mappings for this section with subcategory inclusion
     const mappings = await prisma.section_subcategory_mappings.findMany({
       where: {
         section_id: section.id,
         is_active: true,
-        subcategory: {
+        subcategories: {
           active: true,
         },
       },
       include: {
-        subcategory: {
+        subcategories: {
           include: {
-            category: {
+            categories: {
               select: {
                 id: true,
                 name: true,
@@ -784,8 +783,8 @@ export const getSubcategoriesForSection = async (req, res) => {
     // Flatten and format structure
     const orderedSubcategories = mappings
       .map((m) =>
-        m.subcategory
-          ? { ...m.subcategory, display_order: m.display_order }
+        m.subcategories
+          ? { ...m.subcategories, display_order: m.display_order }
           : null,
       )
       .filter(Boolean);

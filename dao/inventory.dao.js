@@ -31,7 +31,7 @@ class InventoryDAO {
         }
 
         // Use product_warehouse_stock instead of inventory
-        const allResults = await prisma.product_warehouse_stock.findMany({
+        const warehouseResults = await prisma.product_warehouse_stock.findMany({
             where,
             select: {
                 variant_id: true,
@@ -47,6 +47,31 @@ class InventoryDAO {
                 },
             },
         });
+
+        // Also query seller_products for seller stock
+        const sellerResults = await prisma.seller_products.findMany({
+            where: {
+                variant_id: { in: variantIds.slice(0, 1000), not: null },
+                status: 'APPROVED',
+                is_active: true,
+                ...(where.warehouse_id ? { warehouse_id: where.warehouse_id } : {})
+            },
+            select: {
+                variant_id: true,
+                stock_quantity: true,
+                reserved_quantity: true,
+                warehouse_id: true,
+                warehouses: {
+                    select: {
+                        id: true,
+                        name: true,
+                        type: true,
+                    },
+                },
+            },
+        });
+
+        const allResults = [...warehouseResults, ...sellerResults];
 
         // Aggregate results by variant
         const stockMap = new Map();

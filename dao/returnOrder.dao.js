@@ -40,7 +40,7 @@ class ReturnOrderDAO {
             },
           },
         },
-        users: { select: { name: true, email: true } },
+        users_return_orders_user_idTousers: { select: { name: true, email: true } },
         orders: true,
       },
     });
@@ -56,7 +56,7 @@ class ReturnOrderDAO {
     return await prisma.return_orders.findMany({
       where: { user_id: userId },
       include: {
-        users: { select: { name: true } },
+        users_return_orders_user_idTousers: { select: { name: true } },
         orders: { select: { id: true, payment_method: true } },
       },
       orderBy: { created_at: "desc" },
@@ -72,7 +72,7 @@ class ReturnOrderDAO {
         ...(status && { status }),
       },
       include: {
-        users: { select: { name: true } },
+        users_return_orders_user_idTousers: { select: { name: true } },
         orders: true,
       },
       orderBy: { created_at: "desc" },
