@@ -10,7 +10,7 @@ export const getAssignableOrders = async (req, res) => {
                 warehouse_riders: {
                     where: { is_active: true },
                     include: {
-                        warehouse: {
+                        warehouses: {
                             include: { warehouse_pincodes: { where: { is_active: true } } }
                         }
                     }
@@ -30,7 +30,7 @@ export const getAssignableOrders = async (req, res) => {
 
         // Get all pincodes the rider serves
         const riderPincodes = rider.warehouse_riders
-            .flatMap(wr => wr.warehouse.warehouse_pincodes.map(wp => wp.pincode));
+            .flatMap(wr => wr.warehouses.warehouse_pincodes.map(wp => wp.pincode));
 
         if (riderPincodes.length === 0) {
             return res.status(200).json({
@@ -50,7 +50,7 @@ export const getAssignableOrders = async (req, res) => {
             },
             include: {
                 order_items: true,
-                user: { select: { name: true, phone: true } },
+                users: { select: { name: true, phone: true } },
             },
             orderBy: { created_at: 'desc' },
             take: 50,
@@ -63,7 +63,7 @@ export const getAssignableOrders = async (req, res) => {
 
         const pincodesToFetch = [...new Set([
             ...orders.map(o => o.delivery_pincode),
-            ...rider.warehouse_riders.map(wr => wr.warehouse.location).filter(Boolean),
+            ...rider.warehouse_riders.map(wr => wr.warehouses.location).filter(Boolean),
             ...riderPincodes // Fallback origins
         ])].filter(Boolean);
 
@@ -87,8 +87,8 @@ export const getAssignableOrders = async (req, res) => {
                 // Determine Warehouse origin
                 let originPincode = null;
                 for (const wr of rider.warehouse_riders) {
-                    if (wr.warehouse.location && locationMap[wr.warehouse.location]) {
-                        originPincode = wr.warehouse.location;
+                    if (wr.warehouses.location && locationMap[wr.warehouses.location]) {
+                        originPincode = wr.warehouses.location;
                         break;
                     }
                 }
@@ -117,8 +117,8 @@ export const getAssignableOrders = async (req, res) => {
 
                 return {
                     id: o.id,
-                    customer_name: o.user?.name,
-                    customer_phone: o.user?.phone,
+                    customer_name: o.users?.name,
+                    customer_phone: o.users?.phone,
                     address: o.address,
                     delivery_pincode: o.delivery_pincode,
                     total: o.total,
@@ -149,7 +149,7 @@ export const acceptOrder = async (req, res) => {
                 warehouse_riders: {
                     where: { is_active: true },
                     include: {
-                        warehouse: {
+                        warehouses: {
                             include: { warehouse_pincodes: { where: { is_active: true } } }
                         }
                     }
@@ -184,7 +184,7 @@ export const acceptOrder = async (req, res) => {
 
         // Guard: Pincode validation
         const riderPincodes = rider.warehouse_riders
-            .flatMap(wr => wr.warehouse.warehouse_pincodes.map(wp => wp.pincode));
+            .flatMap(wr => wr.warehouses.warehouse_pincodes.map(wp => wp.pincode));
 
         if (order.delivery_pincode && !riderPincodes.includes(order.delivery_pincode)) {
             return res.status(403).json({
@@ -205,8 +205,8 @@ export const acceptOrder = async (req, res) => {
 
         let originPincode = null;
         for (const wr of rider.warehouse_riders) {
-            if (wr.warehouse.location) {
-                originPincode = wr.warehouse.location;
+            if (wr.warehouses.location) {
+                originPincode = wr.warehouses.location;
                 break;
             }
         }
@@ -354,7 +354,7 @@ export const getMyOrders = async (req, res) => {
                 where,
                 include: {
                     order_items: true,
-                    user: { select: { name: true, phone: true } },
+                    users: { select: { name: true, phone: true } },
                 },
                 orderBy: { created_at: 'desc' },
                 skip,
@@ -367,8 +367,8 @@ export const getMyOrders = async (req, res) => {
             success: true,
             data: orders.map(o => ({
                 id: o.id,
-                customer_name: o.user?.name,
-                customer_phone: o.user?.phone,
+                customer_name: o.users?.name,
+                customer_phone: o.users?.phone,
                 address: o.address,
                 delivery_pincode: o.delivery_pincode,
                 total: o.total,
@@ -397,14 +397,14 @@ export const getOrderDetails = async (req, res) => {
 
         const rider = await prisma.riders.findUnique({
             where: { user_id: req.user.id },
-            include: { warehouse_riders: { include: { warehouse: true } } }
+            include: { warehouse_riders: { include: { warehouses: true } } }
         });
         if (!rider) return res.status(404).json({ success: false, error: 'Rider profile not found' });
 
         const order = await prisma.orders.findUnique({
             where: { id: orderId },
             include: {
-                user: { select: { name: true, phone: true } },
+                users: { select: { name: true, phone: true } },
                 order_items: {
                     include: {
                         variant: {
@@ -447,8 +447,8 @@ export const getOrderDetails = async (req, res) => {
 
             let originPincode = null;
             for (const wr of rider.warehouse_riders || []) {
-                if (wr.warehouse?.location) {
-                    originPincode = wr.warehouse.location;
+                if (wr.warehouses?.location) {
+                    originPincode = wr.warehouses.location;
                     break;
                 }
             }
@@ -545,8 +545,8 @@ export const getOrderDetails = async (req, res) => {
             data: {
                 id: order.id,
                 customer: {
-                    name: order.user?.name || order.receiver_name,
-                    phone: order.user?.phone || order.mobile,
+                    name: order.users?.name || order.receiver_name,
+                    phone: order.users?.phone || order.mobile,
                     address: order.address,
                     pincode: order.delivery_pincode,
                 },
