@@ -99,7 +99,7 @@ export const loginRider = async (req, res) => {
 
         const user = await prisma.users.findUnique({
             where: { email },
-            include: { rider_profile: true }
+            include: { riders: true }
         });
 
         if (!user) {
@@ -133,7 +133,7 @@ export const loginRider = async (req, res) => {
             email: user.email,
             role: user.role,
             name: user.name,
-            rider_id: user.rider_profile?.id,
+            rider_id: user.riders?.id,
         });
 
         res.status(200).json({
@@ -145,10 +145,10 @@ export const loginRider = async (req, res) => {
                 name: user.name,
                 phone: user.phone,
                 role: user.role,
-                rider_id: user.rider_profile?.id,
-                verification_status: user.rider_profile?.verification_status,
-                is_verified: user.rider_profile?.is_verified,
-                is_available: user.rider_profile?.is_available,
+                rider_id: user.riders?.id,
+                verification_status: user.riders?.verification_status,
+                is_verified: user.riders?.is_verified,
+                is_available: user.riders?.is_available,
             },
         });
     } catch (error) {
@@ -167,12 +167,12 @@ export const getRiderMe = async (req, res) => {
         const user = await prisma.users.findUnique({
             where: { id: req.user.id },
             include: {
-                rider_profile: {
+                riders: {
                     include: {
                         rider_documents: true,
                         warehouse_riders: {
                             where: { is_active: true },
-                            include: { warehouse: true }
+                            include: { warehouses: true }
                         }
                     }
                 }
@@ -183,7 +183,7 @@ export const getRiderMe = async (req, res) => {
             return res.status(404).json({ success: false, error: 'Rider not found' });
         }
 
-        const rider = user.rider_profile;
+        const rider = user.riders;
 
         // Check active shift
         let activeShift = null;
@@ -234,9 +234,9 @@ export const getRiderMe = async (req, res) => {
                     rejection_reason: d.rejection_reason,
                 })) || [],
                 warehouses: rider?.warehouse_riders?.map(wr => ({
-                    id: wr.warehouse.id,
-                    name: wr.warehouse.name,
-                    type: wr.warehouse.type,
+                    id: wr.warehouses.id,
+                    name: wr.warehouses.name,
+                    type: wr.warehouses.type,
                 })) || [],
                 active_shift: activeShift ? {
                     id: activeShift.id,
