@@ -82,7 +82,7 @@ export const getAllWallets = async (req, res) => {
 
     // Filter by search term (name, email, phone)
     if (search) {
-      where.user = {
+      where.users_wallets_user_idTousers = {
         OR: [
           { name: { contains: search, mode: 'insensitive' } },
           { email: { contains: search, mode: 'insensitive' } },
@@ -102,7 +102,7 @@ export const getAllWallets = async (req, res) => {
       prisma.wallets.findMany({
         where,
         include: {
-          user: {
+          users_wallets_user_idTousers: {
             select: {
               id: true,
               name: true,
@@ -121,7 +121,7 @@ export const getAllWallets = async (req, res) => {
 
     res.json({
       success: true,
-      wallets,
+      wallets: wallets.map(w => ({ ...w, user: w.users_wallets_user_idTousers })),
       pagination: {
         page: parseInt(page),
         limit: take,
@@ -147,7 +147,7 @@ export const getUserWalletDetails = async (req, res) => {
     const wallet = await prisma.wallets.findUnique({
       where: { user_id: userId },
       include: {
-        user: {
+        users_wallets_user_idTousers: {
           select: {
             id: true,
             name: true,
@@ -207,7 +207,7 @@ export const getUserWalletDetails = async (req, res) => {
 
     res.json({
       success: true,
-      wallet,
+      wallet: { ...wallet, user: wallet.users_wallets_user_idTousers },
       transactions: transactions || [],
       stats,
       pagination: {
@@ -671,7 +671,7 @@ export const getWalletTransactionsAdmin = async (req, res) => {
         include: {
           wallet: {
             include: {
-              user: {
+              users_wallets_user_idTousers: {
                 select: { name: true, email: true, phone: true }
               }
             }
@@ -686,7 +686,10 @@ export const getWalletTransactionsAdmin = async (req, res) => {
 
     res.json({
       success: true,
-      transactions,
+      transactions: transactions.map(t => ({
+        ...t,
+        wallet: t.wallet ? { ...t.wallet, user: t.wallet.users_wallets_user_idTousers } : null
+      })),
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -717,7 +720,7 @@ export const getWalletAuditLogs = async (req, res) => {
         include: {
           wallet: {
             include: {
-              user: {
+              users_wallets_user_idTousers: {
                 select: { name: true, email: true }
               }
             }
@@ -732,7 +735,10 @@ export const getWalletAuditLogs = async (req, res) => {
 
     res.json({
       success: true,
-      logs,
+      logs: logs.map(l => ({
+        ...l,
+        wallet: l.wallet ? { ...l.wallet, user: l.wallet.users_wallets_user_idTousers } : null
+      })),
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),

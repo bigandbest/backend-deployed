@@ -158,7 +158,7 @@ export const getWithdrawalRequests = async (req, res) => {
                 ...(status ? { status } : {})
             },
             include: {
-                user: {
+                users_wallet_transactions_user_idTousers: {
                     select: {
                         name: true,
                         email: true,
@@ -172,7 +172,13 @@ export const getWithdrawalRequests = async (req, res) => {
             orderBy: { created_at: 'desc' }
         });
 
-        res.status(200).json({ success: true, data: withdrawals });
+        res.status(200).json({
+            success: true,
+            data: withdrawals.map(w => ({
+                ...w,
+                user: w.users_wallet_transactions_user_idTousers
+            }))
+        });
     } catch (error) {
         console.error('getWithdrawalRequests error:', error);
         res.status(500).json({ success: false, error: 'Failed to fetch withdrawal requests' });

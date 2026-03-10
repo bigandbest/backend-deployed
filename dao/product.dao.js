@@ -114,7 +114,7 @@ class ProductDAO {
                 include: {
                     inventory: true,
                     variant_attributes: true,
-                    product_warehouse_stock: true,
+                    warehouse_stock: true,
                 }
             }
             : {
@@ -140,7 +140,7 @@ class ProductDAO {
                     inventory: {
                         select: { stock_qty: true, reserved_qty: true, warehouse_id: true },
                     },
-                    product_warehouse_stock: {
+                    warehouse_stock: {
                         select: { stock_quantity: true, warehouse_id: true },
                     },
                 },

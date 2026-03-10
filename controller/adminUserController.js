@@ -40,7 +40,7 @@ export const getUsers = async (req, res) => {
                 take: limit,
                 orderBy: { created_at: "desc" },
                 include: {
-                    addresses: {
+                    user_addresses: {
                         where: { is_default: true },
                         take: 1,
                     },
@@ -51,7 +51,7 @@ export const getUsers = async (req, res) => {
 
         // Format users to match frontend expectations
         const formattedUsers = users.map((user) => {
-            const defaultAddress = user.addresses[0];
+            const defaultAddress = user.user_addresses?.[0];
             let fullAddress = "";
             if (defaultAddress) {
                 fullAddress = [
