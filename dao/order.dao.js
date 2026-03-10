@@ -8,7 +8,7 @@ class OrderDAO {
     };
 
     if (user_id) {
-      createData.user = { connect: { id: user_id } };
+      createData.users = { connect: { id: user_id } };
     }
 
     return await prisma.orders.create({
