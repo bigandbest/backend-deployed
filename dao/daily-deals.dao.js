@@ -14,7 +14,7 @@ class DailyDealsDAO {
         return await prisma.daily_deals.findUnique({
             where: { id },
             include: {
-                add_banner: true
+                banner: true
             }
         });
     }
@@ -26,7 +26,7 @@ class DailyDealsDAO {
                 ...(active !== undefined && { active })
             },
             include: {
-                add_banner: true
+                banner: true
             },
             orderBy: {
                 sort_order: 'asc'

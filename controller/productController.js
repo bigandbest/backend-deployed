@@ -16,8 +16,8 @@ const VARIANT_JOIN = "product_variants(*)";
 const MEDIA_JOIN = "product_media(url, media_type, is_primary, sort_order)";
 
 const extractMediaUrls = (product) => {
-  const mediaRaw = Array.isArray(product?.product_media)
-    ? product.product_media
+  const mediaRaw = Array.isArray(product?.media)
+    ? product.media
     : Array.isArray(product?.media)
       ? product.media
       : [];
@@ -43,7 +43,7 @@ const transformProduct = (product, assignments = []) => {
 
   // Calculate total stock from all variant warehouse stocks
   const totalStock = activeVariants.reduce((sum, variant) => {
-    const variantStock = (variant.product_warehouse_stock || []).reduce(
+    const variantStock = (variant.warehouse_stock || []).reduce(
       (variantSum, ws) => variantSum + (ws.stock_quantity || 0),
       0
     );
@@ -51,8 +51,8 @@ const transformProduct = (product, assignments = []) => {
   }, 0);
 
   // Extract image from product_media
-  const productImage = product.product_media?.[0]?.url || product.image || null;
-  const productImages = (product.product_media || []).map(media => media.url).filter(Boolean);
+  const productImage = product.media?.[0]?.url || product.image || null;
+  const productImages = (product.media || []).map(media => media.url).filter(Boolean);
 
   return {
     id: product.id,
@@ -101,7 +101,7 @@ export const getAllProducts = async (req, res) => {
     const transformedProducts = (result.items || []).map((product) => {
       const activeVariants = (product.variants || []).filter(v => v.active !== false);
       const totalStock = activeVariants.reduce((sum, variant) => {
-        const variantStock = (variant.product_warehouse_stock || []).reduce(
+        const variantStock = (variant.warehouse_stock || []).reduce(
           (variantSum, ws) => variantSum + (ws.stock_quantity || 0),
           0
         );
@@ -109,8 +109,8 @@ export const getAllProducts = async (req, res) => {
       }, 0);
 
       // Extract image from product_media
-      const productImage = product.product_media?.[0]?.url || product.image || null;
-      const productImages = (product.product_media || []).map(media => media.url).filter(Boolean);
+      const productImage = product.media?.[0]?.url || product.image || null;
+      const productImages = (product.media || []).map(media => media.url).filter(Boolean);
 
       return {
         ...product,
@@ -506,7 +506,7 @@ export const getProductsByDeliveryZone = async (req, res) => {
     const transformedProducts = products.map((product) => {
       const activeVariants = (product.product_variants || []).filter(v => v.active !== false);
       const totalStock = activeVariants.reduce((sum, variant) => {
-        const variantStock = (variant.product_warehouse_stock || []).reduce(
+        const variantStock = (variant.warehouse_stock || []).reduce(
           (variantSum, ws) => variantSum + (ws.stock_quantity || 0),
           0
         );
@@ -832,7 +832,7 @@ export const getQuickPicks = async (req, res) => {
       );
       const activeVariants = (product.product_variants || []).filter(v => v.active !== false);
       const totalStock = activeVariants.reduce((sum, variant) => {
-        const variantStock = (variant.product_warehouse_stock || []).reduce(
+        const variantStock = (variant.warehouse_stock || []).reduce(
           (variantSum, ws) => variantSum + (ws.stock_quantity || 0),
           0
         );

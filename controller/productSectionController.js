@@ -489,7 +489,7 @@ export const getSectionWithContent = async (req, res) => {
           where: { subcategory_id: { in: subcategoryIds }, active: true },
           include: {
             variants: { where: { active: true, is_default: true } },
-            product_media: { where: { is_primary: true }, take: 1 },
+            media: { where: { is_primary: true }, take: 1 },
             brands: { include: { brand: true } }
           },
           take: 50
@@ -526,7 +526,7 @@ export const getSectionWithContent = async (req, res) => {
         where: { store_id: { in: storeIds }, is_active: true, is_deleted: false },
         include: {
           variants: { where: { active: true, is_default: true } },
-          product_media: { where: { is_primary: true }, take: 1 },
+          media: { where: { is_primary: true }, take: 1 },
           brands: { include: { brand: true } }
         },
         take: 20
@@ -542,7 +542,7 @@ export const getSectionWithContent = async (req, res) => {
         where: { category_id: { in: categoryIds }, active: true },
         include: {
           variants: { where: { active: true, is_default: true } },
-          product_media: { where: { is_primary: true }, take: 1 },
+          media: { where: { is_primary: true }, take: 1 },
           brands: { include: { brand: true } }
         },
         take: 20

@@ -12,7 +12,7 @@ class ProductDAO {
                         variant_attributes: true,
                     },
                 },
-                product_media: true,
+                media: true,
                 brands: { include: { brand: true } },
             },
         });
@@ -30,7 +30,7 @@ class ProductDAO {
                     include: {
                         inventory: true,
                         variant_attributes: true,
-                        product_warehouse_stock: true,
+                        warehouse_stock: true,
                     },
                 },
                 category: true,
@@ -42,7 +42,7 @@ class ProductDAO {
                         brand: true,
                     },
                 },
-                product_media: true,
+                media: true,
                 product_reviews: {
                     take: 5,
                     orderBy: { created_at: "desc" },
@@ -196,7 +196,7 @@ class ProductDAO {
                         },
                         take: 1,
                     },
-                    product_media: {
+                    media: {
                         where: { is_primary: true },
                         take: 1,
                         select: { url: true, media_type: true },
@@ -437,7 +437,7 @@ class ProductDAO {
             include: {
                 category: true,
                 variants: { where: { active: true }, include: { inventory: true } },
-                product_media: { where: { is_primary: true }, orderBy: { sort_order: "asc" }, take: 1, select: { url: true, media_type: true } },
+                media: { where: { is_primary: true }, orderBy: { sort_order: "asc" }, take: 1, select: { url: true, media_type: true } },
             },
             orderBy: { created_at: "desc" },
         });
@@ -452,7 +452,7 @@ class ProductDAO {
             include: {
                 category: true,
                 variants: { where: { active: true }, include: { inventory: true } },
-                product_media: { where: { is_primary: true }, orderBy: { sort_order: "asc" }, take: 1, select: { url: true, media_type: true } },
+                media: { where: { is_primary: true }, orderBy: { sort_order: "asc" }, take: 1, select: { url: true, media_type: true } },
             },
             orderBy: { created_at: "desc" },
         });
@@ -468,7 +468,7 @@ class ProductDAO {
             include: {
                 category: true,
                 variants: { where: { active: true }, include: { inventory: true } },
-                product_media: { where: { is_primary: true }, orderBy: { sort_order: "asc" }, take: 1, select: { url: true, media_type: true } },
+                media: { where: { is_primary: true }, orderBy: { sort_order: "asc" }, take: 1, select: { url: true, media_type: true } },
             },
             orderBy: [{ rating: "desc" }, { review_count: "desc" }],
         });
@@ -491,9 +491,14 @@ class ProductDAO {
                 },
                 variants: {
                     where: { active: true },
-                    include: { product_warehouse_stock: { where: { is_active: true }, select: { stock_quantity: true, warehouse_id: true } } },
+                    include: {
+                        warehouse_stock: {
+                            where: { is_active: true },
+                            select: { stock_quantity: true, warehouse_id: true },
+                        },
+                    },
                 },
-                product_media: {
+                media: {
                     where: { is_primary: true },
                     orderBy: { sort_order: 'asc' },
                     take: 1,
@@ -541,9 +546,14 @@ class ProductDAO {
                     variants: {
                         where: { active: true },
                         orderBy: { price: "asc" },
-                        include: { product_warehouse_stock: { where: { is_active: true }, select: { stock_quantity: true, warehouse_id: true } } },
+                        include: {
+                            warehouse_stock: {
+                                where: { is_active: true },
+                                select: { stock_quantity: true, warehouse_id: true },
+                            },
+                        },
                     },
-                    product_media: {
+                    media: {
                         where: { is_primary: true },
                         orderBy: { sort_order: 'asc' },
                         take: 1,
@@ -583,7 +593,7 @@ class ProductDAO {
             },
             include: {
                 variants: { where: { active: true }, include: { inventory: true } },
-                product_media: { where: { is_primary: true }, orderBy: { sort_order: "asc" }, take: 1, select: { url: true, media_type: true } },
+                media: { where: { is_primary: true }, orderBy: { sort_order: "asc" }, take: 1, select: { url: true, media_type: true } },
             },
         });
     }
@@ -601,7 +611,7 @@ class ProductDAO {
             take: limit,
             include: {
                 variants: { where: { active: true }, orderBy: { price: "asc" }, include: { inventory: true } },
-                product_media: { where: { is_primary: true }, take: 1, select: { url: true, media_type: true } },
+                media: { where: { is_primary: true }, take: 1, select: { url: true, media_type: true } },
             },
             orderBy: { rating: "desc" },
         });
@@ -615,7 +625,7 @@ class ProductDAO {
             },
             include: {
                 variants: { where: { active: true }, include: { inventory: true } },
-                product_media: { where: { is_primary: true }, orderBy: { sort_order: "asc" }, take: 1, select: { url: true, media_type: true } },
+                media: { where: { is_primary: true }, orderBy: { sort_order: "asc" }, take: 1, select: { url: true, media_type: true } },
             },
         });
     }
@@ -675,9 +685,14 @@ class ProductDAO {
                 },
                 variants: {
                     where: { active: true },
-                    include: { product_warehouse_stock: { where: { is_active: true }, select: { stock_quantity: true, warehouse_id: true } } },
+                    include: {
+                        warehouse_stock: {
+                            where: { is_active: true },
+                            select: { stock_quantity: true, warehouse_id: true },
+                        },
+                    },
                 },
-                product_media: {
+                media: {
                     where: { is_primary: true },
                     orderBy: { sort_order: 'asc' },
                     take: 1,
