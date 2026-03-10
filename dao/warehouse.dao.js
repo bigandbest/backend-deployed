@@ -33,8 +33,8 @@ class WarehouseDAO {
         return await prisma.warehouses.findUnique({
             where: { name: id },
             include: {
-                parent_warehouse: true,
-                child_warehouses: true,
+                warehouses: true,
+                other_warehouses: true,
                 warehouse_zones: { include: { zone: true } },
                 warehouse_pincodes: true,
                 scheduling_configs: { include: { slot: true } }
@@ -63,9 +63,9 @@ class WarehouseDAO {
         return await prisma.warehouses.findMany({
             where: { hierarchy_level: 0 },
             include: {
-                child_warehouses: {
+                other_warehouses: {
                     include: {
-                        child_warehouses: true
+                        other_warehouses: true
                     }
                 }
             }

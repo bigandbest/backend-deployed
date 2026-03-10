@@ -759,12 +759,12 @@ export const getSubcategoriesForSection = async (req, res) => {
       where: {
         section_id: section.id,
         is_active: true,
-        subcategories: {
+        subcategory: {
           active: true,
         },
       },
       include: {
-        subcategories: {
+        subcategory: {
           include: {
             categories: {
               select: {

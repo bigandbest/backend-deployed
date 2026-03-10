@@ -76,7 +76,7 @@ class CategoryDAO {
     return await prisma.subcategories.findMany({
       where: activeOnly ? { active: true } : {},
       include: {
-        category: {
+        categories: {
           select: {
             id: true,
             name: true,
@@ -120,13 +120,13 @@ class CategoryDAO {
     return await prisma.groups.findMany({
       where: activeOnly ? { active: true } : {},
       include: {
-        subcategory: {
+        subcategories: {
           select: {
             id: true,
             name: true,
             image_url: true,
             icon: true,
-            category: {
+            categories: {
               select: {
                 id: true,
                 name: true,

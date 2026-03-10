@@ -29,7 +29,7 @@ export const startAutoCheckoutCron = () => {
             // Find all open shifts (no check_out_time)
             const openShifts = await prisma.attendance_logs.findMany({
                 where: { check_out_time: null },
-                include: { rider: true },
+                include: { riders: true },
             });
 
             if (openShifts.length === 0) {

@@ -125,12 +125,12 @@ class DeliveryZoneDAO {
             include: {
                 warehouse_zones: {
                     include: {
-                        warehouse: true
+                        warehouses: true
                     }
                 }
             }
         });
-        return zone?.warehouse_zones?.map(wz => wz.warehouse) || [];
+        return zone?.warehouse_zones?.map(wz => wz.warehouses) || [];
     }
 }
 
