@@ -14,7 +14,7 @@ class ZonePincodeDAO {
     async getByPincode(pincode) {
         return await prisma.zone_pincodes.findMany({
             where: { pincode, is_active: true },
-            include: { zone: true }
+            include: { delivery_zones: true }
         });
     }
 

@@ -752,7 +752,7 @@ export const cancelOrder = async (req, res) => {
     await orderDao.update(id, { status: "cancelled" });
 
     // Get user details for notifications
-    const userData = await userControlDao.getUserById(order.user_id);
+    const userData = order.users || await userControlDao.getUserById(order.user_id);
 
     // Create notifications for cancellation
     try {

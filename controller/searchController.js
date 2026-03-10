@@ -25,42 +25,43 @@ export async function unifiedSearch(req, res) {
                 where: {
                     active: true,
                     OR: [
-                        { name: { contains: searchQuery, mode: 'insensitive' } },
+                        { name: { contains: searchQuery, mode: "insensitive" } },
                         {
                             category: {
-                                name: { contains: searchQuery, mode: 'insensitive' }
-                            }
+                                name: { contains: searchQuery, mode: "insensitive" },
+                            },
                         },
                         {
                             subcategory: {
-                                name: { contains: searchQuery, mode: 'insensitive' }
-                            }
+                                name: { contains: searchQuery, mode: "insensitive" },
+                            },
                         },
                         {
                             brands: {
                                 some: {
                                     brand: {
-                                        name: { contains: searchQuery, mode: 'insensitive' }
-                                    }
-                                }
-                            }
-                        }
-                    ]
+                                        name: { contains: searchQuery, mode: "insensitive" },
+                                    },
+                                },
+                            },
+                        },
+                    ],
                 },
-                select: {
-                    id: true,
-                    name: true,
-                    media: true,
+                include: {
+                    product_media: {
+                        where: { is_primary: true },
+                        orderBy: { sort_order: "asc" },
+                        take: 1,
+                    },
                     variants: {
                         select: { price: true },
-                        take: 1
+                        take: 1,
                     },
-                    rating: true,
                     category: {
-                        select: { name: true }
-                    }
+                        select: { name: true },
+                    },
                 },
-                take: 5
+                take: 5,
             }),
 
             // Search categories directly
@@ -124,33 +125,33 @@ export async function unifiedSearch(req, res) {
             // Search groups (sub-subcategories)
             prisma.groups.findMany({
                 where: {
-                    name: { contains: searchQuery, mode: 'insensitive' },
-                    active: true
+                    name: { contains: searchQuery, mode: "insensitive" },
+                    active: true,
                 },
                 select: {
                     id: true,
                     name: true,
                     image_url: true,
                     subcategory_id: true,
-                    subcategory: {
+                    subcategories: {
                         select: {
                             name: true,
-                            category_id: true
-                        }
-                    }
+                            category_id: true,
+                        },
+                    },
                 },
-                take: 5
+                take: 5,
             }),
         ]);
 
         // Map and format results for the frontend
-        const formattedProducts = productsResult.map(p => ({
+        const formattedProducts = productsResult.map((p) => ({
             id: p.id,
             name: p.name,
-            image: p.media?.[0]?.url || null,
+            image: p.product_media?.[0]?.url || null,
             price: p.variants?.[0]?.price || 0,
             category: p.category?.name || null,
-            rating: p.rating
+            rating: p.rating,
         }));
 
         // Prepare response
@@ -160,12 +161,12 @@ export async function unifiedSearch(req, res) {
             subcategories: subcategoriesResult || [],
             stores: storesResult || [],
             brands: brandsResult || [],
-            groups: (groupsResult || []).map(g => ({
+            groups: (groupsResult || []).map((g) => ({
                 id: g.id,
                 name: g.name,
                 image_url: g.image_url,
-                subcategory_name: g.subcategory?.name || null,
-                category_id: g.subcategory?.category_id || null,
+                subcategory_name: g.subcategories?.name || null,
+                category_id: g.subcategories?.category_id || null,
             })),
             total: formattedProducts.length + categoriesResult.length + subcategoriesResult.length + storesResult.length + brandsResult.length + (groupsResult || []).length,
         };
@@ -230,12 +231,16 @@ export async function searchProducts(req, res) {
                 skip,
                 take,
                 include: {
-                    media: true,
+                    product_media: {
+                        where: { is_primary: true },
+                        orderBy: { sort_order: "asc" },
+                        take: 1,
+                    },
                     category: true,
                     variants: {
-                        take: 1
-                    }
-                }
+                        take: 1,
+                    },
+                },
             }),
             prisma.products.count({
                 where: whereClause
@@ -243,11 +248,11 @@ export async function searchProducts(req, res) {
         ]);
 
         // Map data formatting for consistency
-        const formattedProducts = products.map(p => ({
+        const formattedProducts = products.map((p) => ({
             ...p,
-            image: p.media?.[0]?.url || null,
+            image: p.product_media?.[0]?.url || null,
             price: p.variants?.[0]?.price || 0,
-            category: p.category?.name || p.category_id
+            category: p.category?.name || p.category_id,
         }));
 
         return res.status(200).json({

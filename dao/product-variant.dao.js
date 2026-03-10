@@ -10,7 +10,7 @@ class ProductVariantDAO {
             where: { id },
             include: {
                 product: true,
-                attributes: true,
+                variant_attributes: true,
                 inventory: true
             }
         });
@@ -29,7 +29,7 @@ class ProductVariantDAO {
                 product_id: productId,
                 ...(activeOnly && { active: true })
             },
-            include: { attributes: true },
+            include: { variant_attributes: true },
             orderBy: { price: 'asc' }
         });
     }

@@ -44,8 +44,8 @@ class UserDAO {
     return await prisma.users.findUnique({
       where: { id },
       include: {
-        addresses: true,
-        notifications: {
+        user_addresses: true,
+        user_notifications: {
           orderBy: { created_at: "desc" },
           take: 10,
         },

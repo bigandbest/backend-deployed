@@ -30,7 +30,7 @@ class WishlistDAO {
     return await prisma.wishlist_items.findMany({
       where: { user_id: userId },
       include: {
-        product: {
+        products: {
           include: {
             variants: {
               where: { active: true },

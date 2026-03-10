@@ -44,10 +44,10 @@ class ProductBrandDAO {
                         variants: {
                             include: {
                                 inventory: true,
-                                attributes: true
+                                variant_attributes: true
                             }
                         },
-                        media: true,
+                        product_media: true,
                         product_recommended_store: {
                             include: { recommended_store: true }
                         }

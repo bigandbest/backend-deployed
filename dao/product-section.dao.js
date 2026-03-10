@@ -13,8 +13,8 @@ class ProductSectionDAO {
                     include: { product: true },
                     orderBy: { display_order: 'asc' }
                 },
-                subcategory_mappings: {
-                    include: { subcategory: true },
+                section_subcategory_mappings: {
+                    include: { subcategories: true },
                     orderBy: { display_order: 'asc' }
                 }
             }
