@@ -97,7 +97,7 @@ export const loginSeller = async (req, res) => {
         // Find user
         const user = await prisma.users.findUnique({
             where: { email },
-            include: { seller_profile: true }
+            include: { sellers: true }
         });
 
         if (!user) {
@@ -136,7 +136,7 @@ export const loginSeller = async (req, res) => {
             email: user.email,
             role: user.role,
             name: user.name,
-            seller_id: user.seller_profile?.id,
+            seller_id: user.sellers?.id,
         });
 
         res.status(200).json({
@@ -148,10 +148,10 @@ export const loginSeller = async (req, res) => {
                 name: user.name,
                 phone: user.phone,
                 role: user.role,
-                seller_id: user.seller_profile?.id,
-                seller_type: user.seller_profile?.seller_type,
-                business_name: user.seller_profile?.business_name,
-                is_verified: user.seller_profile?.is_verified,
+                seller_id: user.sellers?.id,
+                seller_type: user.sellers?.seller_type,
+                business_name: user.sellers?.business_name,
+                is_verified: user.sellers?.is_verified,
             },
         });
     } catch (error) {
@@ -172,11 +172,11 @@ export const getSellerMe = async (req, res) => {
         const user = await prisma.users.findUnique({
             where: { id: req.user.id },
             include: {
-                seller_profile: {
+                sellers: {
                     include: {
                         warehouse_sellers: {
                             include: {
-                                warehouse: true
+                                warehouses: true
                             }
                         }
                     }
@@ -189,13 +189,13 @@ export const getSellerMe = async (req, res) => {
         }
 
         let activePincodesCount = 0;
-        if (user.seller_profile) {
+        if (user.sellers) {
             const requests = await prisma.seller_pincode_requests.findMany({
-                where: { seller_id: user.seller_profile.id, status: 'APPROVED' }
+                where: { seller_id: user.sellers.id, status: 'APPROVED' }
             });
             let allPins = new Set();
-            if (user.seller_profile.pincode) {
-                user.seller_profile.pincode.split(',').forEach(p => p.trim() && allPins.add(p.trim()));
+            if (user.sellers.pincode) {
+                user.sellers.pincode.split(',').forEach(p => p.trim() && allPins.add(p.trim()));
             }
             requests.forEach(r => allPins.add(r.pincode));
             activePincodesCount = allPins.size;
@@ -210,27 +210,27 @@ export const getSellerMe = async (req, res) => {
                 phone: user.phone,
                 role: user.role,
                 avatar: user.avatar || user.photo_url,
-                seller_id: user.seller_profile?.id,
-                seller_type: user.seller_profile?.seller_type,
-                business_name: user.seller_profile?.business_name,
-                business_type: user.seller_profile?.business_type,
-                address: user.seller_profile?.address,
-                city: user.seller_profile?.city,
-                state: user.seller_profile?.state,
-                pincode: user.seller_profile?.pincode,
-                is_verified: user.seller_profile?.is_verified,
-                is_active: user.seller_profile?.is_active,
-                is_open: user.seller_profile?.is_open,
+                seller_id: user.sellers?.id,
+                seller_type: user.sellers?.seller_type,
+                business_name: user.sellers?.business_name,
+                business_type: user.sellers?.business_type,
+                address: user.sellers?.address,
+                city: user.sellers?.city,
+                state: user.sellers?.state,
+                pincode: user.sellers?.pincode,
+                is_verified: user.sellers?.is_verified,
+                is_active: user.sellers?.is_active,
+                is_open: user.sellers?.is_open,
                 activePincodes: activePincodesCount,
-                gstin: user.seller_profile?.gstin,
-                pan: user.seller_profile?.pan,
-                bank_account_no: user.seller_profile?.bank_account_no,
-                bank_ifsc: user.seller_profile?.bank_ifsc,
-                bank_name: user.seller_profile?.bank_name,
-                warehouses: user.seller_profile?.warehouse_sellers?.map(ws => ({
-                    id: ws.warehouse.id,
-                    name: ws.warehouse.name,
-                    type: ws.warehouse.type,
+                gstin: user.sellers?.gstin,
+                pan: user.sellers?.pan,
+                bank_account_no: user.sellers?.bank_account_no,
+                bank_ifsc: user.sellers?.bank_ifsc,
+                bank_name: user.sellers?.bank_name,
+                warehouses: user.sellers?.warehouse_sellers?.map(ws => ({
+                    id: ws.warehouses.id,
+                    name: ws.warehouses.name,
+                    type: ws.warehouses.type,
                 })) || [],
             },
         });

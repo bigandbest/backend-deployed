@@ -81,7 +81,7 @@ class SellerDAO {
         return prisma.seller_products.findMany({
             where,
             include: {
-                product: {
+                products: {
                     select: {
                         id: true,
                         name: true,
@@ -89,7 +89,7 @@ class SellerDAO {
                         media: { take: 1 }
                     }
                 },
-                variant: {
+                product_variants: {
                     select: {
                         id: true,
                         title: true,
@@ -97,7 +97,7 @@ class SellerDAO {
                         price: true
                     }
                 },
-                warehouse: {
+                warehouses: {
                     select: { id: true, name: true, type: true }
                 }
             },
@@ -148,10 +148,10 @@ class SellerDAO {
             if (isChanged && existing.status === 'APPROVED') {
                 const sellerProduct = await prisma.seller_products.findUnique({
                     where: { id: existing.id },
-                    include: { warehouse: true }
+                    include: { warehouses: true }
                 });
 
-                const zonalWarehouseId = sellerProduct.warehouse?.parent_warehouse_id;
+                const zonalWarehouseId = sellerProduct.warehouses?.parent_warehouse_id;
                 if (zonalWarehouseId && variant_id) {
                     await prisma.$executeRaw`
                         UPDATE inventory 
@@ -207,7 +207,7 @@ class SellerDAO {
         return prisma.seller_negotiations.findMany({
             where,
             include: {
-                product: {
+                products: {
                     include: { media: { take: 1 } }
                 }
             },
