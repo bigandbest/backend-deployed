@@ -34,7 +34,7 @@ class OrderDAO {
               include: {
                 products: {
                   include: {
-                    product_media: {
+                    media: {
                       where: { is_primary: true },
                       orderBy: { sort_order: "asc" },
                       take: 1,
@@ -109,7 +109,7 @@ class OrderDAO {
               include: {
                 products: {
                   include: {
-                    product_media: {
+                    media: {
                       where: { is_primary: true },
                       orderBy: { sort_order: "asc" },
                       take: 1,
@@ -156,7 +156,7 @@ class OrderDAO {
                 include: {
                   products: {
                     include: {
-                      product_media: {
+                      media: {
                         where: { is_primary: true },
                         orderBy: { sort_order: "asc" },
                         take: 1,

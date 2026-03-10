@@ -14,7 +14,7 @@ class ProductSectionDAO {
                     orderBy: { display_order: 'asc' }
                 },
                 section_subcategory_mappings: {
-                    include: { subcategories: true },
+                    include: { subcategory: true },
                     orderBy: { display_order: 'asc' }
                 }
             }

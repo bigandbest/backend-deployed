@@ -47,7 +47,7 @@ class ProductBrandDAO {
                                 variant_attributes: true
                             }
                         },
-                        product_media: true,
+                        media: true,
                         product_recommended_store: {
                             include: { recommended_store: true }
                         }
