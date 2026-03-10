@@ -845,29 +845,51 @@ export const getCategoriesForSection = async (req, res) => {
     const hasSubcategoryMappings =
       subcategoryMappings && subcategoryMappings.length > 0;
 
-    // Always return ALL active categories.
-    // Subcategory mappings are used only for ordering if they exist.
-    const filteredCategories = allCategories.map((category) => {
-      let subcategories = allSubcategories.filter(
-        (sub) => sub.category_id === category.id,
-      );
+    let filteredCategories;
 
-      // If subcategory section mappings exist, use display_order for ordering
-      if (hasSubcategoryMappings) {
-        subcategories = subcategories.map((sub) => {
-          const mapping = subcategoryMappings.find(
-            (m) => m.subcategory_id === sub.id,
-          );
-          return {
-            ...sub,
-            display_order: mapping ? mapping.display_order : 999,
-          };
-        });
-        subcategories.sort((a, b) => a.display_order - b.display_order);
-      }
+    if (hasCategoryMappings || hasSubcategoryMappings) {
+      // Only return categories/subcategories that are mapped through admin dashboard
+      const mappedCategoryIds = new Set(categoryMappings.map(m => m.category_id));
+      const mappedSubcategoryIds = new Set(subcategoryMappings.map(m => m.subcategory_id));
 
-      return { ...category, subcategories };
-    });
+      // Also include categories that have mapped subcategories
+      const categoriesWithMappedSubs = allSubcategories
+        .filter(sub => mappedSubcategoryIds.has(sub.id))
+        .map(sub => sub.category_id);
+      categoriesWithMappedSubs.forEach(id => mappedCategoryIds.add(id));
+
+      // Filter categories to only mapped ones
+      filteredCategories = allCategories
+        .filter(category => mappedCategoryIds.has(category.id))
+        .map((category) => {
+          let subcategories;
+
+          if (hasSubcategoryMappings) {
+            // Only include subcategories that are mapped for this section
+            subcategories = allSubcategories
+              .filter(sub => sub.category_id === category.id && mappedSubcategoryIds.has(sub.id))
+              .map(sub => {
+                const mapping = subcategoryMappings.find(m => m.subcategory_id === sub.id);
+                return {
+                  ...sub,
+                  display_order: mapping ? mapping.display_order : 999,
+                };
+              })
+              .sort((a, b) => a.display_order - b.display_order);
+          } else {
+            // No subcategory mappings, show all active subs under mapped categories
+            subcategories = allSubcategories.filter(
+              sub => sub.category_id === category.id,
+            );
+          }
+
+          return { ...category, subcategories };
+        })
+        .filter(category => category.subcategories.length > 0 || hasCategoryMappings);
+    } else {
+      // No mappings at all — return empty
+      filteredCategories = [];
+    }
 
     res.status(200).json({
       success: true,
