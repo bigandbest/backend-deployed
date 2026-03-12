@@ -11,17 +11,20 @@ class DeliveryZoneDAO {
             include: {
                 zone_pincodes: true,
                 warehouse_zones: {
-                    include: { warehouse: true }
+                    include: { warehouses: true }
                 }
             }
         });
     }
 
     async list(filters = {}) {
-        const { is_active = true, is_nationwide } = filters;
+        const { is_active, is_nationwide } = filters;
         return await prisma.delivery_zones.findMany({
             where: {
-                ...(is_active !== undefined && { is_active }),
+                ...(is_active !== undefined && {
+                    // Handle nullable is_active: treat null as inactive
+                    is_active: is_active === true ? { in: [true] } : { not: true }
+                }),
                 ...(is_nationwide !== undefined && { is_nationwide })
             },
             orderBy: { name: 'asc' }

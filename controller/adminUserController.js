@@ -67,6 +67,7 @@ export const getUsers = async (req, res) => {
             }
 
             return {
+                ...user, // include other fields first
                 id: user.id,
                 name: user.name || "N/A",
                 email: user.email,
@@ -78,7 +79,6 @@ export const getUsers = async (req, res) => {
                 account_type: user.account_type,
                 company_name: user.company_name,
                 fullAddress: fullAddress,
-                ...user, // include other fields
             };
         });
 

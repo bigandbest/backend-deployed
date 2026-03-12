@@ -669,7 +669,7 @@ export const getWalletTransactionsAdmin = async (req, res) => {
       prisma.wallet_transactions.findMany({
         where,
         include: {
-          wallet: {
+          wallets: {
             include: {
               users_wallets_user_idTousers: {
                 select: { name: true, email: true, phone: true }
@@ -688,7 +688,7 @@ export const getWalletTransactionsAdmin = async (req, res) => {
       success: true,
       transactions: transactions.map(t => ({
         ...t,
-        wallet: t.wallet ? { ...t.wallet, user: t.wallet.users_wallets_user_idTousers } : null
+        wallet: t.wallets ? { ...t.wallets, user: t.wallets.users_wallets_user_idTousers } : null
       })),
       pagination: {
         page: parseInt(page),
@@ -718,7 +718,7 @@ export const getWalletAuditLogs = async (req, res) => {
       prisma.wallet_audit_logs.findMany({
         where,
         include: {
-          wallet: {
+          wallets: {
             include: {
               users_wallets_user_idTousers: {
                 select: { name: true, email: true }
@@ -737,7 +737,7 @@ export const getWalletAuditLogs = async (req, res) => {
       success: true,
       logs: logs.map(l => ({
         ...l,
-        wallet: l.wallet ? { ...l.wallet, user: l.wallet.users_wallets_user_idTousers } : null
+        wallet: l.wallets ? { ...l.wallets, user: l.wallets.users_wallets_user_idTousers } : null
       })),
       pagination: {
         page: parseInt(page),
