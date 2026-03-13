@@ -1064,21 +1064,42 @@ model sellers {
   city                    String?                   @db.VarChar
   state                   String?                   @db.VarChar
   pincode                 String?                   @db.VarChar
-  is_active               Boolean                   @default(true)
-  is_verified             Boolean                   @default(false)
-  approved_at             DateTime?                 @db.Timestamptz(6)
-  approved_by             String?                   @db.Uuid
-  created_at              DateTime                  @default(now()) @db.Timestamptz(6)
-  updated_at              DateTime                  @default(now()) @db.Timestamptz(6)
-  is_open                 Boolean                   @default(true)
+  is_active               Boolean                      @default(true)
+  is_verified             Boolean                      @default(false)
+  approved_at             DateTime?                    @db.Timestamptz(6)
+  approved_by             String?                      @db.Uuid
+  created_at              DateTime                     @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                     @default(now()) @db.Timestamptz(6)
+  is_open                 Boolean                      @default(true)
+  verification_status     SellerVerificationStatus     @default(PENDING_VERIFICATION)
+  seller_documents        seller_documents[]
   seller_negotiations     seller_negotiations[]
   seller_pincode_requests seller_pincode_requests[]
   seller_products         seller_products[]
-  users                   users                     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  users                   users                        @relation(fields: [user_id], references: [id], onDelete: Cascade)
   warehouse_sellers       warehouse_sellers[]
 
   @@index([seller_type])
   @@index([user_id])
+  @@index([verification_status])
+}
+
+model seller_documents {
+  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  seller_id        String               @db.Uuid
+  document_type    SellerDocumentType
+  document_url     String
+  status           DocumentStatus       @default(PENDING)
+  rejection_reason String?
+  reviewed_by      String?              @db.Uuid
+  reviewed_at      DateTime?            @db.Timestamptz(6)
+  created_at       DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime             @default(now()) @db.Timestamptz(6)
+  sellers          sellers              @relation(fields: [seller_id], references: [id], onDelete: Cascade)
+
+  @@unique([seller_id, document_type])
+  @@index([seller_id])
+  @@index([status])
 }
 
 model service_bookings {
@@ -1496,6 +1517,21 @@ enum DocumentType {
   ID_PROOF
   VEHICLE_REGISTRATION
   PHOTO
+}
+
+enum SellerDocumentType {
+  GSTIN_CERTIFICATE
+  PAN_CARD
+  BUSINESS_LICENSE
+  ID_PROOF
+  ADDRESS_PROOF
+}
+
+enum SellerVerificationStatus {
+  PENDING_VERIFICATION
+  VERIFIED
+  ACTION_REQUIRED
+  SUSPENDED
 }
 
 enum MediaType {

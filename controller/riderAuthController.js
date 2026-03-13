@@ -346,6 +346,47 @@ export const uploadDocument = async (req, res) => {
     }
 };
 
+// ============ SUBMIT VERIFICATION REQUEST ============
+export const submitVerificationRequest = async (req, res) => {
+    try {
+        const rider = await prisma.riders.findUnique({
+            where: { user_id: req.user.id },
+            include: { rider_documents: true }
+        });
+
+        if (!rider) {
+            return res.status(404).json({ success: false, error: 'Rider profile not found' });
+        }
+
+        if (rider.verification_status === 'VERIFIED') {
+            return res.status(400).json({ success: false, error: 'You are already verified' });
+        }
+
+        const uploadedDocs = rider.rider_documents.filter(d => d.status !== 'REJECTED');
+        if (uploadedDocs.length === 0) {
+            return res.status(400).json({ success: false, error: 'Please upload at least one document before submitting' });
+        }
+
+        const hasRejected = rider.rider_documents.some(d => d.status === 'REJECTED');
+        if (hasRejected) {
+            return res.status(400).json({ success: false, error: 'Please re-upload rejected documents before submitting' });
+        }
+
+        await prisma.riders.update({
+            where: { id: rider.id },
+            data: { verification_status: 'PENDING_VERIFICATION', updated_at: new Date() }
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Verification request submitted successfully. We will review your documents shortly.',
+        });
+    } catch (error) {
+        console.error('Submit verification request error:', error);
+        res.status(500).json({ success: false, error: 'Failed to submit request' });
+    }
+};
+
 // ============ VERIFY RIDER TOKEN ============
 export const verifyRiderToken = async (req, res) => {
     try {

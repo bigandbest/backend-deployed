@@ -178,7 +178,8 @@ export const getSellerMe = async (req, res) => {
                             include: {
                                 warehouses: true
                             }
-                        }
+                        },
+                        seller_documents: true
                     }
                 }
             }
@@ -221,12 +222,20 @@ export const getSellerMe = async (req, res) => {
                 is_verified: user.sellers?.is_verified,
                 is_active: user.sellers?.is_active,
                 is_open: user.sellers?.is_open,
+                verification_status: user.sellers?.verification_status,
                 activePincodes: activePincodesCount,
                 gstin: user.sellers?.gstin,
                 pan: user.sellers?.pan,
                 bank_account_no: user.sellers?.bank_account_no,
                 bank_ifsc: user.sellers?.bank_ifsc,
                 bank_name: user.sellers?.bank_name,
+                documents: user.sellers?.seller_documents?.map(d => ({
+                    id: d.id,
+                    type: d.document_type,
+                    url: d.document_url,
+                    status: d.status,
+                    rejection_reason: d.rejection_reason,
+                })) || [],
                 warehouses: user.sellers?.warehouse_sellers?.map(ws => ({
                     id: ws.warehouses.id,
                     name: ws.warehouses.name,
