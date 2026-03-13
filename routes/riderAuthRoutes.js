@@ -6,6 +6,7 @@ import {
     getRiderMe,
     uploadDocument,
     documentUploadMiddleware,
+    submitVerificationRequest,
     verifyRiderToken,
     logoutRider,
 } from '../controller/riderAuthController.js';
@@ -20,6 +21,7 @@ router.post('/verify-token', verifyRiderToken);
 // Protected routes
 router.get('/me', authenticateToken, getRiderMe);
 router.post('/documents', authenticateToken, documentUploadMiddleware, uploadDocument);
+router.post('/submit-verification', authenticateToken, submitVerificationRequest);
 router.post('/logout', logoutRider);
 
 export default router;

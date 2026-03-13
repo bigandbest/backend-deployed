@@ -10,6 +10,11 @@ import {
     updateSellerKyc,
     updateSellerBankDetails,
 } from '../controller/sellerAuthController.js';
+import {
+    uploadSellerDocument,
+    sellerDocumentUploadMiddleware,
+    submitSellerVerificationRequest,
+} from '../controller/sellerDocumentController.js';
 
 const router = express.Router();
 
@@ -23,6 +28,8 @@ router.get('/me', authenticateToken, getSellerMe);
 router.put('/profile', authenticateToken, updateSellerProfile);
 router.put('/kyc', authenticateToken, updateSellerKyc);
 router.put('/bank', authenticateToken, updateSellerBankDetails);
+router.post('/documents', authenticateToken, sellerDocumentUploadMiddleware, uploadSellerDocument);
+router.post('/submit-verification', authenticateToken, submitSellerVerificationRequest);
 router.post('/logout', logoutSeller);
 
 export default router;

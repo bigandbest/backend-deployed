@@ -6,6 +6,9 @@ import {
     reviewDocument,
     allocateRiderWarehouse,
     reassignRiderWarehouse,
+    getPendingSellers,
+    reviewSellerDocument,
+    getAllVerificationRequests,
 } from '../controller/riderAdminController.js';
 
 const router = express.Router();
@@ -17,5 +20,12 @@ router.get('/pending', authenticateToken, requireAdmin, getPendingRiders);
 router.put('/documents/:id/review', authenticateToken, requireAdmin, reviewDocument);
 router.post('/:riderId/allocate', authenticateToken, requireAdmin, allocateRiderWarehouse);
 router.put('/:riderId/reassign', authenticateToken, requireAdmin, reassignRiderWarehouse);
+
+// Seller verification routes
+router.get('/sellers/pending', authenticateToken, requireAdmin, getPendingSellers);
+router.put('/sellers/documents/:id/review', authenticateToken, requireAdmin, reviewSellerDocument);
+
+// Combined verification requests
+router.get('/all-pending', authenticateToken, requireAdmin, getAllVerificationRequests);
 
 export default router;
