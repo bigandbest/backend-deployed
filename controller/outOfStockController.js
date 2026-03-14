@@ -130,7 +130,20 @@ export const getEnquiries = async (req, res) => {
       },
       orderBy: { created_at: 'desc' },
     });
-    return res.json({ success: true, enquiries });
+
+    // Fetch user info separately (no Prisma relation defined on product_enquiries)
+    const userIds = [...new Set(enquiries.map((e) => e.user_id).filter(Boolean))];
+    const users = userIds.length > 0
+      ? await prisma.users.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, name: true, email: true, phone: true },
+        })
+      : [];
+
+    const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
+    const enriched = enquiries.map((e) => ({ ...e, users: userMap[e.user_id] || null }));
+
+    return res.json({ success: true, enquiries: enriched });
   } catch (err) {
     console.error('getEnquiries error:', err);
     return res.status(500).json({ success: false, error: 'Internal server error' });
