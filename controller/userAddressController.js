@@ -26,6 +26,8 @@ export const getUserAddresses = async (req, res) => {
       address_line1: addr.street_address,
       address_line2: addr.suite_unit_floor,
       pincode: addr.postal_code,
+      full_name: addr.full_name || "",
+      mobile: addr.mobile || "",
     }));
 
     return res.json({
@@ -66,6 +68,8 @@ export const getAddressById = async (req, res) => {
       address_line1: address.street_address,
       address_line2: address.suite_unit_floor,
       pincode: address.postal_code,
+      full_name: address.full_name || "",
+      mobile: address.mobile || "",
     };
 
     return res.json({
@@ -126,6 +130,8 @@ export const createAddress = async (req, res) => {
       data: {
         user_id: userId,
         address_name: addressLabel,
+        full_name: nameToSave || null,
+        mobile: mobileToSave || null,
         street_address: address_line1,
         suite_unit_floor: address_line2 || null,
         house_number: house_number || null,
@@ -199,6 +205,8 @@ export const updateAddress = async (req, res) => {
     if (pincode !== undefined) updateData.postal_code = pincode;
     if (landmark !== undefined) updateData.landmark = landmark;
     if (is_default !== undefined) updateData.is_default = is_default;
+    if (nameToSave !== undefined) updateData.full_name = nameToSave;
+    if (mobileToSave !== undefined) updateData.mobile = mobileToSave;
     updateData.updated_at = new Date();
 
     const updatedAddress = await prisma.user_addresses.updateMany({

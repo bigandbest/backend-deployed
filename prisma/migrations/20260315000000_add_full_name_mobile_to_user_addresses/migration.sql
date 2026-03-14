@@ -1,0 +1,2 @@
+ALTER TABLE "user_addresses" ADD COLUMN IF NOT EXISTS "full_name" VARCHAR;
+ALTER TABLE "user_addresses" ADD COLUMN IF NOT EXISTS "mobile" VARCHAR;
