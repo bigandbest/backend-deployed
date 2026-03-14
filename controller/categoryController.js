@@ -783,8 +783,8 @@ export const getSubcategoriesForSection = async (req, res) => {
     // Flatten and format structure
     const orderedSubcategories = mappings
       .map((m) =>
-        m.subcategories
-          ? { ...m.subcategories, display_order: m.display_order }
+        m.subcategory
+          ? { ...m.subcategory, display_order: m.display_order }
           : null,
       )
       .filter(Boolean);
