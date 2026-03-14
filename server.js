@@ -93,6 +93,7 @@ import deliveryChargeRoutes from "./routes/deliveryChargeRoutes.js";
 import chargeSettingsRoutes from "./routes/chargeSettingsRoutes.js";
 import couponRoutes from "./routes/couponRoutes.js";
 import adminUserRoutes from "./routes/adminUserRoutes.js";
+import outOfStockRoutes from "./routes/outOfStockRoutes.js";
 import sellerAuthRoutes from "./routes/sellerAuthRoutes.js";
 import sellerRoutes from "./routes/sellerRoutes.js";
 import sellerPincodeRoutes from "./routes/sellerPincodeRoutes.js";
@@ -301,6 +302,7 @@ const createApp = () => {
   app.use("/api/scheduled-orders", orderRoutes);
   app.use("/api/coupons", couponRoutes);
   app.use("/api/faq-templates", faqTemplateRoutes);
+  app.use("/api/out-of-stock", outOfStockRoutes);
 
   // Enhanced health check with cluster and system info
   app.get("/api/health", (req, res) => {
