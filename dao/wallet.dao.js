@@ -4,7 +4,9 @@ class WalletDAO {
     async getByUserId(userId) {
         return await prisma.wallets.findUnique({
             where: { user_id: userId },
-            include: { transactions: { take: 10, orderBy: { created_at: 'desc' } } }
+            include: {
+                wallet_transactions: { take: 10, orderBy: { created_at: 'desc' } },
+            },
         });
     }
 
