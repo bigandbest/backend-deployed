@@ -13,7 +13,10 @@ class RecommendedStoreDAO {
             include: {
                 banner: true,
                 _count: {
-                    select: { products: true }
+                    select: {
+                        product_recommended_store: true,
+                        store_section_mappings: true,
+                    }
                 }
             }
         });
