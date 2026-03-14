@@ -1053,14 +1053,15 @@ export const getProductsByBrand = async (req, res) => {
   try {
     const { brandId } = req.params;
 
-    const products = await productDao.getProductsByFilter({ brandId });
-    const transformedProducts = products.map(product => transformProduct(product));
+    // Ensure brandId filters products correctly by using brandIds array
+    const products = await productDao.getProductsByFilter({ brandIds: [brandId] });
+    const transformedProducts = products.map((product) => transformProduct(product));
 
     res.status(200).json({
       success: true,
       products: transformedProducts,
       total: transformedProducts.length,
-      brand_id: brandId
+      brand_id: brandId,
     });
   } catch (error) {
     console.error("Server error:", error);
