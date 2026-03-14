@@ -260,21 +260,25 @@ model delivery_zones {
 }
 
 model enquiries {
-  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id     String?   @db.Uuid
-  name        String?
-  email       String?
-  phone       String?
-  message     String?
-  created_at  DateTime? @default(now()) @db.Timestamp(6)
-  status      String?   @default("pending") @db.VarChar
-  admin_reply Boolean?  @default(false)
-  admin_notes String?
-  updated_at  DateTime? @default(now()) @db.Timestamp(6)
-  type        String?   @default("regular") @db.VarChar
-  subject     String?   @db.VarChar
-  quantity    String?   @db.VarChar
-  users       users?    @relation(fields: [user_id], references: [id])
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id          String?   @db.Uuid
+  name             String?
+  email            String?
+  phone            String?
+  address          String?
+  city             String?
+  state            String?
+  partnership_type String?
+  message          String?
+  created_at       DateTime? @default(now()) @db.Timestamp(6)
+  status           String?   @default("pending") @db.VarChar
+  admin_reply      Boolean?  @default(false)
+  admin_notes      String?
+  updated_at       DateTime? @default(now()) @db.Timestamp(6)
+  type             String?   @default("regular") @db.VarChar
+  subject          String?   @db.VarChar
+  quantity         String?   @db.VarChar
+  users            users?    @relation(fields: [user_id], references: [id])
 }
 
 model enquiry_bids {

@@ -3,14 +3,23 @@ import businessPartnerInquiryDao from "../dao/businessPartnerInquiry.dao.js";
 // Create a new business partner inquiry (public endpoint)
 export const createInquiry = async (req, res) => {
   try {
-    const { full_name, email, phone, city, state, partnership_type, message } =
-      req.body;
+    const {
+      full_name,
+      email,
+      phone,
+      address,
+      city,
+      state,
+      partnership_type,
+      message,
+    } = req.body;
 
     // Validation
     if (
       !full_name ||
       !email ||
       !phone ||
+      !address ||
       !city ||
       !state ||
       !partnership_type
@@ -18,7 +27,7 @@ export const createInquiry = async (req, res) => {
       return res.status(400).json({
         success: false,
         error:
-          "Name, email, phone, city, state, and partnership type are required",
+          "Name, email, phone, address, city, state, and partnership type are required",
       });
     }
 
@@ -44,6 +53,7 @@ export const createInquiry = async (req, res) => {
       full_name,
       email,
       phone,
+      address,
       city,
       state,
       partnership_type,
