@@ -32,14 +32,16 @@ class DailyDealsProductDAO {
         return await prisma.daily_deals_product.findMany({
             where: { daily_deal_id },
             include: {
-                product: {
+                products: {
                     include: {
                         variants: {
                             where: { active: true }
                         },
-                        media: {
+                        product_media: {
                             where: { is_primary: true },
-                            take: 1
+                            orderBy: { sort_order: "asc" },
+                            take: 1,
+                            select: { url: true, media_type: true }
                         },
                         category: { select: { name: true, id: true } },
                         brands: {
