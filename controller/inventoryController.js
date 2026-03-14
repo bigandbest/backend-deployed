@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
+import { triggerNotifyOnRestock } from './outOfStockController.js';
 
 // Get products available in a specific pincode
 const getProductsByPincode = async (req, res) => {
@@ -358,6 +359,13 @@ const updateWarehouseInventory = async (req, res) => {
       message: "Inventory updated successfully",
       data,
     });
+
+    // Fire-and-forget: notify users waiting for restock
+    if (parseInt(stock_quantity) > 0) {
+      triggerNotifyOnRestock(product_id).catch((err) =>
+        console.error('[Restock notify error]', err)
+      );
+    }
   } catch (error) {
     console.error("Error updating inventory:", error);
     res.status(500).json({
