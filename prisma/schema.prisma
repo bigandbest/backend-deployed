@@ -265,10 +265,6 @@ model enquiries {
   name             String?
   email            String?
   phone            String?
-  address          String?
-  city             String?
-  state            String?
-  partnership_type String?
   message          String?
   created_at       DateTime? @default(now()) @db.Timestamp(6)
   status           String?   @default("pending") @db.VarChar
@@ -278,6 +274,10 @@ model enquiries {
   type             String?   @default("regular") @db.VarChar
   subject          String?   @db.VarChar
   quantity         String?   @db.VarChar
+  address          String?
+  city             String?
+  partnership_type String?
+  state            String?
   users            users?    @relation(fields: [user_id], references: [id])
 }
 
@@ -728,10 +728,11 @@ model products {
   quickpick_group_product   quickpick_group_product[]
   seller_negotiations       seller_negotiations[]
   seller_products           seller_products[]
+  stock_movements           stock_movements[]
+  stock_notify_requests     stock_notify_requests[]
   store_section_mappings    store_section_mappings[]
   wishlist_items            wishlist_items[]
   you_may_like              you_may_like[]
-  stock_movements           stock_movements[]
 
   @@index([active])
   @@index([category_id])
@@ -1068,19 +1069,19 @@ model sellers {
   city                    String?                   @db.VarChar
   state                   String?                   @db.VarChar
   pincode                 String?                   @db.VarChar
-  is_active               Boolean                      @default(true)
-  is_verified             Boolean                      @default(false)
-  approved_at             DateTime?                    @db.Timestamptz(6)
-  approved_by             String?                      @db.Uuid
-  created_at              DateTime                     @default(now()) @db.Timestamptz(6)
-  updated_at              DateTime                     @default(now()) @db.Timestamptz(6)
-  is_open                 Boolean                      @default(true)
-  verification_status     SellerVerificationStatus     @default(PENDING_VERIFICATION)
+  is_active               Boolean                   @default(true)
+  is_verified             Boolean                   @default(false)
+  approved_at             DateTime?                 @db.Timestamptz(6)
+  approved_by             String?                   @db.Uuid
+  created_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  is_open                 Boolean                   @default(true)
+  verification_status     SellerVerificationStatus  @default(PENDING_VERIFICATION)
   seller_documents        seller_documents[]
   seller_negotiations     seller_negotiations[]
   seller_pincode_requests seller_pincode_requests[]
   seller_products         seller_products[]
-  users                   users                        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  users                   users                     @relation(fields: [user_id], references: [id], onDelete: Cascade)
   warehouse_sellers       warehouse_sellers[]
 
   @@index([seller_type])
@@ -1089,17 +1090,17 @@ model sellers {
 }
 
 model seller_documents {
-  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  seller_id        String               @db.Uuid
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  seller_id        String             @db.Uuid
   document_type    SellerDocumentType
   document_url     String
-  status           DocumentStatus       @default(PENDING)
+  status           DocumentStatus     @default(PENDING)
   rejection_reason String?
-  reviewed_by      String?              @db.Uuid
-  reviewed_at      DateTime?            @db.Timestamptz(6)
-  created_at       DateTime             @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime             @default(now()) @db.Timestamptz(6)
-  sellers          sellers              @relation(fields: [seller_id], references: [id], onDelete: Cascade)
+  reviewed_by      String?            @db.Uuid
+  reviewed_at      DateTime?          @db.Timestamptz(6)
+  created_at       DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime           @default(now()) @db.Timestamptz(6)
+  sellers          sellers            @relation(fields: [seller_id], references: [id], onDelete: Cascade)
 
   @@unique([seller_id, document_type])
   @@index([seller_id])
@@ -1157,8 +1158,8 @@ model stock_movements {
   performed_at   DateTime?  @default(now()) @db.Timestamptz(6)
   notes          String?
   created_at     DateTime?  @default(now()) @db.Timestamptz(6)
-  warehouses     warehouses @relation(fields: [warehouse_id], references: [id])
   product        products   @relation(fields: [product_id], references: [id])
+  warehouses     warehouses @relation(fields: [warehouse_id], references: [id])
 }
 
 model store_section_mappings {
@@ -1246,33 +1247,33 @@ model user_notifications {
 }
 
 model users {
-  id                                                        String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email                                                     String                @unique
+  id                                                        String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email                                                     String                  @unique
   photo_url                                                 String?
-  role                                                      UserRole              @default(USER)
+  role                                                      UserRole                @default(USER)
   password                                                  String?
   password_reset_token                                      String?
-  password_reset_expires                                    DateTime?             @db.Timestamptz(6)
-  created_at                                                DateTime?             @default(now()) @db.Timestamptz(6)
-  last_login                                                DateTime?             @db.Timestamptz(6)
-  is_active                                                 Boolean?              @default(true)
+  password_reset_expires                                    DateTime?               @db.Timestamptz(6)
+  created_at                                                DateTime?               @default(now()) @db.Timestamptz(6)
+  last_login                                                DateTime?               @db.Timestamptz(6)
+  is_active                                                 Boolean?                @default(true)
   phone                                                     String?
   avatar                                                    String?
   name                                                      String?
   account_type                                              String?
   company_name                                              String?
-  street_address                                            String?               @db.VarChar
-  suite_unit_floor                                          String?               @db.VarChar
-  house_number                                              String?               @db.VarChar
-  locality                                                  String?               @db.VarChar
-  city                                                      String?               @db.VarChar
-  state                                                     String?               @db.VarChar
-  postal_code                                               String?               @db.VarChar
-  country                                                   String?               @default("India") @db.VarChar
-  landmark                                                  String?               @db.VarChar
-  gstin                                                     String?               @unique @db.VarChar
-  pan                                                       String?               @unique @db.VarChar
-  adhaar_no                                                 String?               @unique @db.VarChar
+  street_address                                            String?                 @db.VarChar
+  suite_unit_floor                                          String?                 @db.VarChar
+  house_number                                              String?                 @db.VarChar
+  locality                                                  String?                 @db.VarChar
+  city                                                      String?                 @db.VarChar
+  state                                                     String?                 @db.VarChar
+  postal_code                                               String?                 @db.VarChar
+  country                                                   String?                 @default("India") @db.VarChar
+  landmark                                                  String?                 @db.VarChar
+  gstin                                                     String?                 @unique @db.VarChar
+  pan                                                       String?                 @unique @db.VarChar
+  adhaar_no                                                 String?                 @unique @db.VarChar
   first_name                                                String?
   last_name                                                 String?
   business_type                                             String?
@@ -1282,18 +1283,19 @@ model users {
   coupon_usage                                              coupon_usage[]
   enquiries                                                 enquiries[]
   orders                                                    orders[]
-  return_orders_return_orders_admin_idTousers               return_orders[]       @relation("return_orders_admin_idTousers")
-  return_orders_return_orders_user_idTousers                return_orders[]       @relation("return_orders_user_idTousers")
+  return_orders_return_orders_admin_idTousers               return_orders[]         @relation("return_orders_admin_idTousers")
+  return_orders_return_orders_user_idTousers                return_orders[]         @relation("return_orders_user_idTousers")
   riders                                                    riders?
   sellers                                                   sellers?
   service_bookings                                          service_bookings[]
+  stock_notify_requests                                     stock_notify_requests[]
   user_addresses                                            user_addresses[]
   user_notifications                                        user_notifications[]
   wallet_audit_logs                                         wallet_audit_logs[]
-  wallet_transactions_wallet_transactions_created_byTousers wallet_transactions[] @relation("wallet_transactions_created_byTousers")
-  wallet_transactions_wallet_transactions_user_idTousers    wallet_transactions[] @relation("wallet_transactions_user_idTousers")
-  wallets_wallets_frozen_byTousers                          wallets[]             @relation("wallets_frozen_byTousers")
-  wallets_wallets_user_idTousers                            wallets?              @relation("wallets_user_idTousers")
+  wallet_transactions_wallet_transactions_created_byTousers wallet_transactions[]   @relation("wallet_transactions_created_byTousers")
+  wallet_transactions_wallet_transactions_user_idTousers    wallet_transactions[]   @relation("wallet_transactions_user_idTousers")
+  wallets_wallets_frozen_byTousers                          wallets[]               @relation("wallets_frozen_byTousers")
+  wallets_wallets_user_idTousers                            wallets?                @relation("wallets_user_idTousers")
   wishlist_items                                            wishlist_items[]
 }
 
@@ -1508,6 +1510,22 @@ model zone_pincodes {
   village        String?        @db.VarChar
   others         String?
   delivery_zones delivery_zones @relation(fields: [zone_id], references: [id], onDelete: Cascade)
+}
+
+model stock_notify_requests {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String    @db.Uuid
+  product_id  String    @db.Uuid
+  variant_id  String?   @db.Uuid
+  notified    Boolean   @default(false)
+  notified_at DateTime? @db.Timestamptz(6)
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  products    products  @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users       users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, product_id])
+  @@index([product_id], map: "idx_snr_product")
+  @@index([user_id], map: "idx_snr_user")
 }
 
 enum DocumentStatus {
