@@ -836,12 +836,26 @@ export const createWalletOrder = async (req, res) => {
       });
     }
 
-    // Prepare Order Items for atomic creation
+    // Helper: if the ID is a compound string like "productId_variantId", extract the UUID part
+    const extractUuid = (value) => {
+      if (!value || typeof value !== "string") return value;
+      // If it already looks like a UUID, return it.
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(value)) return value;
+
+      // If it's compound (e.g. productId_variantId), take the last segment if it looks like a UUID.
+      const parts = value.split("_");
+      const candidate = parts[parts.length - 1];
+      if (uuidRegex.test(candidate)) return candidate;
+
+      return value;
+    };
+
     // Prepare Order Items for atomic creation
     let orderItemsData = [];
     if (items && items.length > 0) {
-      orderItemsData = items.map(item => ({
-        variant_id: String(item.variant_id || item.product_id), // Use variant_id if available
+      orderItemsData = items.map((item) => ({
+        variant_id: String(extractUuid(item.variant_id || item.product_id)),
         quantity: parseInt(item.quantity),
         price: parseFloat(item.price),
       }));
@@ -849,9 +863,9 @@ export const createWalletOrder = async (req, res) => {
       // If single product purchase, check if variant_id is provided in body
       const variantIdToUse = req.body.variant_id || product_id;
       orderItemsData.push({
-        variant_id: String(variantIdToUse),
+        variant_id: String(extractUuid(variantIdToUse)),
         quantity: parseInt(quantity),
-        price: totalPrice / parseInt(quantity)
+        price: totalPrice / parseInt(quantity),
       });
     }
 
