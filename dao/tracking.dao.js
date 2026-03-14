@@ -18,19 +18,19 @@ class TrackingDAO {
       include: {
         order_items: {
           include: {
-            variant: {
+            product_variants: {
               include: {
-                product: {
+                products: {
                   select: {
                     name: true,
-                    media: true,
+                    media: { select: { url: true, is_primary: true } },
                   },
                 },
               },
             },
           },
         },
-        tracking: {
+        order_tracking: {
           orderBy: {
             timestamp: "asc",
           },
@@ -50,19 +50,19 @@ class TrackingDAO {
       include: {
         order_items: {
           include: {
-            variant: {
+            product_variants: {
               include: {
-                product: {
+                products: {
                   select: {
                     name: true,
-                    media: true,
+                    media: { select: { url: true, is_primary: true } },
                   },
                 },
               },
             },
           },
         },
-        tracking: {
+        order_tracking: {
           orderBy: {
             timestamp: "asc",
           },

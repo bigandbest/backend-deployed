@@ -11,17 +11,14 @@ class EnquiryDAO {
     return await prisma.product_enquiries.findUnique({
       where: { id },
       include: {
-        product: {
+        products: {
           select: { id: true, name: true, media: true },
         },
-        messages: {
+        enquiry_messages: {
           orderBy: { created_at: "asc" },
         },
-        bids: {
+        enquiry_bids: {
           orderBy: { created_at: "desc" },
-          include: {
-            bid_products: true,
-          },
         },
       },
     });
@@ -58,7 +55,7 @@ class EnquiryDAO {
         skip,
         take: limit,
         include: {
-          product: {
+          products: {
             select: { id: true, name: true, media: true },
           },
         },
@@ -113,7 +110,7 @@ class EnquiryDAO {
   async getUserInteractions(userId) {
     return await prisma.product_enquiries.findMany({
       where: { user_id: userId },
-      include: { product: { select: { name: true } } },
+      include: { products: { select: { name: true } } },
       orderBy: { created_at: "desc" },
     });
   }
