@@ -410,41 +410,71 @@ export const getSellerOrders = async (req, res) => {
 
         const orders = await SellerDAO.getSellerOrders(seller.id, queryFilters);
 
+        // Get current platform charge settings
+        const chargeSettings = await prisma.charge_settings.findFirst({
+            orderBy: { id: 'desc' }
+        });
+        const platformChargePercent = parseFloat(chargeSettings?.platform_charge || 0);
+
         res.status(200).json({
             success: true,
-            data: orders.map(o => ({
-                id: o.id,
-                order_number: o.tracking_number || o.id.slice(0, 8).toUpperCase(),
-                status: reverseStatusMap[o.status] || o.status,
-                total: o.total, // For frontend totalAmount
-                total_amount: o.total,
-                totalAmount: o.total, // Added Explicitly for Rider App
-                customer_name: o.user?.name,
-                userAddress: o.address,
-                address: o.address,
-                userPincode: o.address?.split(',').pop()?.trim() || '',
-                createdAt: o.created_at,
-                created_at: o.created_at,
-                fulfillmentType: o.is_bulk_order ? 'WHOLESALE' : 'DROPSHIP',
-                is_bulk_order: o.is_bulk_order,
-                order_items: o.order_items?.map(oi => ({
-                    product_id: oi.product_id,
-                    variant_id: oi.variant_id,
-                    product_name: oi.variant?.product?.name || oi.product?.name,
-                    productName: oi.variant?.product?.name || oi.product?.name,
-                    variant_name: oi.variant?.title,
-                    quantity: oi.quantity,
-                    price: oi.price,
-                    variant: oi.variant
-                })),
-                items: o.order_items?.map(oi => ({
-                    product_name: oi.variant?.product?.name || oi.product?.name,
-                    productName: oi.variant?.product?.name || oi.product?.name,
-                    variant_name: oi.variant?.title,
-                    quantity: oi.quantity,
-                    price: oi.price,
-                })),
-            })),
+            data: orders.map(o => {
+                // Calculate seller rate for each order item
+                const orderItems = o.order_items?.map(oi => {
+                    const productPrice = parseFloat(oi.price || 0);
+                    const sellerRate = productPrice - (productPrice * platformChargePercent / 100);
+                    
+                    return {
+                        product_id: oi.product_variants?.products?.id,
+                        variant_id: oi.variant_id,
+                        product_name: oi.product_variants?.products?.name,
+                        productName: oi.product_variants?.products?.name,
+                        variant_name: oi.product_variants?.title,
+                        quantity: oi.quantity,
+                        price: productPrice, // Product value (customer paid)
+                        sellerRate: parseFloat(sellerRate.toFixed(2)), // Seller's net rate after platform charge
+                        platformCharge: parseFloat((productPrice * platformChargePercent / 100).toFixed(2)), // Platform charge amount
+                        variant: oi.product_variants
+                    };
+                });
+
+                // Calculate totals
+                const totalProductValue = orderItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+                const totalPlatformCharge = orderItems.reduce((sum, item) => sum + (item.platformCharge * item.quantity), 0);
+                const totalSellerAmount = orderItems.reduce((sum, item) => sum + (item.sellerRate * item.quantity), 0);
+
+                return {
+                    id: o.id,
+                    order_number: o.tracking_number || o.id.slice(0, 8).toUpperCase(),
+                    status: reverseStatusMap[o.status] || o.status,
+                    total: o.total, // For frontend totalAmount
+                    total_amount: o.total,
+                    totalAmount: o.total, // Added Explicitly for Rider App
+                    customer_name: o.users?.name,
+                    userAddress: o.address,
+                    address: o.address,
+                    userPincode: o.address?.split(',').pop()?.trim() || '',
+                    createdAt: o.created_at,
+                    created_at: o.created_at,
+                    fulfillmentType: o.is_bulk_order ? 'WHOLESALE' : 'DROPSHIP',
+                    is_bulk_order: o.is_bulk_order,
+                    order_items: orderItems,
+                    items: orderItems.map(oi => ({
+                        product_name: oi.product_name,
+                        productName: oi.productName,
+                        variant_name: oi.variant_name,
+                        quantity: oi.quantity,
+                        price: oi.price,
+                        sellerRate: oi.sellerRate,
+                        platformCharge: oi.platformCharge,
+                    })),
+                    // Order-level totals for seller
+                    totalProductValue: parseFloat(totalProductValue.toFixed(2)),
+                    totalPlatformCharge: parseFloat(totalPlatformCharge.toFixed(2)),
+                    totalSellerAmount: parseFloat(totalSellerAmount.toFixed(2)),
+                    platformChargePercent: platformChargePercent,
+                };
+            }),
         });
     } catch (error) {
         console.error('getSellerOrders error:', error);
@@ -466,11 +496,15 @@ export const getOrderDetails = async (req, res) => {
             include: {
                 order_items: {
                     include: {
-                        product: true,
-                        variant: true,
+                        product_variants: {
+                            select: {
+                                id: true, title: true, price: true,
+                                products: { select: { id: true, name: true } }
+                            }
+                        }
                     }
                 },
-                user: {
+                users: {
                     select: { id: true, name: true, email: true, phone: true }
                 }
             }
@@ -483,6 +517,84 @@ export const getOrderDetails = async (req, res) => {
         res.status(200).json({ success: true, data: order });
     } catch (error) {
         console.error('getOrderDetails error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Update seller order status (confirm/ship/cancel)
+ */
+export const updateSellerOrderStatus = async (req, res) => {
+    try {
+        const { orderId } = req.params;
+        const { status } = req.body; // 'CONFIRMED', 'SHIPPED', 'CANCELLED'
+        
+        const seller = await prisma.sellers.findUnique({ where: { user_id: req.user.id } });
+        if (!seller) return res.status(404).json({ success: false, error: 'Seller profile not found' });
+
+        // Verify this order belongs to seller
+        const order = await prisma.orders.findUnique({
+            where: { id: orderId },
+            include: {
+                order_items: {
+                    include: {
+                        product_variants: {
+                            select: {
+                                products: { select: { id: true } }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        if (!order) {
+            return res.status(404).json({ success: false, error: 'Order not found' });
+        }
+
+        // Check if any item in this order belongs to the seller
+        const sellerProductIds = await prisma.seller_products.findMany({
+            where: { seller_id: seller.id, status: 'APPROVED' },
+            select: { product_id: true, variant_id: true }
+        });
+
+        const hasMatchingItem = order.order_items.some(item => {
+            const productId = item.product_variants?.products?.id || item.product_id;
+            const variantId = item.variant_id;
+            return sellerProductIds.some(sp => 
+                sp.product_id === productId && (!sp.variant_id || sp.variant_id === variantId)
+            );
+        });
+
+        if (!hasMatchingItem) {
+            return res.status(403).json({ success: false, error: 'You do not supply items in this order' });
+        }
+
+        // Status mapping from frontend to DB
+        const statusMap = {
+            'pending': 'PENDING',
+            'confirmed': 'ACCEPTED',
+            'processing': 'PROCESSING',
+            'shipped': 'SHIPPED',
+            'out_for_delivery': 'OUT_FOR_DELIVERY',
+            'delivered': 'DELIVERED',
+            'cancelled': 'CANCELLED',
+        };
+
+        const dbStatus = statusMap[status?.toLowerCase()] || status.toUpperCase();
+
+        const updatedOrder = await prisma.orders.update({
+            where: { id: orderId },
+            data: { status: dbStatus }
+        });
+
+        res.status(200).json({ 
+            success: true, 
+            message: `Order ${dbStatus.toLowerCase()} successfully`,
+            data: updatedOrder 
+        });
+    } catch (error) {
+        console.error('updateSellerOrderStatus error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 };

@@ -13,15 +13,15 @@ export const getSellerProductRequests = async (req, res) => {
         const requests = await prisma.seller_products.findMany({
             where: status ? { status } : {},
             include: {
-                product: { select: { name: true, media: true } },
-                variant: { select: { title: true, sku: true } },
-                seller: {
+                products: { select: { name: true, media: true } },
+                product_variants: { select: { title: true, sku: true } },
+                sellers: {
                     select: {
                         business_name: true,
-                        user: { select: { name: true, email: true, phone: true } }
+                        users: { select: { name: true, email: true, phone: true } }
                     }
                 },
-                warehouse: { select: { name: true, parent_warehouse_id: true } }
+                warehouses: { select: { name: true, parent_warehouse_id: true } }
             },
             orderBy: { created_at: 'desc' }
         });
@@ -29,11 +29,19 @@ export const getSellerProductRequests = async (req, res) => {
         // Map data to match the expected structure
         const mappedRequests = requests.map(req => ({
             ...req,
+            // Cast Decimal fields to plain numbers for JSON serialization
+            mrp: req.mrp != null ? parseFloat(req.mrp) : null,
+            seller_offer_price: req.seller_offer_price != null ? parseFloat(req.seller_offer_price) : 0,
+            admin_selling_price: req.admin_selling_price != null ? parseFloat(req.admin_selling_price) : null,
+            stock_quantity: req.stock_quantity != null ? parseInt(req.stock_quantity) : 0,
+            product: req.products,
+            variant: req.product_variants,
+            warehouse: req.warehouses,
             seller: {
-                business_name: req.seller.business_name,
-                name: req.seller.user?.name,
-                email: req.seller.user?.email,
-                phone: req.seller.user?.phone
+                business_name: req.sellers?.business_name,
+                name: req.sellers?.users?.name,
+                email: req.sellers?.users?.email,
+                phone: req.sellers?.users?.phone
             }
         }));
 
@@ -54,7 +62,7 @@ export const approveSellerProduct = async (req, res) => {
 
         const sellerProduct = await prisma.seller_products.findUnique({
             where: { id },
-            include: { warehouse: true }
+            include: { warehouses: true }
         });
 
         if (!sellerProduct) {
@@ -65,7 +73,7 @@ export const approveSellerProduct = async (req, res) => {
             return res.status(400).json({ success: false, error: 'Request is already approved' });
         }
 
-        let zonalWarehouseId = sellerProduct.warehouse?.parent_warehouse_id;
+        let zonalWarehouseId = sellerProduct.warehouses?.parent_warehouse_id;
         let divisionWarehouseId = sellerProduct.warehouse_id;
         const variantId = sellerProduct.variant_id;
         const quantity = sellerProduct.stock_quantity;
@@ -259,7 +267,7 @@ export const getUnallocatedSellers = async (req, res) => {
                 }
             },
             include: {
-                user: {
+                users: {
                     select: {
                         name: true,
                         email: true,
@@ -287,26 +295,26 @@ export const getPincodeRequests = async (req, res) => {
         const requests = await prisma.seller_pincode_requests.findMany({
             where: status ? { status } : {},
             include: {
-                seller: {
+                sellers: {
                     select: {
                         business_name: true,
                         pincode: true,
-                        user: { select: { name: true, email: true, phone: true } }
+                        users: { select: { name: true, email: true, phone: true } }
                     }
                 },
-                warehouse: { select: { name: true, type: true } }
+                warehouses: { select: { name: true, type: true } }
             },
             orderBy: { created_at: 'desc' }
         });
 
         const mappedRequests = requests.map(row => ({
             ...row,
-            seller: row.seller ? {
-                business_name: row.seller.business_name,
-                current_pincode: row.seller.pincode,
-                name: row.seller.user?.name || "Unknown",
-                email: row.seller.user?.email || "N/A",
-                phone: row.seller.user?.phone || "N/A"
+            seller: row.sellers ? {
+                business_name: row.sellers.business_name,
+                current_pincode: row.sellers.pincode,
+                name: row.sellers.users?.name || "Unknown",
+                email: row.sellers.users?.email || "N/A",
+                phone: row.sellers.users?.phone || "N/A"
             } : {
                 business_name: "Deleted Seller",
                 current_pincode: "N/A",
