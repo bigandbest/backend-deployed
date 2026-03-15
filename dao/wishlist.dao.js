@@ -32,8 +32,20 @@ class WishlistDAO {
       include: {
         products: {
           include: {
+            media: {
+              where: { is_primary: true },
+              orderBy: { sort_order: "asc" },
+              take: 1,
+            },
             variants: {
               where: { active: true },
+              orderBy: { price: "asc" },
+              take: 1,
+              include: {
+                inventory: {
+                  select: { stock_qty: true, reserved_qty: true },
+                },
+              },
             },
           },
         },

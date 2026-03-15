@@ -10,33 +10,43 @@ export const getWishlist = async (req, res) => {
     const userId = req.user.id;
     const wishlistItems = await WishlistDAO.listByUser(userId);
 
-    // Transform the data to include computed fields
     const transformedWishlist = wishlistItems.map((item) => {
-      const product = item.product || item.products; // DAO includes 'product' (singular relation name usually)
-      // Check DAO include: include: { product: true } -> returns 'product' property. 
-      // Original code used 'products' because supabase join returns table name.
-      // Prisma returns relation name. Schema say: 'product products @relation(...)' likely?
-      // Let's assume DAO returns 'product'. If schema relation name is 'products', it returns 'products'.
-
+      const product = item.products;
       if (!product) return item;
 
-      // Note: DAO might not fetch deep nested variants unless update.
-      // WishlistDAO currently includes { product: true }.
-      // It does NOT include product.product_variants.
-      // If we need variants, we must update WishlistDAO or fetch logic.
-      // Original code fetched variants!
-      // I should update WishlistDAO to include variants.
+      const defaultVariant = product.variants?.[0];
+      const image = product.media?.[0]?.url || null;
+      const price = defaultVariant?.price ?? product.price ?? null;
+      const old_price = defaultVariant?.old_price ?? product.old_price ?? null;
+      const availableStock = (defaultVariant?.inventory || []).reduce(
+        (sum, inv) => sum + Math.max(0, (inv.stock_qty || 0) - (inv.reserved_qty || 0)),
+        0
+      );
+      const in_stock = availableStock > 0;
 
-      return item; // Placeholder until DAO updated
+      return {
+        id: item.id,
+        product_id: item.product_id,
+        added_at: item.added_at,
+        product: {
+          id: product.id,
+          name: product.name,
+          description: product.description,
+          image,
+          price,
+          old_price,
+          rating: product.rating,
+          review_count: product.review_count,
+          in_stock,
+          available_stock: availableStock,
+        },
+      };
     });
-
-    // For now, return simplified list or update DAO.
-    // Let's update DAO first.
 
     res.status(200).json({
       success: true,
-      wishlist: wishlistItems, // sending raw for now, will improve DAO
-      count: wishlistItems.length,
+      wishlist: transformedWishlist,
+      count: transformedWishlist.length,
     });
   } catch (error) {
     console.error("Error in getWishlist:", error);
