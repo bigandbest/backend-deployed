@@ -348,6 +348,11 @@ export const getProductById = async (req, res) => {
         bulk_min_quantity: product.bulk_min_quantity,
         bulk_discount_percentage: product.bulk_discount_percentage,
         faq: product.faq,
+        media: (product.media || []).sort((a, b) => {
+          if (a.is_primary && !b.is_primary) return -1;
+          if (!a.is_primary && b.is_primary) return 1;
+          return (a.sort_order || 0) - (b.sort_order || 0);
+        }),
       },
     });
   } catch (error) {
