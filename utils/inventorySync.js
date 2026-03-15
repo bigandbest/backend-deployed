@@ -31,6 +31,7 @@ export async function syncInventoryForVariant(variantId, warehouseId, tx = prism
         update: {
             stock_qty: stockQty,
             reserved_qty: reservedQty,
+            updated_at: new Date(),
         },
         create: {
             variant_id: variantId,
@@ -39,6 +40,7 @@ export async function syncInventoryForVariant(variantId, warehouseId, tx = prism
             reserved_qty: reservedQty,
             seller_stock: 0,
             admin_stock: stockQty,
+            updated_at: new Date(),
         },
     });
 }
@@ -76,6 +78,7 @@ export async function syncAllInventoryFromPWS() {
                 update: {
                     stock_qty: pws.stock_quantity,
                     reserved_qty: pws.reserved_quantity || 0,
+                    updated_at: new Date(),
                 },
                 create: {
                     variant_id: pws.variant_id,
@@ -84,6 +87,7 @@ export async function syncAllInventoryFromPWS() {
                     reserved_qty: pws.reserved_quantity || 0,
                     seller_stock: 0,
                     admin_stock: pws.stock_quantity,
+                    updated_at: new Date(),
                 },
             });
             synced++;

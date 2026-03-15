@@ -16,6 +16,7 @@ import {
     allocateWarehouse,
     getSellerOrders,
     getOrderDetails,
+    updateSellerOrderStatus,
     getSellerDashboard,
     getSellerEarnings,
     requestWalletWithdrawal,
@@ -55,6 +56,7 @@ router.post('/warehouse-allocation', authenticateToken, requireSeller, allocateW
 // Order management
 router.get('/orders', authenticateToken, requireSeller, getSellerOrders);
 router.get('/orders/:id', authenticateToken, requireSeller, getOrderDetails);
+router.put('/orders/:orderId/status', authenticateToken, requireSeller, updateSellerOrderStatus);
 
 // Wallet management
 router.post('/wallet/withdraw', authenticateToken, requireSeller, requestWalletWithdrawal);
