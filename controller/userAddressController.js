@@ -415,18 +415,18 @@ export const checkServiceability = async (req, res) => {
       return res.json({
         success: true,
         serviceable: false,
-        tagline: "Quick Delivery",
+        tagline: "Not serviceable at this location",
       });
     }
 
     const warehouseType = mapping.warehouse.type?.toLowerCase();
 
     // Default tagline
-    let tagline = "Quick Delivery";
+    let tagline = "Aapke Ghar tak in 2 hours";
     let estimation = null;
 
     if (warehouseType === 'division') {
-      tagline = "Ghar tak in 2 hours";
+      tagline = "Aapke Ghar tak in 2 hours";
       estimation = "2hours and 20min";
     } else {
       tagline = "Same Day Delivery";
