@@ -37,7 +37,7 @@ class DailyDealsProductDAO {
                         variants: {
                             where: { active: true }
                         },
-                        product_media: {
+                        media: {
                             where: { is_primary: true },
                             orderBy: { sort_order: "asc" },
                             take: 1,
