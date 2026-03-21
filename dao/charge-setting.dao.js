@@ -8,15 +8,18 @@ class ChargeSettingDAO {
     }
 
     async update(data) {
+        // Filter out fields not in the Prisma schema (e.g., delivery_charge)
+        const { delivery_charge, ...dbData } = data;
+        
         return await prisma.charge_settings.upsert({
             where: { id: 1 },
             update: {
-                ...data,
+                ...dbData,
                 updated_at: new Date()
             },
             create: {
                 id: 1,
-                ...data
+                ...dbData
             }
         });
     }
