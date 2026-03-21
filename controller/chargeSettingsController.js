@@ -25,7 +25,10 @@ export const getChargeSettings = async (req, res) => {
 
         res.status(200).json({
             success: true,
-            data,
+            data: {
+                ...data,
+                delivery_charge: 30 // Hardcoded default
+            },
         });
     } catch (error) {
         console.error("Error fetching charge settings:", error);
@@ -106,11 +109,12 @@ export const updateChargeSettings = async (req, res) => {
         // Update or insert (upsert) using DAO
         const data = await ChargeSettingDAO.update(updateData);
 
-
-
         res.status(200).json({
             success: true,
-            data,
+            data: {
+                ...data,
+                delivery_charge: delivery_charge !== undefined ? delivery_charge : 30
+            },
             message: "Charge settings updated successfully",
         });
     } catch (error) {
