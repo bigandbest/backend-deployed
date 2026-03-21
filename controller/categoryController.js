@@ -75,10 +75,13 @@ export const updateCategory = async (req, res) => {
         "Uploading category image to Cloudinary:",
         req.file.originalname,
       );
+      // Fetch existing category to delete old image
+      const existingCategory = await CategoryDAO.getCategoryById(id);
       const uploadResult = await uploadToCloudinary(
         req.file.buffer,
         "categories",
         req.file.mimetype,
+        existingCategory?.image_url ?? null,
       );
 
       if (!uploadResult.success) {
@@ -347,10 +350,13 @@ export const updateSubcategory = async (req, res) => {
         "Uploading subcategory image to Cloudinary:",
         req.file.originalname,
       );
+      // Fetch existing subcategory to delete old image
+      const existingSub = await CategoryDAO.getSubcategoryById(id);
       const uploadResult = await uploadToCloudinary(
         req.file.buffer,
         "subcategories",
         req.file.mimetype,
+        existingSub?.image_url ?? null,
       );
 
       if (!uploadResult.success) {
@@ -545,10 +551,13 @@ export const updateGroup = async (req, res) => {
         "Uploading group image to Cloudinary:",
         req.file.originalname,
       );
+      // Fetch existing group to delete old image
+      const existingGroup = await CategoryDAO.getGroupById(id);
       const uploadResult = await uploadToCloudinary(
         req.file.buffer,
         "groups",
         req.file.mimetype,
+        existingGroup?.image_url ?? null,
       );
 
       if (!uploadResult.success) {

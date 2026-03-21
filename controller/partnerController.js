@@ -80,6 +80,8 @@ export const updatePartner = async (req, res) => {
     if (sort_order !== undefined) updates.sort_order = parseInt(sort_order);
 
     if (imageFile) {
+      // Get existing partner to delete old image
+      const existingPartner = await partnerDao.getById(id);
       console.log(
         "Uploading partner update image to Cloudinary:",
         imageFile.originalname,
@@ -88,6 +90,7 @@ export const updatePartner = async (req, res) => {
         imageFile.buffer,
         "addBanner",
         imageFile.mimetype,
+        existingPartner?.image_url ?? null,
       );
 
       if (!uploadResult.success) {

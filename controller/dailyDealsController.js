@@ -76,6 +76,8 @@ export async function updateDailyDeal(req, res) {
       updateData.active = active === "true" || active === true;
 
     if (imageFile) {
+      // Get existing deal to delete old image
+      const existingDeal = await dailyDealsDao.getById(id);
       console.log(
         "Uploading daily deal update image to Cloudinary:",
         imageFile.originalname,
@@ -84,6 +86,7 @@ export async function updateDailyDeal(req, res) {
         imageFile.buffer,
         "daily-deals",
         imageFile.mimetype,
+        existingDeal?.image_url ?? null,
       );
 
       if (!uploadResult.success) {

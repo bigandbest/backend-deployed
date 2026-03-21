@@ -101,6 +101,8 @@ export async function updateBanner(req, res) {
 
     // Update image if a new one is provided
     if (imageFile) {
+      // Get existing banner to delete old image
+      const existingBanner = await AddBannerDAO.getById(id);
       console.log(
         "Uploading banner update image to Cloudinary:",
         imageFile.originalname,
@@ -109,6 +111,7 @@ export async function updateBanner(req, res) {
         imageFile.buffer,
         "addBanner",
         imageFile.mimetype,
+        existingBanner?.image_url ?? null,
       );
 
       if (!uploadResult.success) {

@@ -12,7 +12,7 @@ class BrandDAO {
             where: { id },
             include: {
                 _count: {
-                    select: { products: true }
+                    select: { product_brand: true }
                 }
             }
         });
