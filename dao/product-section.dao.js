@@ -6,6 +6,10 @@ class ProductSectionDAO {
     }
 
     async getById(id) {
+        // Guard: product_sections.id is INT4 (max 2,147,483,647).
+        // If the frontend accidentally sends a timestamp as the id, return null
+        // so the caller gets a clean 404 instead of a Prisma INT4 overflow crash.
+        if (id > 2147483647) return null;
         return await prisma.product_sections.findUnique({
             where: { id },
             include: {

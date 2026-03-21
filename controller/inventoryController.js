@@ -544,7 +544,7 @@ const getWarehouseMovements = async (req, res) => {
     const movements = await prisma.stock_movements.findMany({
       where: { warehouse_id: warehouseIdInt },
       include: {
-        warehouse: {
+        warehouses: {
           select: {
             name: true
           }
@@ -566,7 +566,7 @@ const getWarehouseMovements = async (req, res) => {
       data: movements.map(m => ({
         ...m,
         product_name: productMap[m.product_id] || 'Unknown Product',
-        warehouse_name: m.warehouse?.name
+        warehouse_name: m.warehouses?.name
       }))
     });
   } catch (error) {
