@@ -58,6 +58,8 @@ export async function editRecommendedStore(req, res) {
     }
 
     if (imageFile) {
+      // Get existing store to delete old image
+      const existingStore = await RecommendedStoreDAO.getStoreById(id);
       console.log(
         "Uploading recommended store update image to Cloudinary:",
         imageFile.originalname,
@@ -66,6 +68,7 @@ export async function editRecommendedStore(req, res) {
         imageFile.buffer,
         "recommended_store",
         imageFile.mimetype,
+        existingStore?.image_url ?? null,
       );
 
       if (!uploadResult.success) {

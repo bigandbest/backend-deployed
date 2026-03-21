@@ -65,11 +65,13 @@ export async function updateCard(req, res) {
 
         // Update image if provided
         if (imageFile) {
-            // Upload image to Cloudinary
+            // Get existing card to delete old image
+            const existingCard = await smallPromoCardDao.getById(parsedId);
             const uploadResult = await uploadToCloudinary(
                 imageFile.buffer,
                 "small-promo-cards",
-                imageFile.mimetype
+                imageFile.mimetype,
+                existingCard?.image_url ?? null,
             );
 
             if (!uploadResult.success) {

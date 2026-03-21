@@ -81,10 +81,13 @@ export async function updateVideoCard(req, res) {
 
     // Upload new thumbnail if provided
     if (thumbnailFile) {
+      // Get existing card to delete old thumbnail
+      const existingCard = await VideoCardDAO.getById(parsedId);
       const uploadResult = await uploadToCloudinary(
         thumbnailFile.buffer,
         "video_thumbnails",
-        thumbnailFile.mimetype
+        thumbnailFile.mimetype,
+        existingCard?.thumbnail_url ?? null,
       );
 
       if (!uploadResult.success) {

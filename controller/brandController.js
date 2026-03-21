@@ -84,6 +84,9 @@ export async function editBrand(req, res) {
 
     // Update image if a new one is provided
     if (imageFile) {
+      // Fetch existing brand to get the old image URL for cleanup
+      const existingBrand = await BrandDAO.getBrandById(id);
+
       console.log(
         "Uploading brand update image to Cloudinary:",
         imageFile.originalname,
@@ -92,6 +95,7 @@ export async function editBrand(req, res) {
         imageFile.buffer,
         "brand",
         imageFile.mimetype,
+        existingBrand?.image_url ?? null,  // ← delete old image first
       );
 
       if (!uploadResult.success) {

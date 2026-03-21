@@ -47,6 +47,8 @@ export async function updateStore(req, res) {
     let updateData = { name, link };
 
     if (imageFile) {
+      // Get existing store to delete old image
+      const existingStore = await StoreDAO.getById(id);
       console.log(
         "Uploading store update image to Cloudinary:",
         imageFile.originalname,
@@ -55,6 +57,7 @@ export async function updateStore(req, res) {
         imageFile.buffer,
         "Store",
         imageFile.mimetype,
+        existingStore?.image ?? null,
       );
 
       if (!uploadResult.success) {
@@ -63,7 +66,7 @@ export async function updateStore(req, res) {
           .json({ success: false, error: uploadResult.error });
       }
 
-      updateData.image = uploadResult.secure_url; // consistent column name
+      updateData.image = uploadResult.secure_url;
     }
 
     const data = await StoreDAO.update(id, updateData);

@@ -1,24 +1,62 @@
 import cloudinary from "../config/cloudinary.js";
-import { v4 as uuidv4 } from "uuid";
 
 /**
- * Upload a file to Cloudinary
- * @param {Buffer} fileBuffer - The file buffer to upload
- * @param {string} folder - The folder to upload to (default: 'uploads')
- * @param {string} mimeType - The mime type of the file
- * @returns {Promise<{success: boolean, secure_url: string, public_id: string, error?: any}>}
+ * Extract the Cloudinary public_id from a secure_url.
+ * e.g. "https://res.cloudinary.com/demo/image/upload/v123/brand/abc.jpg"
+ *  → "brand/abc"
+ */
+const extractPublicId = (url) => {
+  if (!url || !url.includes("cloudinary.com")) return null;
+  try {
+    // Remove query string
+    const cleanUrl = url.split("?")[0];
+    // Everything after /upload/ (and optional version segment like v1234567890/)
+    const match = cleanUrl.match(/\/upload\/(?:v\d+\/)?(.+)$/);
+    if (!match) return null;
+    // Strip file extension
+    return match[1].replace(/\.[^/.]+$/, "");
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Upload a file to Cloudinary.
+ * If `oldImageUrl` is provided, the previous Cloudinary asset is deleted first
+ * so it doesn't accumulate orphaned files.
+ *
+ * @param {Buffer} fileBuffer
+ * @param {string} folder           - Cloudinary folder (default: 'uploads')
+ * @param {string} mimeType
+ * @param {string} [oldImageUrl]    - Existing image URL to delete before upload
+ * @returns {Promise<{success: boolean, secure_url?: string, public_id?: string, error?: any}>}
  */
 export const uploadToCloudinary = async (
   fileBuffer,
   folder = "uploads",
   mimeType,
+  oldImageUrl = null,
 ) => {
-  return new Promise((resolve, reject) => {
+  // Delete old image from Cloudinary if one exists
+  if (oldImageUrl) {
+    const oldPublicId = extractPublicId(oldImageUrl);
+    if (oldPublicId) {
+      try {
+        await cloudinary.uploader.destroy(oldPublicId);
+        console.log(`🗑️  Deleted old Cloudinary asset: ${oldPublicId}`);
+      } catch (err) {
+        // Non-fatal — log and continue with the upload
+        console.warn(`⚠️  Could not delete old Cloudinary asset (${oldPublicId}):`, err.message);
+      }
+    }
+  }
+
+  return new Promise((resolve) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder: folder,
         resource_type: "auto",
-        timeout: 120000, // 120 seconds timeout to prevent 499 errors
+        timeout: 120000,
       },
       (error, result) => {
         if (error) {
@@ -37,7 +75,6 @@ export const uploadToCloudinary = async (
       },
     );
 
-    // Handle stream errors to prevent unhandled rejections
     uploadStream.on("error", (error) => {
       console.error("Cloudinary stream error:", error);
       resolve({
@@ -59,14 +96,13 @@ export const uploadToCloudinary = async (
 };
 
 /**
- * Delete a file from Cloudinary
- * @param {string} publicId - The public ID of the file to delete
+ * Delete a file from Cloudinary by public_id.
+ * @param {string} publicId
  * @returns {Promise<{success: boolean, error?: any}>}
  */
 export const deleteFromCloudinary = async (publicId) => {
   try {
     if (!publicId) return { success: false, error: "No public ID provided" };
-
     const result = await cloudinary.uploader.destroy(publicId);
     if (result.result === "ok") {
       return { success: true };
