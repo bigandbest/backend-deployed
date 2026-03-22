@@ -6,6 +6,8 @@ import {
   getAllBanners,
   getBannerById,
   getBannersByType,
+  getMobileBanners,
+  getActiveMobileBanners,
 } from "../controller/addBannerController.js";
 import { cacheMiddleware } from "../utils/cache.js";
 import { invalidateCacheMiddleware } from "../utils/cacheInvalidation.js";
@@ -28,6 +30,13 @@ router.delete("/delete/:id", deleteBanner);
 
 // Get all Banners (cache for 10 minutes - banners change occasionally)
 router.get("/all", getAllBanners);
+
+// ─── Mobile App Specific Routes ────────────────────────────────────────────
+// GET /mobile - all mobile banners (admin view, includes inactive)
+router.get("/mobile", getMobileBanners);
+
+// GET /mobile/active - only active mobile banners (primary mobile app endpoint)
+router.get("/mobile/active", getActiveMobileBanners);
 
 // Get a single Banner by ID (cache for 15 minutes)
 router.get("/:id", getBannerById);

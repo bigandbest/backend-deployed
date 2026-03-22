@@ -34,6 +34,20 @@ class AddBannerDAO {
             where: { banner_type: bannerType }
         });
     }
+
+    async getMobileAll() {
+        return await prisma.add_banner.findMany({
+            where: { is_mobile: true },
+            orderBy: { updated_at: 'desc' }
+        });
+    }
+
+    async getMobileActive() {
+        return await prisma.add_banner.findMany({
+            where: { is_mobile: true, active: true },
+            orderBy: { updated_at: 'desc' }
+        });
+    }
 }
 
 export default new AddBannerDAO();
