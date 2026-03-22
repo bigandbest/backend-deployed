@@ -174,23 +174,43 @@ export const searchMasterProducts = async (req, res) => {
             orderBy: { created_at: 'desc' }
         });
 
+        const mappedProducts = await Promise.all(
+            products.map(async (p) => {
+                const basePrice = Number(p.variants?.[0]?.price || 0);
+                const fee = await resolveApplicablePlatformFee({
+                    categoryId: p.category_id,
+                    subcategoryId: p.subcategory_id,
+                    groupId: p.group_id,
+                });
+                const platformFeeAmount = (basePrice * fee.fee_percentage) / 100;
+                const sellerEarnings = basePrice - platformFeeAmount;
+
+                return {
+                    id: p.id,
+                    name: p.name,
+                    description: p.description,
+                    imageUrl: p.media?.[0]?.url || null,
+                    category: p.category?.name,
+                    basePrice,
+                    sku: p.variants?.[0]?.sku || '',
+                    platform_fee_percentage: fee.fee_percentage,
+                    platform_fee_source: fee.source_level,
+                    platform_fee_source_type: fee.source_type || null,
+                    platform_fee_amount: Number(platformFeeAmount.toFixed(2)),
+                    seller_earnings: Number(sellerEarnings.toFixed(2)),
+                    variants: p.variants?.map(v => ({
+                        id: v.id,
+                        title: v.title,
+                        price: v.price,
+                        sku: v.sku,
+                    })),
+                };
+            })
+        );
+
         res.status(200).json({
             success: true,
-            data: products.map(p => ({
-                id: p.id,
-                name: p.name,
-                description: p.description,
-                imageUrl: p.media?.[0]?.url || null,
-                category: p.category?.name,
-                basePrice: p.variants?.[0]?.price || 0,
-                sku: p.variants?.[0]?.sku || '',
-                variants: p.variants?.map(v => ({
-                    id: v.id,
-                    title: v.title,
-                    price: v.price,
-                    sku: v.sku,
-                })),
-            })),
+            data: mappedProducts,
         });
     } catch (error) {
         console.error('searchMasterProducts error:', error);
