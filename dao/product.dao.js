@@ -159,6 +159,8 @@ class ProductDAO {
                     active: true,
                     created_at: true,
                     updated_at: true,
+                    created_by: true,
+                    seller_id: true,
                     category_id: true,
                     subcategory_id: true,
                     group_id: true,

@@ -5,7 +5,7 @@ import cloudinary from "../config/cloudinary.js";
  * e.g. "https://res.cloudinary.com/demo/image/upload/v123/brand/abc.jpg"
  *  → "brand/abc"
  */
-const extractPublicId = (url) => {
+export const extractPublicId = (url) => {
   if (!url || !url.includes("cloudinary.com")) return null;
   try {
     // Remove query string

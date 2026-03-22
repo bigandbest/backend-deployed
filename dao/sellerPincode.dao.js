@@ -32,8 +32,8 @@ class SellerPincodeDAO {
         return await prisma.seller_pincode_requests.findMany({
             where: { status: 'PENDING' },
             include: {
-                seller: {
-                    select: { business_name: true, user: { select: { email: true, phone: true } } }
+                sellers: {
+                    select: { business_name: true, users: { select: { email: true, phone: true } } }
                 }
             },
             orderBy: { created_at: 'desc' }
@@ -47,7 +47,7 @@ class SellerPincodeDAO {
         return await prisma.seller_pincode_requests.update({
             where: { id: parseInt(requestId) },
             data: { status, updated_at: new Date() },
-            include: { seller: true }
+            include: { sellers: true }
         });
     }
 
@@ -57,7 +57,7 @@ class SellerPincodeDAO {
     async getRequestById(requestId) {
         return await prisma.seller_pincode_requests.findUnique({
             where: { id: parseInt(requestId) },
-            include: { seller: true }
+            include: { sellers: true }
         });
     }
 }

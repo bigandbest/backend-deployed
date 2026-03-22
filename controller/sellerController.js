@@ -1,4 +1,5 @@
 import SellerDAO from '../dao/seller.dao.js';
+import ProductDAO from '../dao/product.dao.js';
 import prisma from '../config/prisma.js';
 
 /**
@@ -52,7 +53,7 @@ export const searchMasterProducts = async (req, res) => {
     try {
         const { q, categoryId } = req.query;
 
-        const where = { active: true };
+        const where = { active: true, source_type: 'DROP_SHIP' };
 
         if (q) {
             where.OR = [
@@ -145,6 +146,159 @@ export const requestNewProduct = async (req, res) => {
         });
     } catch (error) {
         console.error('requestNewProduct error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Request new product addition (Full Form)
+ */
+export const requestNewProductFull = async (req, res) => {
+    try {
+        console.log("\n=== BACKEND SELLER: Received Request Body ===");
+        
+        // Get seller profile
+        const seller = await prisma.sellers.findUnique({ where: { user_id: req.user.id } });
+        if (!seller) return res.status(404).json({ success: false, error: 'Seller profile not found' });
+
+        const {
+            name,
+            description,
+            hsn_code,
+            sac_code,
+            gst_rate,
+            cess_rate,
+            vertical,
+            source_type,
+            category_id,
+            subcategory_id,
+            group_id,
+            store_id,
+            return_applicable,
+            return_days,
+            active, // Ignored
+            has_variants,
+            product_variants,
+            images,
+            media,
+            brand_name,
+            brand_id,
+            faq,
+            ...otherFields
+        } = req.body;
+
+        if (!name) {
+            return res.status(400).json({ success: false, error: "Product name is required" });
+        }
+
+        // Construct Product Data (FORCED ACTIVE: FALSE)
+        const productData = {
+            name,
+            description,
+            hsn_or_sac_code: hsn_code || sac_code,
+            gst_rate: gst_rate ? parseFloat(gst_rate) : 0,
+            cess_rate: req.body.cess_rate ? parseFloat(req.body.cess_rate) : 0,
+            vertical: vertical || "qwik",
+            source_type: "DROP_SHIP", // Forced for sellers
+            return_applicable: !!return_applicable,
+            return_days: return_days ? parseInt(return_days) : 0,
+            active: false, // ENFORCED PENDING ADMIN APPROVAL
+            has_variants: !!has_variants,
+            faq: faq || null,
+            created_by: "seller",
+            seller_id: seller.id,
+            updated_at: new Date(),
+        };
+
+        // Handle Relations
+        if (category_id) productData.category = { connect: { id: category_id } };
+        if (subcategory_id) productData.subcategory = { connect: { id: subcategory_id } };
+        if (group_id) productData.group = { connect: { id: group_id } };
+
+        const brandId = brand_name || brand_id;
+
+        // Media
+        const mediaArray = media && Array.isArray(media) ? media : images && Array.isArray(images) ? images : [];
+        if (mediaArray && mediaArray.length > 0) {
+            productData.media = {
+                create: mediaArray.map((item, index) => {
+                    if (typeof item === "string") {
+                        return { media_type: "image", url: item, is_primary: index === 0, sort_order: index };
+                    } else {
+                        return {
+                            media_type: item.media_type || "image",
+                            url: item.url,
+                            is_primary: item.is_primary !== undefined ? item.is_primary : index === 0,
+                            sort_order: item.sort_order !== undefined ? item.sort_order : index,
+                        };
+                    }
+                }),
+            };
+        }
+
+        // Variants
+        const hasVariantsActual = product_variants && Array.isArray(product_variants) && product_variants.length > 0;
+        productData.has_variants = hasVariantsActual;
+
+        if (hasVariantsActual) {
+            productData.variants = {
+                create: product_variants.map((v) => {
+                    const variantData = {
+                        title: v.variant_name || v.title,
+                        sku: v.sku || `${name.substring(0, 3).toUpperCase()}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                        price: parseFloat(v.variant_price || 0),
+                        old_price: v.variant_old_price ? parseFloat(v.variant_old_price) : null,
+                        discount_percentage: v.discount_percentage ? parseInt(v.discount_percentage) : 0,
+                        is_default: !!v.is_default,
+                        active: true,
+                        shipping_amount: v.shipping_amount ? parseFloat(v.shipping_amount) : 0,
+                        packaging_details: v.packaging_details,
+                        photo_url: v.photo_url || null,
+                        net_quantity: v.net_quantity || null,
+                        is_bulk_enabled: v.is_bulk_enabled !== undefined ? !!v.is_bulk_enabled : false,
+                        bulk_min_quantity: v.bulk_min_quantity ? parseInt(v.bulk_min_quantity) : 50,
+                        bulk_discount_percentage: v.bulk_discount_percentage ? parseInt(v.bulk_discount_percentage) : 0,
+                        bulk_price: v.bulk_price ? parseFloat(v.bulk_price) : 0,
+                        updated_at: new Date(),
+                    };
+
+                    if (v.attributes && Array.isArray(v.attributes) && v.attributes.length > 0) {
+                        variantData.attributes = {
+                            create: v.attributes.map((attr) => ({
+                                attribute_name: attr.attribute_name,
+                                attribute_value: attr.attribute_value,
+                                price: attr.price ? parseFloat(attr.price) : null,
+                                old_price: attr.old_price ? parseFloat(attr.old_price) : null,
+                            })),
+                        };
+                    }
+
+                    return variantData;
+                }),
+            };
+        }
+
+        const newProduct = await ProductDAO.createProduct(productData);
+
+        // Handle Brand Relation
+        if (brandId && newProduct) {
+            try { await ProductDAO.addBrandToProduct(newProduct.id, brandId); } catch (e) { console.error(e); }
+        }
+
+        // Handle Store Link
+        if (store_id && newProduct) {
+            try { await ProductDAO.addRecommendedStore(newProduct.id, store_id); } catch (e) { console.error(e); }
+        }
+
+        res.status(201).json({
+            success: true,
+            message: "Product request submitted successfully. Awaiting admin approval.",
+            productId: newProduct.id,
+            product: newProduct,
+        });
+
+    } catch (error) {
+        console.error('requestNewProductFull error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 };

@@ -1,5 +1,6 @@
 import ProductDAO from "../dao/product.dao.js";
 import prisma from "../config/prisma.js";
+import { deleteFromCloudinary, extractPublicId } from "../services/uploadService.js";
 
 // Create new product
 export const createProduct = async (req, res) => {
@@ -646,13 +647,38 @@ export const deleteProductForAdmin = async (req, res) => {
       where: { product_id: productId },
     });
 
-    // 3. Product Media
+    // 3. Product Media - Collect URLs before deleting from DB
+    const mediaRecords = await prisma.product_media.findMany({
+      where: { product_id: productId },
+    });
+    const imagesToDelete = [...mediaRecords.map((m) => m.url)];
+    
+    // Also check variants for photo_url
+    if (existingProduct.variants) {
+      existingProduct.variants.forEach((v) => {
+        if (v.photo_url) imagesToDelete.push(v.photo_url);
+      });
+    }
+
     await prisma.product_media.deleteMany({
       where: { product_id: productId },
     });
 
     // Delete the product
     await ProductDAO.deleteProduct(productId);
+
+    // After success DB deletion, remove from Cloudinary
+    for (const url of imagesToDelete) {
+      const publicId = extractPublicId(url);
+      if (publicId) {
+        try {
+          await deleteFromCloudinary(publicId);
+          console.log(`🗑️  Deleted Cloudinary image for rejected product: ${publicId}`);
+        } catch (e) {
+          console.error(`Failed to delete Cloudinary image: ${publicId}`, e);
+        }
+      }
+    }
 
     res.status(200).json({
       success: true,
@@ -970,6 +996,49 @@ export const updateProduct = async (req, res) => {
       }
     }
 
+    // Cloudinary Cleanup: Find orphaned images
+    try {
+      // 1. Collect all old Cloudinary URLs
+      const oldUrls = [];
+      if (existingProduct.media) {
+        existingProduct.media.forEach(m => oldUrls.push(m.url));
+      }
+      if (existingProduct.variants) {
+        existingProduct.variants.forEach(v => {
+          if (v.photo_url) oldUrls.push(v.photo_url);
+        });
+      }
+
+      // 2. Collect all new Cloudinary URLs
+      const newUrls = [];
+      if (updateData.media && Array.isArray(updateData.media)) {
+        updateData.media.forEach(m => {
+          if (m.url) newUrls.push(m.url);
+        });
+      } else if (updateData.images && Array.isArray(updateData.images)) {
+        updateData.images.forEach(url => newUrls.push(url));
+      }
+
+      if (variantsPayload && Array.isArray(variantsPayload)) {
+        variantsPayload.forEach(v => {
+          if (v.photo_url) newUrls.push(v.photo_url);
+        });
+      }
+
+      // 3. Compare and delete
+      const orphanedUrls = oldUrls.filter(url => url && url.includes("cloudinary.com") && !newUrls.includes(url));
+      
+      for (const url of orphanedUrls) {
+        const publicId = extractPublicId(url);
+        if (publicId) {
+          await deleteFromCloudinary(publicId);
+          console.log(`🗑️  Deleted orphaned Cloudinary image on update: ${publicId}`);
+        }
+      }
+    } catch (cleanupError) {
+      console.error("Error cleaning up orphaned Cloudinary images:", cleanupError.message);
+    }
+
     // Handle Brand Relation if 'brand_id' or 'brand_name' (brand_id) is passed
     const brandId = updateData.brand_id || updateData.brand_name;
     if (brandId) {
@@ -994,6 +1063,48 @@ export const updateProduct = async (req, res) => {
         success: false,
         error: "Product not found after update",
       });
+    }
+
+    // Auto-assign seller if product was just activated and belongs to a seller
+    if (existingProduct && !existingProduct.active && fieldsToUpdate.active === true) {
+      if (existingProduct.created_by === 'seller' && existingProduct.seller_id) {
+        try {
+          // Fetch the full updated product to get variants (just incase variant creation lagged)
+          const fullyUpdatedProduct = await ProductDAO.getProductById(productId);
+          
+          if (fullyUpdatedProduct && fullyUpdatedProduct.variants) {
+            const productVariants = fullyUpdatedProduct.variants;
+            
+            // Get default seller warehouse or use null
+            const sellerWarehouse = await prisma.seller_warehouses.findFirst({
+              where: { seller_id: existingProduct.seller_id, is_active: true }
+            });
+            const assignedWarehouseId = sellerWarehouse ? sellerWarehouse.warehouse_id : null;
+
+            const newEntries = productVariants.map((v) => ({
+              seller_id: existingProduct.seller_id,
+              product_id: product.id,
+              variant_id: v.id,
+              warehouse_id: assignedWarehouseId,
+              stock_quantity: v.stock_qty || v.inventory?.stock_quantity || 0,
+              seller_offer_price: v.price || 0,
+              admin_selling_price: v.price || 0,
+              mrp: v.old_price || v.price || 0,
+              status: 'APPROVED'
+            }));
+
+            if (newEntries.length > 0) {
+              await prisma.seller_products.createMany({
+                data: newEntries,
+                skipDuplicates: true
+              });
+              console.log(`Auto-assigned ${newEntries.length} variants to seller ${existingProduct.seller_id}`);
+            }
+          }
+        } catch (autoAssignErr) {
+          console.error("Error auto-assigning seller to activated product:", autoAssignErr);
+        }
+      }
     }
 
     console.log("Product updated successfully:", product);
