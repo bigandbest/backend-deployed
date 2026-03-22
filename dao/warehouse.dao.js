@@ -21,9 +21,17 @@ class WarehouseDAO {
                 include: {
                     parent_warehouse: true,
                     child_warehouses: true,
-                    warehouse_zones: { include: { zone: true } },
+                    warehouse_zones: {
+                        include: {
+                            delivery_zones: {
+                                include: {
+                                    zone_pincodes: true
+                                }
+                            }
+                        }
+                    },
                     warehouse_pincodes: true,
-                    scheduling_configs: { include: { slot: true } }
+                    warehouse_scheduling_config: { include: { scheduling_time_slots: true } }
                 }
             });
             if (warehouse) return warehouse;
@@ -33,11 +41,19 @@ class WarehouseDAO {
         return await prisma.warehouses.findUnique({
             where: { name: id },
             include: {
-                warehouses: true,
-                other_warehouses: true,
-                warehouse_zones: { include: { zone: true } },
+                parent_warehouse: true,
+                child_warehouses: true,
+                warehouse_zones: {
+                    include: {
+                        delivery_zones: {
+                            include: {
+                                zone_pincodes: true
+                            }
+                        }
+                    }
+                },
                 warehouse_pincodes: true,
-                scheduling_configs: { include: { slot: true } }
+                warehouse_scheduling_config: { include: { scheduling_time_slots: true } }
             }
         });
     }
@@ -63,9 +79,9 @@ class WarehouseDAO {
         return await prisma.warehouses.findMany({
             where: { hierarchy_level: 0 },
             include: {
-                other_warehouses: {
+                child_warehouses: {
                     include: {
-                        other_warehouses: true
+                        child_warehouses: true
                     }
                 }
             }
@@ -354,6 +370,112 @@ class WarehouseDAO {
         return await prisma.warehouse_scheduling_config.findFirst({
             where: { warehouse_id: numericId },
             include: { slot: true }
+        });
+    }
+
+    async getWarehouseSellers(warehouseId) {
+        const numericId = parseInt(warehouseId, 10);
+        if (isNaN(numericId)) {
+            throw new Error('Invalid warehouse ID');
+        }
+        return await prisma.warehouse_sellers.findMany({
+            where: { warehouse_id: numericId, is_active: true },
+            include: { sellers: { include: { users: true } } }
+        });
+    }
+
+    async assignSellers(warehouseId, sellerIds) {
+        const numericId = parseInt(warehouseId, 10);
+        if (isNaN(numericId)) {
+            throw new Error('Invalid warehouse ID');
+        }
+        if (!Array.isArray(sellerIds) || sellerIds.length === 0) {
+            throw new Error('seller_ids array is required');
+        }
+
+        return await prisma.$transaction(async (tx) => {
+            await tx.warehouse_sellers.updateMany({
+                where: { warehouse_id: numericId },
+                data: { is_active: false }
+            });
+
+            const operations = sellerIds.map((sellerId) => {
+                const numericSellerId = parseInt(sellerId, 10);
+                if (isNaN(numericSellerId)) return null;
+                return tx.warehouse_sellers.upsert({
+                    where: { warehouse_id_seller_id: { warehouse_id: numericId, seller_id: numericSellerId } },
+                    create: { warehouse_id: numericId, seller_id: numericSellerId, is_active: true, assigned_at: new Date() },
+                    update: { is_active: true, assigned_at: new Date() }
+                });
+            }).filter(Boolean);
+
+            return Promise.all(operations);
+        });
+    }
+
+    async removeSeller(warehouseId, sellerId) {
+        const numericWarehouseId = parseInt(warehouseId, 10);
+        const numericSellerId = parseInt(sellerId, 10);
+        if (isNaN(numericWarehouseId) || isNaN(numericSellerId)) {
+            throw new Error('Invalid warehouse ID or seller ID');
+        }
+
+        return await prisma.warehouse_sellers.updateMany({
+            where: { warehouse_id: numericWarehouseId, seller_id: numericSellerId },
+            data: { is_active: false }
+        });
+    }
+
+    async getWarehouseRiders(warehouseId) {
+        const numericId = parseInt(warehouseId, 10);
+        if (isNaN(numericId)) {
+            throw new Error('Invalid warehouse ID');
+        }
+        return await prisma.warehouse_riders.findMany({
+            where: { warehouse_id: numericId, is_active: true },
+            include: { riders: { include: { users: true } } }
+        });
+    }
+
+    async assignRiders(warehouseId, riderIds) {
+        const numericId = parseInt(warehouseId, 10);
+        if (isNaN(numericId)) {
+            throw new Error('Invalid warehouse ID');
+        }
+        if (!Array.isArray(riderIds) || riderIds.length === 0) {
+            throw new Error('rider_ids array is required');
+        }
+
+        return await prisma.$transaction(async (tx) => {
+            await tx.warehouse_riders.updateMany({
+                where: { warehouse_id: numericId },
+                data: { is_active: false }
+            });
+
+            const operations = riderIds.map((riderId) => {
+                const numericRiderId = parseInt(riderId, 10);
+                if (isNaN(numericRiderId)) return null;
+                return tx.warehouse_riders.upsert({
+                    where: { warehouse_id_rider_id: { warehouse_id: numericId, rider_id: numericRiderId } },
+                    create: { warehouse_id: numericId, rider_id: numericRiderId, is_active: true, assigned_at: new Date() },
+                    update: { is_active: true, assigned_at: new Date() }
+                });
+            }).filter(Boolean);
+
+            return Promise.all(operations);
+        });
+    }
+
+    async removeRider(warehouseId, riderId) {
+        const numericWarehouseId = parseInt(warehouseId, 10);
+        const numericRiderId = parseInt(riderId, 10);
+        if (isNaN(numericWarehouseId) || isNaN(numericRiderId)) {
+            throw new Error('Invalid warehouse ID or rider ID');
+        }
+
+        return await prisma.warehouse_riders.updateMany({
+            where: { warehouse_id: numericWarehouseId, rider_id: numericRiderId },
+            data: { is_active: false }
         });
     }
 }

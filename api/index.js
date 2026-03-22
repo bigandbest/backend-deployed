@@ -69,6 +69,7 @@ import codOrderRoutes from "../routes/codOrderRoutes.js";
 import zoneRoutes from "../routes/zoneRoutes.js";
 import adminAuthRoutes from "../routes/adminAuthRoutes.js";
 import inventoryManagementRoutes from "../routes/inventoryManagementRoutes.js";
+import platformFeeRoutes from "../routes/platformFeeRoutes.js";
 
 const app = express();
 
@@ -233,6 +234,7 @@ app.use("/api/zones", (req, res, next) => {
 });
 
 app.use("/api/zones", zoneRoutes);
+app.use("/api/platform-fees", platformFeeRoutes);
 console.log("✅ Zone routes mounted at /api/zones");
 
 // Simple test endpoints for debugging CORS

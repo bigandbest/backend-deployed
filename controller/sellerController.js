@@ -1,6 +1,85 @@
 import SellerDAO from '../dao/seller.dao.js';
 import ProductDAO from '../dao/product.dao.js';
 import prisma from '../config/prisma.js';
+import { resolveApplicablePlatformFee } from '../services/platformFeeService.js';
+
+const ensureSellerOwnedProductsInInventory = async (sellerId) => {
+    // Seller products can be approved (active=true) but still miss seller_products rows.
+    // This backfills missing variant mappings so they show in seller inventory.
+    const primaryAllocation = await prisma.warehouse_sellers.findFirst({
+        where: { seller_id: sellerId, is_active: true },
+        select: { warehouse_id: true },
+        orderBy: { assigned_at: 'asc' }
+    });
+
+    if (!primaryAllocation?.warehouse_id) return;
+
+    const sellerOwnedProducts = await prisma.products.findMany({
+        where: {
+            seller_id: sellerId,
+            created_by: 'seller',
+            active: true
+        },
+        select: {
+            id: true,
+            variants: {
+                where: { active: true },
+                select: {
+                    id: true,
+                    price: true,
+                    old_price: true
+                }
+            }
+        }
+    });
+
+    if (!sellerOwnedProducts.length) return;
+
+    const productIds = sellerOwnedProducts.map((p) => p.id);
+    const existingRows = await prisma.seller_products.findMany({
+        where: {
+            seller_id: sellerId,
+            product_id: { in: productIds },
+            warehouse_id: primaryAllocation.warehouse_id
+        },
+        select: { product_id: true, variant_id: true }
+    });
+
+    const existingKeys = new Set(
+        existingRows
+            .filter((r) => r.variant_id)
+            .map((r) => `${r.product_id}:${r.variant_id}`)
+    );
+
+    const rowsToCreate = [];
+    for (const product of sellerOwnedProducts) {
+        for (const variant of product.variants || []) {
+            const key = `${product.id}:${variant.id}`;
+            if (existingKeys.has(key)) continue;
+
+            rowsToCreate.push({
+                seller_id: sellerId,
+                product_id: product.id,
+                variant_id: variant.id,
+                warehouse_id: primaryAllocation.warehouse_id,
+                stock_quantity: 0,
+                reserved_quantity: 0,
+                seller_offer_price: variant.price || 0,
+                admin_selling_price: variant.price || 0,
+                mrp: variant.old_price || variant.price || 0,
+                status: 'APPROVED',
+                is_active: true
+            });
+        }
+    }
+
+    if (rowsToCreate.length > 0) {
+        await prisma.seller_products.createMany({
+            data: rowsToCreate,
+            skipDuplicates: true
+        });
+    }
+};
 
 /**
  * Get seller's products
@@ -15,11 +94,20 @@ export const getSellerProducts = async (req, res) => {
             req.user.seller_id = seller.id;
         }
 
+        await ensureSellerOwnedProductsInInventory(req.user.seller_id);
         const products = await SellerDAO.getSellerProducts(req.user.seller_id, req.query);
 
-        res.status(200).json({
-            success: true,
-            data: products.map(sp => ({
+        const mappedProducts = await Promise.all(products.map(async (sp) => {
+            const fee = await resolveApplicablePlatformFee({
+                categoryId: sp.products?.category_id,
+                subcategoryId: sp.products?.subcategory_id,
+                groupId: sp.products?.group_id,
+            });
+            const basePrice = Number(sp.admin_selling_price ?? sp.seller_offer_price ?? 0);
+            const platformFeeAmount = (basePrice * fee.fee_percentage) / 100;
+            const sellerEarnings = basePrice - platformFeeAmount;
+
+            return {
                 id: sp.id,
                 product_id: sp.product_id,
                 product_name: sp.products?.name,
@@ -37,8 +125,17 @@ export const getSellerProducts = async (req, res) => {
                 status: sp.status,
                 sku: sp.product_variants?.sku || '',
                 created_at: sp.created_at,
-            })),
-            count: products.length,
+                platform_fee_percentage: fee.fee_percentage,
+                platform_fee_source: fee.source_level,
+                platform_fee_amount: Number(platformFeeAmount.toFixed(2)),
+                seller_earnings: Number(sellerEarnings.toFixed(2)),
+            };
+        }));
+
+        res.status(200).json({
+            success: true,
+            data: mappedProducts,
+            count: mappedProducts.length,
         });
     } catch (error) {
         console.error('getSellerProducts error:', error);
@@ -425,7 +522,9 @@ export const addProductStock = async (req, res) => {
         res.status(201).json({
             success: true,
             data: result,
-            message: 'Stock added. Pending admin approval for pricing.',
+            message: result?.status === 'PENDING_APPROVAL'
+                ? 'Stock updated. Pending admin approval for price change.'
+                : 'Stock updated successfully.',
         });
     } catch (error) {
         console.error('addProductStock error:', error);
@@ -452,6 +551,12 @@ export const updateOfferPrice = async (req, res) => {
         const sellerProduct = await prisma.seller_products.findUnique({ where: { id } });
         if (!sellerProduct || sellerProduct.seller_id !== seller.id) {
             return res.status(404).json({ success: false, error: 'Product not found' });
+        }
+        if (sellerProduct.status === 'APPROVED') {
+            return res.status(403).json({
+                success: false,
+                error: 'Price is locked after admin approval'
+            });
         }
 
         const result = await SellerDAO.updateOfferPrice(id, offerPrice);

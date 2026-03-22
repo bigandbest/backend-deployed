@@ -6,6 +6,7 @@ model categories {
   featured      Boolean?        @default(false)
   icon          String?
   active        Boolean?        @default(true)
+  has_fee       Boolean?        @default(false)
   
   // Relations
   subcategories subcategories[]
