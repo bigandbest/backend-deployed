@@ -42,11 +42,14 @@ export const uploadImage = async (req, res) => {
 
     console.log("Uploading file to Cloudinary:", file.originalname);
 
+    const oldImageUrl = req.body.oldImageUrl || null;
+
     // Upload to Cloudinary using the service
     const result = await uploadToCloudinary(
       file.buffer,
       "product-images", // Using 'product-images' folder in Cloudinary
       file.mimetype,
+      oldImageUrl
     );
 
     if (!result.success) {

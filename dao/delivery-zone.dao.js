@@ -22,8 +22,7 @@ class DeliveryZoneDAO {
         return await prisma.delivery_zones.findMany({
             where: {
                 ...(is_active !== undefined && {
-                    // Handle nullable is_active: treat null as inactive
-                    is_active: is_active === true ? { in: [true] } : { not: true }
+                    is_active: !!is_active
                 }),
                 ...(is_nationwide !== undefined && { is_nationwide })
             },
