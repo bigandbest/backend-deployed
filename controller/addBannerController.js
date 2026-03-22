@@ -200,3 +200,29 @@ export async function getBannersByType(req, res) {
     res.status(500).json({ success: false, error: err.message });
   }
 }
+
+// Get all Mobile-only Banners (admin view — all, including inactive)
+export async function getMobileBanners(req, res) {
+  try {
+    const data = await AddBannerDAO.getMobileAll();
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.status(200).json({ success: true, banners: data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// Get active Mobile-only Banners (used by mobile app)
+export async function getActiveMobileBanners(req, res) {
+  try {
+    const data = await AddBannerDAO.getMobileActive();
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.status(200).json({ success: true, banners: data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
