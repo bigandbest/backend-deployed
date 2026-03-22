@@ -1065,9 +1065,23 @@ export const updateProduct = async (req, res) => {
       });
     }
 
-    // Auto-assign seller if product was just activated and belongs to a seller
-    if (existingProduct && !existingProduct.active && fieldsToUpdate.active === true) {
-      if (existingProduct.created_by === 'seller' && existingProduct.seller_id) {
+    // Auto-assign seller variants for seller-created active products
+    // Also repairs older records that were approved but missed auto-assignment.
+    const isSellerOwnedProduct =
+      existingProduct &&
+      existingProduct.created_by === 'seller' &&
+      existingProduct.seller_id;
+    const willBeActive = fieldsToUpdate.active === true || existingProduct?.active === true;
+
+    if (isSellerOwnedProduct && willBeActive) {
+      const existingSellerProductCount = await prisma.seller_products.count({
+        where: {
+          seller_id: existingProduct.seller_id,
+          product_id: productId,
+        }
+      });
+
+      if (existingSellerProductCount === 0) {
         try {
           // Fetch the full updated product to get variants (just incase variant creation lagged)
           const fullyUpdatedProduct = await ProductDAO.getProductById(productId);
@@ -1075,30 +1089,39 @@ export const updateProduct = async (req, res) => {
           if (fullyUpdatedProduct && fullyUpdatedProduct.variants) {
             const productVariants = fullyUpdatedProduct.variants;
             
-            // Get default seller warehouse or use null
-            const sellerWarehouse = await prisma.seller_warehouses.findFirst({
-              where: { seller_id: existingProduct.seller_id, is_active: true }
+            // Get seller's assigned division warehouse
+            const sellerWarehouse = await prisma.warehouse_sellers.findFirst({
+              where: { seller_id: existingProduct.seller_id, is_active: true },
+              orderBy: { created_at: 'asc' }
             });
-            const assignedWarehouseId = sellerWarehouse ? sellerWarehouse.warehouse_id : null;
+            const assignedWarehouseId = sellerWarehouse?.warehouse_id;
 
-            const newEntries = productVariants.map((v) => ({
-              seller_id: existingProduct.seller_id,
-              product_id: product.id,
-              variant_id: v.id,
-              warehouse_id: assignedWarehouseId,
-              stock_quantity: v.stock_qty || v.inventory?.stock_quantity || 0,
-              seller_offer_price: v.price || 0,
-              admin_selling_price: v.price || 0,
-              mrp: v.old_price || v.price || 0,
-              status: 'APPROVED'
-            }));
+            // seller_products.warehouse_id is required; skip auto-assign if seller is not allocated yet
+            if (!assignedWarehouseId) {
+              console.warn(
+                `Skipping auto-assign for seller product ${productId}: no active warehouse allocation found for seller ${existingProduct.seller_id}`
+              );
+            } else {
 
-            if (newEntries.length > 0) {
-              await prisma.seller_products.createMany({
-                data: newEntries,
-                skipDuplicates: true
-              });
-              console.log(`Auto-assigned ${newEntries.length} variants to seller ${existingProduct.seller_id}`);
+              const newEntries = productVariants.map((v) => ({
+                seller_id: existingProduct.seller_id,
+                product_id: product.id,
+                variant_id: v.id,
+                warehouse_id: assignedWarehouseId,
+                stock_quantity: v.stock_qty || v.inventory?.stock_quantity || 0,
+                seller_offer_price: v.price || 0,
+                admin_selling_price: v.price || 0,
+                mrp: v.old_price || v.price || 0,
+                status: 'APPROVED'
+              }));
+
+              if (newEntries.length > 0) {
+                await prisma.seller_products.createMany({
+                  data: newEntries,
+                  skipDuplicates: true
+                });
+                console.log(`Auto-assigned ${newEntries.length} variants to seller ${existingProduct.seller_id}`);
+              }
             }
           }
         } catch (autoAssignErr) {

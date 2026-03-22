@@ -86,6 +86,10 @@ class SellerDAO {
                         id: true,
                         name: true,
                         source_type: true,
+                        category_id: true,
+                        subcategory_id: true,
+                        group_id: true,
+                        category: { select: { id: true, name: true } },
                         media: { take: 1 }
                     }
                 },
@@ -127,25 +131,35 @@ class SellerDAO {
         const existing = await prisma.seller_products.findFirst({ where });
 
         if (existing) {
-            // Check if quantity or price changed
-            const isChanged =
-                parseInt(stock_quantity) !== existing.stock_quantity ||
-                parseFloat(seller_offer_price) !== parseFloat(existing.seller_offer_price);
+            const nextStock = parseInt(stock_quantity) || 0;
+            const currentOfferPrice = parseFloat(existing.seller_offer_price || 0);
+            const isPriceLocked = existing.status === 'APPROVED';
+            const requestedOfferPrice = parseFloat(seller_offer_price) || 0;
+            const nextOfferPrice = isPriceLocked ? currentOfferPrice : requestedOfferPrice;
+            const currentMrp = existing.mrp != null ? parseFloat(existing.mrp) : null;
+            const requestedMrp = mrp ? parseFloat(mrp) : null;
+            const nextMrp = isPriceLocked ? currentMrp : requestedMrp;
+
+            // Stock changes should NOT require admin re-approval.
+            // Only price changes should move back to pending.
+            const stockChanged = nextStock !== existing.stock_quantity;
+            const priceChanged = !isPriceLocked && nextOfferPrice !== currentOfferPrice;
+            const requiresReapproval = priceChanged;
 
             const updated = await prisma.seller_products.update({
                 where: { id: existing.id },
                 data: {
-                    stock_quantity: parseInt(stock_quantity) || 0,
-                    seller_offer_price: parseFloat(seller_offer_price) || 0,
-                    mrp: mrp ? parseFloat(mrp) : null,
-                    status: isChanged ? 'PENDING_APPROVAL' : existing.status,
+                    stock_quantity: nextStock,
+                    seller_offer_price: nextOfferPrice,
+                    mrp: nextMrp,
+                    status: requiresReapproval ? 'PENDING_APPROVAL' : existing.status,
                     updated_at: new Date(),
                 }
             });
 
             // If it was already approved and we just changed it to pending, 
             // we should return the stock to the admin (Zonal Warehouse) and recalculate
-            if (isChanged && existing.status === 'APPROVED') {
+            if (requiresReapproval && existing.status === 'APPROVED') {
                 const sellerProduct = await prisma.seller_products.findUnique({
                     where: { id: existing.id },
                     include: { warehouses: true }
@@ -163,6 +177,11 @@ class SellerDAO {
                     `;
                 }
 
+                await this.recalculateSellerStock(warehouse_id, variant_id);
+            }
+            // For approved items, stock-only changes should remain approved and
+            // immediately refresh inventory availability.
+            else if (stockChanged && existing.status === 'APPROVED') {
                 await this.recalculateSellerStock(warehouse_id, variant_id);
             }
 
@@ -187,6 +206,19 @@ class SellerDAO {
      * Update seller offer price
      */
     async updateOfferPrice(sellerProductId, offerPrice) {
+        const existing = await prisma.seller_products.findUnique({
+            where: { id: sellerProductId },
+            select: { status: true }
+        });
+
+        if (!existing) {
+            throw new Error('Product not found');
+        }
+
+        if (existing.status === 'APPROVED') {
+            throw new Error('Price is locked after admin approval');
+        }
+
         return prisma.seller_products.update({
             where: { id: sellerProductId },
             data: {

@@ -68,10 +68,7 @@ export const approveSellerProduct = async (req, res) => {
         if (!sellerProduct) {
             return res.status(404).json({ success: false, error: 'Seller product request not found' });
         }
-
-        if (sellerProduct.status === 'APPROVED') {
-            return res.status(400).json({ success: false, error: 'Request is already approved' });
-        }
+        const wasAlreadyApproved = sellerProduct.status === 'APPROVED';
 
         let zonalWarehouseId = sellerProduct.warehouses?.parent_warehouse_id;
         let divisionWarehouseId = sellerProduct.warehouse_id;
@@ -105,29 +102,100 @@ export const approveSellerProduct = async (req, res) => {
             });
         }
 
-        // 1. Update status to APPROVED
-        const updatedSellerProduct = await prisma.seller_products.update({
-            where: { id },
-            data: {
-                status: 'APPROVED',
-                admin_selling_price: adminSellingPrice || sellerProduct.seller_offer_price
+        // 1. Approve this request + auto-assign all active variants of the same parent product
+        const updatedSellerProduct = await prisma.$transaction(async (tx) => {
+            const updated = await tx.seller_products.update({
+                where: { id },
+                data: {
+                    status: 'APPROVED',
+                    admin_selling_price: adminSellingPrice || sellerProduct.seller_offer_price
+                }
+            });
+
+            const allActiveVariants = await tx.product_variants.findMany({
+                where: {
+                    product_id: sellerProduct.product_id,
+                    active: true
+                },
+                select: {
+                    id: true,
+                    price: true,
+                    old_price: true
+                }
+            });
+
+            const existingRows = await tx.seller_products.findMany({
+                where: {
+                    seller_id: sellerProduct.seller_id,
+                    product_id: sellerProduct.product_id,
+                    warehouse_id: divisionWarehouseId
+                },
+                select: { variant_id: true }
+            });
+
+            const existingVariantIds = new Set(existingRows.map((r) => r.variant_id).filter(Boolean));
+
+            const missingVariantRows = allActiveVariants
+                .filter((variant) => !existingVariantIds.has(variant.id))
+                .map((variant) => ({
+                    seller_id: sellerProduct.seller_id,
+                    product_id: sellerProduct.product_id,
+                    variant_id: variant.id,
+                    warehouse_id: divisionWarehouseId,
+                    stock_quantity: 0,
+                    reserved_quantity: 0,
+                    seller_offer_price: variant.price || 0,
+                    admin_selling_price: variant.price || 0,
+                    mrp: variant.old_price || variant.price || 0,
+                    status: 'APPROVED',
+                    is_active: true
+                }));
+
+            if (missingVariantRows.length > 0) {
+                await tx.seller_products.createMany({
+                    data: missingVariantRows,
+                    skipDuplicates: true
+                });
             }
+
+            // Ensure existing sibling variants for this parent are approved too
+            await tx.seller_products.updateMany({
+                where: {
+                    seller_id: sellerProduct.seller_id,
+                    product_id: sellerProduct.product_id,
+                    warehouse_id: divisionWarehouseId
+                },
+                data: {
+                    status: 'APPROVED',
+                    is_active: true
+                }
+            });
+
+            return updated;
         });
 
-        // 2. Decrement stock from Zonal Warehouse (Admin Stock)
-        await prisma.$executeRaw`
-            UPDATE inventory 
-            SET admin_stock = GREATEST(admin_stock - ${quantity}, 0),
-                stock_qty = GREATEST(stock_qty - ${quantity}, 0),
-                updated_at = NOW()
-            WHERE warehouse_id = ${zonalWarehouseId} 
-              AND variant_id = ${variantId}::uuid
-        `;
+        // 2. Stock transfer should happen only when first-time approval
+        if (!wasAlreadyApproved) {
+            await prisma.$executeRaw`
+                UPDATE inventory 
+                SET admin_stock = GREATEST(admin_stock - ${quantity}, 0),
+                    stock_qty = GREATEST(stock_qty - ${quantity}, 0),
+                    updated_at = NOW()
+                WHERE warehouse_id = ${zonalWarehouseId} 
+                  AND variant_id = ${variantId}::uuid
+            `;
 
-        // 3. Recalculate Seller Stock for Division Warehouse (This uses seller.dao.js function)
-        await SellerDAO.recalculateSellerStock(divisionWarehouseId, variantId);
+            // 3. Recalculate Seller Stock for Division Warehouse
+            await SellerDAO.recalculateSellerStock(divisionWarehouseId, variantId);
+        }
 
-        res.status(200).json({ success: true, message: 'Seller product approved and stock transferred successfully', data: updatedSellerProduct });
+        res.status(200).json({
+            success: true,
+            message: wasAlreadyApproved
+                ? 'Seller product already approved. Parent product variants are now assigned to seller.'
+                : 'Seller product approved and all parent product variants assigned to seller successfully',
+            data: updatedSellerProduct
+        });
     } catch (error) {
         console.error('approveSellerProduct error:', error);
         res.status(500).json({ success: false, error: 'Failed to approve seller product' });

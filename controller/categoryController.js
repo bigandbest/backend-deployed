@@ -1,6 +1,10 @@
 import { uploadToCloudinary } from "../services/uploadService.js";
 import prisma from "../config/prisma.js";
 import CategoryDAO from "../dao/category.dao.js";
+import {
+  validateCategoryCreationLock,
+  validateGroupCreationLock,
+} from "../services/platformFeeService.js";
 
 // Add new category
 export const addCategory = async (req, res) => {
@@ -279,6 +283,15 @@ export const getSubcategoriesByCategory = async (req, res) => {
 export const addSubcategory = async (req, res) => {
   try {
     const subcategoryData = { ...req.body };
+    if (!subcategoryData.category_id) {
+      return res.status(400).json({
+        success: false,
+        error: "category_id is required",
+      });
+    }
+
+    await validateCategoryCreationLock(subcategoryData.category_id);
+
     // Parse boolean fields
     if (subcategoryData.active !== undefined)
       subcategoryData.active = subcategoryData.active === "true";
@@ -324,7 +337,11 @@ export const addSubcategory = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in addSubcategory:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
+    const status = error.message?.includes("Cannot create") ? 400 : 500;
+    res.status(status).json({
+      success: false,
+      error: status === 400 ? error.message : "Internal server error",
+    });
   }
 };
 
@@ -480,6 +497,15 @@ export const getGroupsBySubcategory = async (req, res) => {
 export const addGroup = async (req, res) => {
   try {
     const groupData = { ...req.body };
+    if (!groupData.subcategory_id) {
+      return res.status(400).json({
+        success: false,
+        error: "subcategory_id is required",
+      });
+    }
+
+    await validateGroupCreationLock(groupData.subcategory_id);
+
     // Parse boolean fields
     if (groupData.active !== undefined)
       groupData.active = groupData.active === "true";
@@ -525,7 +551,11 @@ export const addGroup = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in addGroup:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
+    const status = error.message?.includes("Cannot create") ? 400 : 500;
+    res.status(status).json({
+      success: false,
+      error: status === 400 ? error.message : "Internal server error",
+    });
   }
 };
 

@@ -115,6 +115,7 @@ model categories {
   featured                   Boolean?                     @default(false)
   icon                       String?
   active                     Boolean?                     @default(true)
+  has_fee                    Boolean?                     @default(false)
   product_section_categories product_section_categories[]
   products                   products[]
   subcategories              subcategories[]
@@ -348,12 +349,54 @@ model groups {
   subcategory_id         String                   @db.Uuid
   featured               Boolean?                 @default(false)
   active                 Boolean?                 @default(true)
+  has_fee                Boolean?                 @default(false)
   sort_order             Int?                     @default(0)
   created_at             DateTime?                @default(now()) @db.Timestamptz(6)
   updated_at             DateTime?                @default(now()) @db.Timestamptz(6)
   subcategories          subcategories            @relation(fields: [subcategory_id], references: [id])
   product_section_groups product_section_groups[]
   products               products[]
+}
+
+model platform_fee_configurations {
+  id             Int       @id @default(autoincrement())
+  entity_type    String    @db.VarChar // category | subcategory | group
+  entity_id      String    @db.Uuid
+  fee_percentage Decimal   @db.Decimal(5, 2)
+  is_active      Boolean?  @default(true)
+  created_by     String?   @db.Uuid
+  created_at     DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@unique([entity_type, entity_id])
+  @@index([entity_type, entity_id])
+}
+
+model platform_fee_groups {
+  id             String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String                        @db.VarChar
+  entity_type    String                        @db.VarChar // category | subcategory | group
+  fee_percentage Decimal                       @db.Decimal(5, 2)
+  is_active      Boolean?                      @default(true)
+  created_by     String?                       @db.Uuid
+  created_at     DateTime?                     @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime?                     @default(now()) @db.Timestamptz(6)
+  entities       platform_fee_group_entities[]
+
+  @@index([entity_type])
+}
+
+model platform_fee_group_entities {
+  id          Int                 @id @default(autoincrement())
+  fee_group_id String             @db.Uuid
+  entity_type String              @db.VarChar // category | subcategory | group
+  entity_id   String              @db.Uuid
+  created_at  DateTime?           @default(now()) @db.Timestamptz(6)
+  fee_group   platform_fee_groups @relation(fields: [fee_group_id], references: [id], onDelete: Cascade)
+
+  @@unique([fee_group_id, entity_id])
+  @@unique([entity_type, entity_id])
+  @@index([entity_type, entity_id])
 }
 
 model inventory {
@@ -1193,6 +1236,7 @@ model subcategories {
   category_id                  String                         @db.Uuid
   featured                     Boolean?                       @default(false)
   active                       Boolean?                       @default(true)
+  has_fee                      Boolean?                       @default(false)
   sort_order                   Int?                           @default(0)
   created_at                   DateTime?                      @default(now()) @db.Timestamptz(6)
   updated_at                   DateTime?                      @default(now()) @db.Timestamptz(6)
@@ -1476,8 +1520,8 @@ model warehouses {
   warehouse_scheduling_config warehouse_scheduling_config[]
   warehouse_sellers           warehouse_sellers[]
   warehouse_zones             warehouse_zones[]
-  warehouses                  warehouses?                   @relation("warehousesTowarehouses", fields: [parent_warehouse_id], references: [id])
-  other_warehouses            warehouses[]                  @relation("warehousesTowarehouses")
+  parent_warehouse            warehouses?                   @relation("warehouse_hierarchy", fields: [parent_warehouse_id], references: [id])
+  child_warehouses            warehouses[]                  @relation("warehouse_hierarchy")
 }
 
 model wishlist_items {

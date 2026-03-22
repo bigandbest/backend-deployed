@@ -27,8 +27,8 @@ export const getWarehouses = async (req, res) => {
 
         if (warehouse.type === "zonal") {
           zones = detailed.warehouse_zones?.map(wz => ({
-            ...wz.zone,
-            pincodes: wz.zone?.zone_pincodes || []
+            ...wz.delivery_zones,
+            pincodes: wz.delivery_zones?.zone_pincodes || []
           })).filter(Boolean) || [];
         } else if (warehouse.type === "division") {
           pincodes = detailed.warehouse_pincodes || [];
@@ -145,8 +145,8 @@ export const getSingleWarehouse = async (req, res) => {
     let zones = [];
     if (warehouse.warehouse_zones) {
       zones = warehouse.warehouse_zones.map(wz => ({
-        ...wz.zone,
-        pincodes: wz.zone?.zone_pincodes || []
+        ...wz.delivery_zones,
+        pincodes: wz.delivery_zones?.zone_pincodes || []
       }));
     }
 
@@ -575,10 +575,10 @@ export const getZonalWarehousePincodes = async (req, res) => {
     if (!warehouse || warehouse.type !== 'zonal') return res.status(400).json({ error: "Invalid Zonal Warehouse" });
 
     // Extract pincodes from zones
-    // Since getById includes warehouse_zones -> zone -> zone_pincodes
+    // Since getById includes warehouse_zones -> delivery_zones -> zone_pincodes
     const pincodeMap = new Map();
     warehouse.warehouse_zones?.forEach(wz => {
-      wz.zone?.zone_pincodes?.forEach(zp => {
+      wz.delivery_zones?.zone_pincodes?.forEach(zp => {
         if (!pincodeMap.has(zp.pincode)) {
           pincodeMap.set(zp.pincode, {
             pincode: zp.pincode,
@@ -748,11 +748,11 @@ export const getWarehouseSellers = async (req, res) => {
     res.status(200).json({
       success: true,
       data: sellers.map(ws => ({
-        id: ws.seller?.id,
-        user_id: ws.seller?.user_id,
-        business_name: ws.seller?.business_name,
-        seller_type: ws.seller?.seller_type,
-        user: ws.seller?.user,
+        id: ws.sellers?.id,
+        user_id: ws.sellers?.user_id,
+        business_name: ws.sellers?.business_name,
+        seller_type: ws.sellers?.seller_type,
+        user: ws.sellers?.users,
         assigned_at: ws.assigned_at,
       })),
     });
@@ -812,11 +812,11 @@ export const getWarehouseRiders = async (req, res) => {
     res.status(200).json({
       success: true,
       data: riders.map(wr => ({
-        id: wr.rider?.id,
-        user_id: wr.rider?.user_id,
-        vehicle_type: wr.rider?.vehicle_type,
-        is_available: wr.rider?.is_available,
-        user: wr.rider?.user,
+        id: wr.riders?.id,
+        user_id: wr.riders?.user_id,
+        vehicle_type: wr.riders?.vehicle_type,
+        is_available: wr.riders?.is_available,
+        user: wr.riders?.users,
         assigned_at: wr.assigned_at,
       })),
     });

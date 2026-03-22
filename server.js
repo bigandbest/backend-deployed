@@ -103,6 +103,7 @@ import riderAdminRoutes from "./routes/riderAdminRoutes.js";
 import riderPayoutRoutes from "./routes/riderPayoutRoutes.js";
 import attendanceRoutes from "./routes/attendanceRoutes.js";
 import riderOrderRoutes from "./routes/riderOrderRoutes.js";
+import platformFeeRoutes from "./routes/platformFeeRoutes.js";
 import { startAutoCheckoutCron } from "./services/autoCheckoutCron.js";
 
 // Configuration
@@ -303,6 +304,7 @@ const createApp = () => {
   app.use("/api/coupons", couponRoutes);
   app.use("/api/faq-templates", faqTemplateRoutes);
   app.use("/api/out-of-stock", outOfStockRoutes);
+  app.use("/api/platform-fees", platformFeeRoutes);
 
   // Enhanced health check with cluster and system info
   app.get("/api/health", (req, res) => {

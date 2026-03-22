@@ -1,0 +1,13 @@
+model platform_fee_configurations {
+  id             Int       @id @default(autoincrement())
+  entity_type    String    @db.VarChar // category | subcategory | group
+  entity_id      String    @db.Uuid
+  fee_percentage Decimal   @db.Decimal(5, 2)
+  is_active      Boolean?  @default(true)
+  created_by     String?   @db.Uuid
+  created_at     DateTime? @default(now()) @db.Timestamptz
+  updated_at     DateTime? @default(now()) @db.Timestamptz
+
+  @@unique([entity_type, entity_id])
+  @@index([entity_type, entity_id])
+}
