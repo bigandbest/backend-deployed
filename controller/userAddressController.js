@@ -396,7 +396,7 @@ export const reverseGeocode = async (req, res) => {
 
 export const checkServiceability = async (req, res) => {
   try {
-    const { pincode } = req.params;
+    const pincode = String(req.params.pincode || "").trim();
 
     if (!pincode || !/^\d{6}$/.test(pincode)) {
       return res.status(400).json({
@@ -405,13 +405,41 @@ export const checkServiceability = async (req, res) => {
       });
     }
 
-    // Find if this pincode is mapped to any warehouse
+    // Find division warehouse directly mapped to this pincode
     const mapping = await prisma.warehouse_pincodes.findFirst({
-      where: { pincode, is_active: true },
+      where: {
+        pincode,
+        is_active: true,
+        warehouse: {
+          is_active: true,
+        },
+      },
       include: { warehouse: true },
     });
 
-    if (!mapping) {
+    // Find zonal warehouse serving the same pincode through its delivery zone
+    const zonePincode = await prisma.zone_pincodes.findFirst({
+      where: { pincode, is_active: true },
+      include: {
+        delivery_zones: {
+          include: {
+            warehouse_zones: {
+              where: { is_active: true },
+              include: {
+                warehouses: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const zonalWarehouse =
+      zonePincode?.delivery_zones?.warehouse_zones
+        ?.map((warehouseZone) => warehouseZone.warehouses)
+        ?.find((warehouse) => warehouse?.is_active && warehouse?.type?.toLowerCase() === "zonal") || null;
+
+    if (!mapping && !zonalWarehouse) {
       return res.json({
         success: true,
         serviceable: false,
@@ -419,7 +447,8 @@ export const checkServiceability = async (req, res) => {
       });
     }
 
-    const warehouseType = mapping.warehouse.type?.toLowerCase();
+    const warehouseType = mapping?.warehouse?.type?.toLowerCase() || zonalWarehouse?.type?.toLowerCase() || null;
+    const displayWarehouse = zonalWarehouse || mapping?.warehouse || null;
 
     // Default tagline
     let tagline = "Aapke Ghar tak in 2 hours";
@@ -436,9 +465,16 @@ export const checkServiceability = async (req, res) => {
       success: true,
       serviceable: true,
       warehouse_type: warehouseType,
+      warehouse_id: mapping?.warehouse?.id || zonalWarehouse?.id || null,
+      warehouse_name: mapping?.warehouse?.name || zonalWarehouse?.name || null,
+      warehouse_location: mapping?.warehouse?.location || zonalWarehouse?.location || null,
+      header_warehouse_id: displayWarehouse?.id || null,
+      header_warehouse_name: displayWarehouse?.name || null,
+      header_warehouse_type: displayWarehouse?.type?.toLowerCase() || null,
+      header_warehouse_location: displayWarehouse?.location || null,
       tagline,
       estimation,
-      delivery_days: mapping.delivery_days
+      delivery_days: mapping?.delivery_days || null
     });
   } catch (error) {
     console.error("Serviceability Check Error:", error);

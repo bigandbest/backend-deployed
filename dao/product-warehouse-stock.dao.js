@@ -109,7 +109,7 @@ class ProductWarehouseStockDAO {
     }
 
     async getByVariantAndWarehouse(variantId, warehouseId) {
-        return await prisma.product_warehouse_stock.findFirst({
+        return await this.db.product_warehouse_stock.findFirst({
             where: {
                 variant_id: variantId,
                 warehouse_id: warehouseId
@@ -121,7 +121,7 @@ class ProductWarehouseStockDAO {
         const existing = await this.getByProductAndWarehouse(productId, warehouseId);
 
         if (existing) {
-            return await prisma.product_warehouse_stock.update({
+            return await this.db.product_warehouse_stock.update({
                 where: { id: existing.id },
                 data: {
                     ...stockData,
@@ -135,14 +135,14 @@ class ProductWarehouseStockDAO {
     }
 
     async listByProduct(productId) {
-        return await prisma.product_warehouse_stock.findMany({
+        return await this.db.product_warehouse_stock.findMany({
             where: { product_id: productId },
             include: { warehouses: true }
         });
     }
 
     async listByVariant(variantId) {
-        return await prisma.product_warehouse_stock.findMany({
+        return await this.db.product_warehouse_stock.findMany({
             where: { variant_id: variantId, is_active: true },
             include: { warehouses: true }
         });
@@ -152,7 +152,7 @@ class ProductWarehouseStockDAO {
         const existing = await this.getByVariantAndWarehouse(variantId, warehouseId);
 
         if (existing) {
-            return await prisma.product_warehouse_stock.update({
+            return await this.db.product_warehouse_stock.update({
                 where: { id: existing.id },
                 data: {
                     ...stockData,
@@ -166,13 +166,13 @@ class ProductWarehouseStockDAO {
     }
 
     async createMany(records) {
-        return await prisma.product_warehouse_stock.createMany({
+        return await this.db.product_warehouse_stock.createMany({
             data: records
         });
     }
 
     async listByWarehouses(warehouseIds) {
-        return await prisma.product_warehouse_stock.findMany({
+        return await this.db.product_warehouse_stock.findMany({
             where: {
                 warehouse_id: { in: warehouseIds },
                 is_active: true

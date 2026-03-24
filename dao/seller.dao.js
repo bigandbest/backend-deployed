@@ -521,6 +521,46 @@ class SellerDAO {
     }
 
     /**
+     * Get the first available approved seller for a product/variant in a warehouse
+     */
+    async getFirstAvailableSeller(productId, variantId, warehouseId, quantity = 1) {
+        const where = {
+            product_id: productId,
+            warehouse_id: parseInt(warehouseId),
+            status: 'APPROVED',
+            is_active: true,
+            stock_quantity: {
+                gte: quantity
+            }
+        };
+        
+        if (variantId) {
+            where.variant_id = variantId;
+        } else {
+            where.variant_id = null;
+        }
+
+        const result = await prisma.seller_products.findFirst({
+            where,
+            include: {
+                sellers: {
+                    select: { id: true, business_name: true, is_open: true }
+                }
+            },
+            orderBy: { stock_quantity: 'desc' }
+        });
+
+        if (result && result.sellers) {
+            return {
+                ...result.sellers,
+                name: result.sellers.business_name, // Map back for consistency if needed
+                stock_quantity: result.stock_quantity
+            };
+        }
+        return null;
+    }
+
+    /**
      * Toggle Store Open/Close Status
      */
     async toggleStoreStatus(sellerId, isOpen) {
