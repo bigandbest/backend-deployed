@@ -17,83 +17,236 @@ import refundRequestDao from "../dao/refund-request.dao.js";
 import userControlDao from "../dao/user.dao.js";
 import chargeSettingDao from "../dao/charge-setting.dao.js";
 import prisma from "../config/prisma.js";
+import { checkMultipleProductsDelivery } from "./deliveryValidationService.js";
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-// Helper function to find seller/warehouse for product based on delivery pincode
-const findWarehouseForProduct = async (productId, pincode, productType, quantity = 1) => {
-  try {
-    // 1. Get product details
-    const product = await productDao.getProductById(productId);
+const validateOrderDeliverability = async (items, pincode) => {
+  const normalizedPincode = String(pincode || "").trim();
 
+  if (!normalizedPincode || !/^\d{6}$/.test(normalizedPincode)) {
+    return {
+      success: false,
+      error: "A valid 6-digit delivery pincode is required",
+      status: 400,
+    };
+  }
+
+  const deliveryCheck = await checkMultipleProductsDelivery(
+    (items || []).map((item) => ({
+      product_id: item.product_id || item.id || item.product?.id,
+      quantity: parseInt(item.quantity, 10) || 1,
+    })).filter((item) => item.product_id),
+    normalizedPincode
+  );
+
+  if (!deliveryCheck.success) {
+    return {
+      success: false,
+      error: deliveryCheck.error || "Unable to validate delivery availability",
+      status: 500,
+    };
+  }
+
+  if (!deliveryCheck.all_deliverable) {
+    return {
+      success: false,
+      error: "Some items are not deliverable to this pincode",
+      status: 400,
+      unavailable_products: deliveryCheck.unavailable_products,
+    };
+  }
+
+  return { success: true, pincode: normalizedPincode };
+};
+
+const resolveOrderItemVariantId = async (item, productId) => {
+  if (item.variant_id || item.variantId || item.variant?.id) {
+    return item.variant_id || item.variantId || item.variant?.id;
+  }
+
+  const product = await productDao.getProductById(productId);
+  return product?.variants?.find((v) => v.is_default)?.id || product?.variants?.[0]?.id || null;
+};
+
+const findStockInWarehouses = async (productId, warehouseIds, quantity = 1, variantId = null, warehouseType = null) => {
+  if (!warehouseIds?.length) return null;
+
+  return prisma.product_warehouse_stock.findFirst({
+    where: {
+      product_id: productId,
+      warehouse_id: { in: warehouseIds },
+      is_active: true,
+      stock_quantity: { gte: quantity },
+      ...(variantId ? { variant_id: variantId } : {}),
+      ...(warehouseType
+        ? {
+            warehouses: {
+              type: warehouseType,
+              is_active: true,
+            },
+          }
+        : {}),
+    },
+    include: {
+      warehouses: true,
+    },
+    orderBy: {
+      stock_quantity: "desc",
+    },
+  });
+};
+
+const getDivisionWarehousesForPincode = async (pincode) => {
+  return prisma.warehouse_pincodes.findMany({
+    where: {
+      pincode,
+      is_active: true,
+      warehouse: {
+        is_active: true,
+        type: "division",
+      },
+    },
+    include: {
+      warehouse: true,
+    },
+  });
+};
+
+const getZonalWarehousesForPincode = async (pincode) => {
+  const zoneMappings = await prisma.zone_pincodes.findMany({
+    where: {
+      pincode,
+      is_active: true,
+    },
+    include: {
+      delivery_zones: {
+        include: {
+          warehouse_zones: {
+            where: { is_active: true },
+            include: {
+              warehouses: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const zonalWarehouses = [];
+  const seenWarehouseIds = new Set();
+
+  for (const zoneMapping of zoneMappings) {
+    for (const warehouseZone of zoneMapping.delivery_zones?.warehouse_zones || []) {
+      const warehouse = warehouseZone.warehouses;
+      if (
+        warehouse &&
+        warehouse.is_active &&
+        warehouse.type === "zonal" &&
+        !seenWarehouseIds.has(warehouse.id)
+      ) {
+        seenWarehouseIds.add(warehouse.id);
+        zonalWarehouses.push(warehouse);
+      }
+    }
+  }
+
+  return zonalWarehouses;
+};
+
+// Priority: seller -> division warehouse -> zonal warehouse -> unavailable
+const findWarehouseForProduct = async (productId, pincode, productType, quantity = 1, variantId = null) => {
+  try {
+    const product = await productDao.getProductById(productId);
     if (!product) {
       console.warn(`Product not found: ${productId}`);
       return null;
     }
 
-    // 2. Try to find a local seller serving this exact pincode
-    if (pincode) {
-      // Find sellers whose mapped pincode array contains the delivery pincode AND are open
-      const potentialSellers = await prisma.sellers.findMany({
+    const normalizedPincode = String(pincode || "").trim();
+    const divisionMappings = normalizedPincode
+      ? await getDivisionWarehousesForPincode(normalizedPincode)
+      : [];
+    const divisionWarehouseIds = divisionMappings.map((mapping) => mapping.warehouse_id);
+
+    // 1. Seller stock in division warehouse serving this pincode
+    if (divisionWarehouseIds.length > 0) {
+      const sellerProduct = await prisma.seller_products.findFirst({
         where: {
+          product_id: productId,
+          warehouse_id: { in: divisionWarehouseIds },
           is_active: true,
-          is_open: true,
-          pincode: {
-            contains: pincode // Assuming it's a comma separated string in the DB
-          }
+          status: "APPROVED",
+          stock_quantity: { gte: quantity },
+          ...(variantId ? { variant_id: variantId } : {}),
+          sellers: {
+            is_active: true,
+            is_open: true,
+          },
         },
         include: {
-          warehouse_sellers: {
-            include: {
-              warehouses: true
-            }
-          }
-        }
+          sellers: true,
+          warehouses: true,
+        },
+        orderBy: {
+          stock_quantity: "desc",
+        },
       });
 
-      if (potentialSellers.length > 0) {
-        // Find which of these sellers actually has stock in their warehouse for this product
-        for (const seller of potentialSellers) {
-          if (seller.warehouse_sellers && seller.warehouse_sellers.length > 0) {
-            const whId = seller.warehouse_sellers[0].warehouse_id;
-            const whStock = await warehouseStockDao.getZonalStock(productId, null, quantity); // getZonalStock by product
-
-            // Check if this specific warehouse has stock
-            const specificStock = await prisma.product_warehouse_stock.findUnique({
-              where: {
-                product_id_warehouse_id: {
-                  product_id: productId,
-                  warehouse_id: whId
-                }
-              }
-            });
-
-            if (specificStock && specificStock.stock_quantity >= quantity) {
-              return {
-                warehouse_id: whId,
-                warehouse_name: seller.warehouse_sellers[0].warehouses?.name || "Zonal Warehouse",
-                seller_id: seller.id,
-                priority: 1,
-                fallback_level: 0,
-              };
-            }
-          }
-        }
+      if (sellerProduct) {
+        return {
+          warehouse_id: sellerProduct.warehouse_id,
+          warehouse_name: sellerProduct.warehouses?.name || "Division Warehouse",
+          seller_id: sellerProduct.seller_id,
+          assignment_source: "seller",
+          priority: 1,
+          fallback_level: 0,
+        };
       }
     }
 
-    // 3. Fallback to central warehouse if no local seller has stock or serves the pincode
-    const centralStock = await warehouseStockDao.getCentralStock(productId, quantity);
-    if (centralStock && centralStock.stock_quantity >= quantity) {
+    // 2. Division warehouse stock for this pincode
+    const divisionStock = await findStockInWarehouses(
+      productId,
+      divisionWarehouseIds,
+      quantity,
+      variantId,
+      "division"
+    );
+    if (divisionStock) {
       return {
-        warehouse_id: centralStock.warehouse_id,
-        warehouse_name: centralStock.warehouses?.name || "Central Warehouse",
+        warehouse_id: divisionStock.warehouse_id,
+        warehouse_name: divisionStock.warehouses?.name || "Division Warehouse",
         seller_id: null,
+        assignment_source: "division",
         priority: 2,
         fallback_level: 1,
+      };
+    }
+
+    // 3. Zonal warehouse stock for the zone serving this pincode
+    const zonalWarehouses = normalizedPincode
+      ? await getZonalWarehousesForPincode(normalizedPincode)
+      : [];
+    const zonalWarehouseIds = zonalWarehouses.map((warehouse) => warehouse.id);
+    const zonalStock = await findStockInWarehouses(
+      productId,
+      zonalWarehouseIds,
+      quantity,
+      variantId,
+      "zonal"
+    );
+    if (zonalStock) {
+      return {
+        warehouse_id: zonalStock.warehouse_id,
+        warehouse_name: zonalStock.warehouses?.name || "Zonal Warehouse",
+        seller_id: null,
+        assignment_source: "zonal",
+        priority: 3,
+        fallback_level: 2,
       };
     }
 
@@ -377,13 +530,50 @@ export const placeOrder = async (req, res) => {
     const addressParts = address.split(",");
     const pincode = addressParts[addressParts.length - 2]?.trim() || "000000";
 
+    const deliverabilityValidation = await validateOrderDeliverability(items, pincode);
+    if (!deliverabilityValidation.success) {
+      return res.status(deliverabilityValidation.status).json(deliverabilityValidation);
+    }
+
+    const preparedItems = [];
+
+    for (const item of items) {
+      const productId = item.product_id || item.id || item.product?.id;
+      if (!productId) {
+        return res.status(400).json({ success: false, error: "Order item is missing product_id" });
+      }
+
+      const quantity = parseInt(item.quantity, 10) || 1;
+      const variantId = await resolveOrderItemVariantId(item, productId);
+      if (!variantId) {
+        return res.status(400).json({ success: false, error: `No variant found for product ${productId}` });
+      }
+
+      const warehouseInfo = await findWarehouseForProduct(
+        productId,
+        deliverabilityValidation.pincode,
+        item.product_type,
+        quantity,
+        variantId
+      );
+
+      if (!warehouseInfo) {
+        return res.status(400).json({
+          success: false,
+          error: `Product ${productId} is not available for pincode ${deliverabilityValidation.pincode}`,
+        });
+      }
+
+      preparedItems.push({ item, productId, quantity, variantId, warehouseInfo });
+    }
+
     const order = await orderDao.create({
       user_id,
       subtotal: parseFloat(subtotal),
       shipping: parseFloat(shipping),
       total: parseFloat(total),
       address,
-      delivery_pincode: pincode,
+      delivery_pincode: deliverabilityValidation.pincode,
       payment_method,
       status: "pending",
       coupon_code: coupon_code || null,
@@ -397,43 +587,7 @@ export const placeOrder = async (req, res) => {
     const orderItemsToInsert = [];
     const warehouseAssignments = [];
 
-    for (const item of items) {
-      // Robust ID extraction
-      const productId = item.product_id || item.id || item.product?.id;
-      let variantId = item.variant_id || item.variantId || item.variant?.id;
-
-      if (!productId) {
-        console.error("Skipping item with missing product ID:", item);
-        continue;
-      }
-
-      const quantity = parseInt(item.quantity) || 1;
-
-      // Find appropriate warehouse for this product
-      const warehouseInfo = await findWarehouseForProduct(
-        productId,
-        pincode,
-        item.product_type,
-        quantity
-      );
-
-      // We need variant_id for order_items in Prisma
-      if (!variantId) {
-        try {
-          const product = await productDao.getProductById(productId);
-          if (product && product.variants && product.variants.length > 0) {
-            variantId = product.variants.find(v => v.is_default)?.id || product.variants[0].id;
-          }
-        } catch (fetchError) {
-          console.warn(`Failed to fetch product/variants for fallback: ${productId}`, fetchError);
-        }
-      }
-
-      if (!variantId) {
-        console.error(`No variant found for product ${productId}, item:`, item);
-        continue;
-      }
-
+    for (const { item, productId, quantity, variantId, warehouseInfo } of preparedItems) {
       orderItemsToInsert.push({
         order_id: order.id,
         variant_id: variantId,
@@ -581,6 +735,44 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       }
     }
 
+    const pincodeStr = detailedAddress.postalCode?.trim() || "";
+    const deliverabilityValidation = await validateOrderDeliverability(items, pincodeStr);
+    if (!deliverabilityValidation.success) {
+      return res.status(deliverabilityValidation.status).json(deliverabilityValidation);
+    }
+
+    const preparedItems = [];
+
+    for (const item of items) {
+      const productId = item.product_id || item.id;
+      if (!productId) {
+        return res.status(400).json({ success: false, error: "Order item is missing product_id" });
+      }
+
+      const quantity = parseInt(item.quantity, 10) || 1;
+      const variantId = await resolveOrderItemVariantId(item, productId);
+      if (!variantId) {
+        return res.status(400).json({ success: false, error: `No variant found for product ${productId}` });
+      }
+
+      const warehouseInfo = await findWarehouseForProduct(
+        productId,
+        deliverabilityValidation.pincode,
+        item.product_type,
+        quantity,
+        variantId
+      );
+
+      if (!warehouseInfo) {
+        return res.status(400).json({
+          success: false,
+          error: `Product ${productId} is not available for pincode ${deliverabilityValidation.pincode}`,
+        });
+      }
+
+      preparedItems.push({ item, productId, quantity, variantId, warehouseInfo });
+    }
+
     const orderData = {
       user_id,
       subtotal: parseFloat(subtotal),
@@ -594,7 +786,7 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       razorpay_signature,
       mobile: mobile || detailedAddress.mobile || null,
       receiver_name: receiver_name || detailedAddress.receiver_name || null,
-      delivery_pincode: detailedAddress.postalCode?.trim() || "000000",
+      delivery_pincode: deliverabilityValidation.pincode,
       coupon_code: coupon_code || null,
       coupon_discount: coupon_discount ? parseFloat(coupon_discount) : 0,
       seller_id,
@@ -607,34 +799,11 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
     const orderItemsToInsert = [];
     let hasBulkOrder = false;
 
-    for (const item of items) {
-      const productId = item.product_id || item.id;
-      const quantity = item.quantity || 1;
+    for (const { item, productId, quantity, variantId, warehouseInfo } of preparedItems) {
       let finalPrice = parseFloat(item.price);
       let isBulkOrder = false;
       let bulkRange = null;
       let originalPrice = parseFloat(item.price);
-
-      // 1. Find the appropriate warehouse/seller for this specific product based on pincode
-      const pincodeStr = detailedAddress.postalCode?.trim() || "000000";
-      const warehouseInfo = await findWarehouseForProduct(
-        productId,
-        pincodeStr,
-        item.product_type,
-        quantity
-      );
-
-      // Find variant_id
-      let variantId = item.variant_id;
-      if (!variantId) {
-        const product = await productDao.getProductById(productId);
-        variantId = product?.variants?.find(v => v.is_default)?.id || product?.variants[0]?.id;
-      }
-
-      if (!variantId) {
-        console.error(`No variant found for product ${productId}`);
-        continue;
-      }
 
       try {
         const bulkSettingsList = await bulkProductSettingsDao.getSettings(productId);
@@ -681,17 +850,11 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
     }
 
     // Reduce inventory
-    for (const item of items) {
-      const productId = item.product_id || item.id;
-      const quantity = item.quantity;
+    for (const { productId, quantity, warehouseInfo } of preparedItems) {
 
       try {
-        // Attempt to deduct from available stock using DAO (this should ideally handle warehouse selection)
-        // Since the original code had complex warehouse logic, I'll use the warehouseStockDao
-        const warehouseStock = await warehouseStockDao.getCentralStock(productId, quantity) || await warehouseStockDao.getZonalStock(productId, null, quantity);
-
-        if (warehouseStock) {
-          await warehouseStockDao.confirmStockDeduction(productId, warehouseStock.warehouse_id, quantity, order.id);
+        if (warehouseInfo?.warehouse_id) {
+          await warehouseStockDao.confirmStockDeduction(productId, warehouseInfo.warehouse_id, quantity, order.id);
         }
 
         // Also update total product stock

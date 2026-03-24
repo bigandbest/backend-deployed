@@ -4,6 +4,7 @@ import productDao from "../dao/product.dao.js";
 import productVariantDao from "../dao/product-variant.dao.js";
 import productWarehouseStockDao from "../dao/product-warehouse-stock.dao.js";
 import categoryDao from "../dao/category.dao.js";
+import sellerDao from "../dao/seller.dao.js";
 import deliveryZoneDao from "../dao/delivery-zone.dao.js";
 import partnerDao from "../dao/partner.dao.js";
 import stockMovementDao from "../dao/stock-movement.dao.js";
@@ -1517,8 +1518,8 @@ export const checkProductAvailability = async (req, res) => {
             warehouse_type: "zonal",
             warehouse_id: warehouse.id,
             warehouse_name: warehouse.name,
-            delivery_days: 3,
-            delivery_message: "Delivery in 3-4 working days",
+            delivery_days: 0.5, // Representing same day
+            delivery_message: "Same day delivery",
             available_quantity: zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0),
             pincode_info: { pincode: zonePincode.pincode, city: zonePincode.city, state: zonePincode.state },
           });
@@ -1543,48 +1544,99 @@ export const checkCartAvailability = async (req, res) => {
     const { items, pincode } = req.body;
     if (!items || !Array.isArray(items) || !pincode) return res.status(400).json({ success: false, error: "Invalid input" });
 
-    const divisionWarehouse = await warehousePincodeDao.getByPincode(pincode);
-    const zonePincode = await zonePincodeDao.getByPincode(pincode);
+    const divisionWarehouseResults = await warehousePincodeDao.getByPincode(pincode);
+    const zonePincodeResults = await zonePincodeDao.getByPincode(pincode);
+
+    const divisionWarehouse = divisionWarehouseResults && divisionWarehouseResults.length > 0 ? divisionWarehouseResults[0] : null;
+    const zonePincode = zonePincodeResults && zonePincodeResults.length > 0 ? zonePincodeResults[0] : null;
 
     const results = [];
     let allAvailable = true;
     let maxDeliveryDays = 0;
 
     for (const item of items) {
-      const { product_id, quantity } = item;
+      const { product_id, variant_id, quantity } = item;
       const product = await productDao.getProductById(product_id);
       if (!product) {
-        results.push({ product_id, available: false, error: "Product not found" });
+        results.push({ product_id, variant_id, available: false, error: "Product not found" });
         allAvailable = false;
         continue;
       }
 
       let availabilityInfo = null;
+
+      // 1. Check Seller
       if (divisionWarehouse) {
-        const divisionStock = await productWarehouseStockDao.getByProductAndWarehouse(product_id, divisionWarehouse.warehouse_id);
-        const availableQty = divisionStock ? divisionStock.stock_quantity - (divisionStock.reserved_quantity || 0) : 0;
-        if (availableQty >= quantity) {
+        const bestSeller = await sellerDao.getFirstAvailableSeller(product_id, variant_id, divisionWarehouse.warehouse_id, quantity);
+        if (bestSeller && bestSeller.is_open !== false) {
           availabilityInfo = {
-            product_id, product_name: product.name, available: true, warehouse_type: "division",
-            warehouse_id: divisionWarehouse.warehouse_id, warehouse_name: divisionWarehouse.warehouses?.name,
-            delivery_days: 1, delivery_message: "Delivery in 1 day", available_quantity: availableQty, requested_quantity: quantity,
+            product_id,
+            variant_id,
+            product_name: product.name,
+            available: true,
+            warehouse_type: "seller",
+            warehouse_id: divisionWarehouse.warehouse_id,
+            warehouse_name: divisionWarehouse.warehouse?.name,
+            seller_id: bestSeller.id,
+            seller_name: bestSeller.business_name || bestSeller.name || "Multiple Sellers",
+            delivery_days: 0.1,
+            delivery_message: "Delivery in 2hr",
+            available_quantity: bestSeller.stock_quantity,
+            requested_quantity: quantity,
           };
           maxDeliveryDays = Math.max(maxDeliveryDays, 1);
         }
       }
 
+      // 2. Check Division Warehouse
+      if (!availabilityInfo && divisionWarehouse) {
+        const divisionStock = variant_id 
+          ? await productWarehouseStockDao.getByVariantAndWarehouse(variant_id, divisionWarehouse.warehouse_id)
+          : await productWarehouseStockDao.getByProductAndWarehouse(product_id, divisionWarehouse.warehouse_id);
+          
+        const availableQty = divisionStock ? divisionStock.stock_quantity - (divisionStock.reserved_quantity || 0) : 0;
+        if (availableQty >= quantity) {
+          availabilityInfo = {
+            product_id,
+            variant_id,
+            product_name: product.name,
+            available: true,
+            warehouse_type: "division",
+            warehouse_id: divisionWarehouse.warehouse_id,
+            warehouse_name: divisionWarehouse.warehouse?.name || divisionWarehouse.warehouses?.name,
+            delivery_days: 0.1,
+            delivery_message: "Delivery in 2hr",
+            available_quantity: availableQty,
+            requested_quantity: quantity,
+          };
+          maxDeliveryDays = Math.max(maxDeliveryDays, 1);
+        }
+      }
+
+      // 3. Check Zonal Warehouse
       if (!availabilityInfo && zonePincode) {
         const zonalWarehouses = await deliveryZoneDao.getZonalWarehouses(zonePincode.zone_id);
         for (const warehouse of zonalWarehouses) {
-          const zonalStock = await productWarehouseStockDao.getByProductAndWarehouse(product_id, warehouse.id);
+          const zonalStock = variant_id
+            ? await productWarehouseStockDao.getByVariantAndWarehouse(variant_id, warehouse.id)
+            : await productWarehouseStockDao.getByProductAndWarehouse(product_id, warehouse.id);
+            
           const availableQty = zonalStock ? zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0) : 0;
           if (availableQty >= quantity) {
             availabilityInfo = {
-              product_id, product_name: product.name, available: true, warehouse_type: "zonal",
-              warehouse_id: warehouse.id, warehouse_name: warehouse.name,
-              delivery_days: 3, delivery_message: "Delivery in 3-4 working days", available_quantity: availableQty, requested_quantity: quantity,
+              product_id,
+              variant_id,
+              product_name: product.name,
+              available: true,
+              warehouse_type: "zonal",
+              warehouse_id: warehouse.id,
+              warehouse_name: warehouse.name,
+              delivery_days: 0.5,
+              delivery_message: "Same day delivery",
+              available_quantity: availableQty,
+              requested_quantity: quantity,
             };
-            maxDeliveryDays = Math.max(maxDeliveryDays, 3);
+            maxDeliveryDays = Math.max(maxDeliveryDays, 0.5);
             break;
           }
         }
@@ -1593,7 +1645,14 @@ export const checkCartAvailability = async (req, res) => {
       if (availabilityInfo) {
         results.push(availabilityInfo);
       } else {
-        results.push({ product_id, product_name: product.name, available: false, delivery_message: "Not available", requested_quantity: quantity });
+        results.push({
+          product_id,
+          variant_id,
+          product_name: product.name,
+          available: false,
+          delivery_message: "Not available",
+          requested_quantity: quantity
+        });
         allAvailable = false;
       }
     }

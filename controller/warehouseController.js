@@ -324,6 +324,7 @@ export const getWarehouseProducts = async (req, res) => {
 export const addProductToWarehouse = async (req, res) => {
   try {
     const { id } = req.params;
+    const warehouseId = Number.parseInt(id, 10);
     const productIdParam = req.params.productId;
     let { product_id, stock_quantity, minimum_threshold, cost_per_unit, variant_id } = req.body;
 
@@ -334,6 +335,11 @@ export const addProductToWarehouse = async (req, res) => {
     console.log('  Variant ID:', variant_id);
     console.log('  Stock Quantity:', stock_quantity);
     console.log('  Request body:', req.body);
+
+    if (Number.isNaN(warehouseId)) {
+      console.log('❌ Invalid warehouse ID');
+      return res.status(400).json({ success: false, error: "Invalid warehouse ID" });
+    }
 
     if (!product_id && productIdParam) {
       product_id = productIdParam;
@@ -367,7 +373,7 @@ export const addProductToWarehouse = async (req, res) => {
 
     console.log('  Calling WarehouseDAO.updateProductStock...');
     // Using refactored updateProductStock which requires variantId
-    await WarehouseDAO.updateProductStock(id, product_id, variant_id, {
+    await WarehouseDAO.updateProductStock(warehouseId, product_id, variant_id, {
       stock_quantity: parseInt(stock_quantity) || 0,
       minimum_threshold: parseInt(minimum_threshold) || 0,
       cost_per_unit: parseFloat(cost_per_unit) || 0,

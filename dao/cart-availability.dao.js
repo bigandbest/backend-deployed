@@ -21,6 +21,8 @@ class CartAvailabilityDAO {
                             id: true,
                             name: true,
                             type: true,
+                            location: true,
+                            parent_warehouse_id: true,
                             is_active: true
                         }
                     }
@@ -60,6 +62,8 @@ class CartAvailabilityDAO {
                                 id: true,
                                 name: true,
                                 type: true,
+                                location: true,
+                                parent_warehouse_id: true,
                                 is_active: true
                             }
                         }
@@ -115,7 +119,9 @@ class CartAvailabilityDAO {
                         select: {
                             id: true,
                             name: true,
-                            type: true
+                            type: true,
+                            location: true,
+                            parent_warehouse_id: true
                         }
                     }
                 }
@@ -206,6 +212,7 @@ class CartAvailabilityDAO {
         );
 
         let selectedWarehouse = null;
+        let displayWarehouse = null;
         let warehousePincode = null;
 
         // First check if available in zonal warehouse (base availability)
@@ -215,14 +222,17 @@ class CartAvailabilityDAO {
         if (hasZonalStock && divisionWarehouses.length > 0) {
             // Prefer division for faster delivery (few hours)
             selectedWarehouse = divisionWarehouses[0];
+            displayWarehouse = zonalWarehouses[0];
             warehousePincode = warehousePincodes.find(wp => wp.warehouse_id === selectedWarehouse.warehouse_id);
         } else if (hasZonalStock) {
             // Use zonal warehouse (1-2 working days)
             selectedWarehouse = zonalWarehouses[0];
+            displayWarehouse = zonalWarehouses[0];
             warehousePincode = warehousePincodes.find(wp => wp.warehouse_id === selectedWarehouse.warehouse_id);
         } else if (mainWarehouses.length > 0) {
             // Fallback to main warehouse
             selectedWarehouse = mainWarehouses[0];
+            displayWarehouse = mainWarehouses[0];
             warehousePincode = warehousePincodes.find(wp => wp.warehouse_id === selectedWarehouse.warehouse_id);
         }
 
@@ -270,6 +280,11 @@ class CartAvailabilityDAO {
             warehouse_type: selectedWarehouse.warehouse.type,
             warehouse_id: selectedWarehouse.warehouse_id,
             warehouse_name: selectedWarehouse.warehouse.name,
+            warehouse_location: selectedWarehouse.warehouse.location || null,
+            header_warehouse_id: displayWarehouse?.warehouse_id || selectedWarehouse.warehouse_id,
+            header_warehouse_name: displayWarehouse?.warehouse?.name || selectedWarehouse.warehouse.name,
+            header_warehouse_type: displayWarehouse?.warehouse?.type || selectedWarehouse.warehouse.type,
+            header_warehouse_location: displayWarehouse?.warehouse?.location || selectedWarehouse.warehouse.location || null,
             delivery_days: deliveryDays,
             delivery_message: deliveryMessage,
             available_quantity: selectedWarehouse.available_stock,
