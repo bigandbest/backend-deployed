@@ -188,18 +188,15 @@ export const createProductWithWarehouse = async (req, res) => {
 
     // Step 3: Create warehouse stock entries
     const stockInserts = warehouseAssignments.map((assignment) => ({
-      product_id: product.id,
+      variant_id: null, // will be set per variant after product creation
       warehouse_id: assignment.warehouse_id,
-      stock_quantity: assignment.stock_quantity,
-      reserved_quantity: 0,
-      minimum_threshold: assignment.minimum_threshold,
-      cost_per_unit: assignment.cost_per_unit,
-      last_restocked_at: new Date().toISOString(),
-      is_active: true,
+      stock_qty: assignment.stock_quantity,
+      reserved_qty: 0,
     }));
 
     if (stockInserts.length > 0) {
       try {
+        // Stock entries created via inventory table through productWarehouseStockDao
         await productWarehouseStockDao.createMany(stockInserts);
       } catch (stockError) {
         console.error("Stock insertion error:", stockError);

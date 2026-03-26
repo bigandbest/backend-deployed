@@ -1,276 +1,134 @@
-import prismaConfig from '../config/prisma.js';
+import prisma from '../config/prisma.js';
+
+const toStockShape = (inv) => inv ? ({
+    ...inv,
+    stock_quantity: inv.stock_qty,
+    reserved_quantity: inv.reserved_qty,
+}) : null;
 
 class ProductWarehouseStockDAO {
-    constructor(db) {
-        this.db = db;
-    }
-
-    async getZonalStock(productId, zoneId, quantity = 1) {
-        return await this.db.product_warehouse_stock.findFirst({
-            where: {
-                product_id: productId,
-                is_active: true,
-                warehouse_zones: {
-                    some: {
-                        zone_id: zoneId
-                    }
-                },
-                warehouses: {
-                    type: 'zonal',
-                    is_active: true
-                },
-                stock_quantity: {
-                    gte: quantity
-                }
-            },
-            include: {
-                warehouses: true
-            },
-            orderBy: {
-                stock_quantity: 'desc'
-            }
-        });
-    }
-
-    async getCentralStock(productId, quantity = 1) {
-        return await this.db.product_warehouse_stock.findFirst({
-            where: {
-                product_id: productId,
-                is_active: true,
-                warehouses: {
-                    type: 'central',
-                    is_active: true
-                },
-                stock_quantity: {
-                    gte: quantity
-                }
-            },
-            include: {
-                warehouses: true
-            },
-            orderBy: {
-                stock_quantity: 'desc'
-            }
-        });
-    }
-
-    async reserveStock(productId, warehouseId, quantity, orderId) {
-        return await this.db.$executeRaw`
-            SELECT update_stock_with_movement(
-                ${productId}::uuid,
-                ${warehouseId}::integer,
-                'reservation'::text,
-                ${quantity}::integer,
-                'order'::text,
-                ${orderId}::text,
-                ${`Stock reserved for order ${orderId}`}::text
-            )
-        `;
-    }
-
-    async confirmStockDeduction(productId, warehouseId, quantity, orderId) {
-        return await this.db.$transaction(async (tx) => {
-            // First release the reservation
-            await tx.$executeRaw`
-                SELECT update_stock_with_movement(
-                    ${productId}::uuid,
-                    ${warehouseId}::integer,
-                    'release'::text,
-                    ${quantity}::integer,
-                    'order'::text,
-                    ${orderId}::text,
-                    ${`Release reservation for order ${orderId}`}::text
-                )
-            `;
-
-            // Then deduct actual stock
-            return await tx.$executeRaw`
-                SELECT update_stock_with_movement(
-                    ${productId}::uuid,
-                    ${warehouseId}::integer,
-                    'outbound'::text,
-                    ${quantity}::integer,
-                    'order'::text,
-                    ${orderId}::text,
-                    ${`Order fulfillment for order ${orderId}`}::text
-                )
-            `;
-        });
-    }
-
     async getByProductAndWarehouse(productId, warehouseId) {
-        return await this.db.product_warehouse_stock.findFirst({
-            where: {
-                product_id: productId,
-                warehouse_id: warehouseId,
-                variant_id: null // Assuming product-level stock if variant_id is null
-            }
+        const inv = await prisma.inventory.findFirst({
+            where: { product_variants: { product_id: productId }, warehouse_id: parseInt(warehouseId) },
+            include: { warehouses: true }
         });
+        return toStockShape(inv);
     }
 
     async getByVariantAndWarehouse(variantId, warehouseId) {
-        return await this.db.product_warehouse_stock.findFirst({
-            where: {
-                variant_id: variantId,
-                warehouse_id: warehouseId
-            }
-        });
-    }
-
-    async upsertStock(productId, warehouseId, stockData) {
-        const existing = await this.getByProductAndWarehouse(productId, warehouseId);
-
-        if (existing) {
-            return await this.db.product_warehouse_stock.update({
-                where: { id: existing.id },
-                data: {
-                    ...stockData,
-                    updated_at: new Date()
-                }
-            });
-        } else {
-            // UPDATE-ONLY: Do not create new records, only update existing ones
-            throw new Error(`No existing stock record found for product ${productId} in warehouse ${warehouseId}. Stock records must be created before updating.`);
-        }
-    }
-
-    async listByProduct(productId) {
-        return await this.db.product_warehouse_stock.findMany({
-            where: { product_id: productId },
+        const inv = await prisma.inventory.findFirst({
+            where: { variant_id: variantId, warehouse_id: parseInt(warehouseId) },
             include: { warehouses: true }
         });
-    }
-
-    async listByVariant(variantId) {
-        return await this.db.product_warehouse_stock.findMany({
-            where: { variant_id: variantId, is_active: true },
-            include: { warehouses: true }
-        });
-    }
-
-    async upsertVariantStock(productId, variantId, warehouseId, stockData) {
-        const existing = await this.getByVariantAndWarehouse(variantId, warehouseId);
-
-        if (existing) {
-            return await this.db.product_warehouse_stock.update({
-                where: { id: existing.id },
-                data: {
-                    ...stockData,
-                    updated_at: new Date()
-                }
-            });
-        } else {
-            // UPDATE-ONLY: Do not create new records, only update existing ones
-            throw new Error(`No existing stock record found for variant ${variantId} in warehouse ${warehouseId}. Stock records must be created before updating.`);
-        }
-    }
-
-    async createMany(records) {
-        return await this.db.product_warehouse_stock.createMany({
-            data: records
-        });
-    }
-
-    async listByWarehouses(warehouseIds) {
-        return await this.db.product_warehouse_stock.findMany({
-            where: {
-                warehouse_id: { in: warehouseIds },
-                is_active: true
-            },
-            include: {
-                products: {
-                    select: {
-                        id: true,
-                        name: true,
-                        images: true
-                    }
-                },
-                warehouses: {
-                    select: {
-                        id: true,
-                        name: true,
-                        type: true,
-                        parent_warehouse_id: true
-                    }
-                }
-            }
-        });
+        return toStockShape(inv);
     }
 
     async getByProductAndWarehouseWithDetails(productId, warehouseId) {
-        return await this.db.product_warehouse_stock.findFirst({
-            where: {
-                product_id: productId,
-                warehouse_id: warehouseId,
-                is_active: true
-            },
-            include: {
-                warehouses: true
-            }
-        });
+        return this.getByProductAndWarehouse(productId, warehouseId);
     }
 
-    async updateStock(id, data) {
-        return await this.db.product_warehouse_stock.update({
-            where: { id },
-            data: {
-                ...data,
-                updated_at: new Date()
+    async listByProduct(productId) {
+        const items = await prisma.inventory.findMany({
+            where: { product_variants: { product_id: productId } },
+            include: { warehouses: true, variant: true }
+        });
+        return items.map(toStockShape);
+    }
+
+    async listByVariant(variantId) {
+        const items = await prisma.inventory.findMany({
+            where: { variant_id: variantId },
+            include: { warehouses: true }
+        });
+        return items.map(toStockShape);
+    }
+
+    async listByProducts(productIds) {
+        const items = await prisma.inventory.findMany({
+            where: { product_variants: { product_id: { in: productIds } } },
+            include: {
+                warehouses: { select: { id: true, name: true, type: true } },
+                product_variants: { select: { id: true, title: true, sku: true } }
             }
         });
+        return items.map(toStockShape);
     }
-    async listProductsInWarehouse(warehouseId) {
-        return await this.db.product_warehouse_stock.findMany({
-            where: {
-                warehouse_id: parseInt(warehouseId),
-                is_active: true
-            },
+
+    async listByWarehouses(warehouseIds) {
+        const items = await prisma.inventory.findMany({
+            where: { warehouse_id: { in: warehouseIds.map(Number) } },
             include: {
-                products: {
-                    select: {
-                        id: true,
-                        name: true,
-                        rating: true,
-                        images: true,
-                        category: {
+                product_variants: { include: { products: { select: { id: true, name: true } } } },
+                warehouses: { select: { id: true, name: true, type: true, parent_warehouse_id: true } }
+            }
+        });
+        return items.map(toStockShape);
+    }
+
+    async listProductsInWarehouse(warehouseId) {
+        const items = await prisma.inventory.findMany({
+            where: { warehouse_id: parseInt(warehouseId) },
+            include: {
+                product_variants: {
+                    include: {
+                        product: {
                             select: {
-                                id: true,
-                                name: true
+                                id: true, name: true, rating: true,
+                                category: { select: { id: true, name: true } },
+                                media: { where: { is_primary: true }, take: 1, select: { url: true } }
                             }
                         }
                     }
                 }
             }
         });
+        return items.map(toStockShape);
     }
 
-    async listByProducts(productIds) {
-        // Get all warehouse stock assignments for given product IDs
-        return await this.db.product_warehouse_stock.findMany({
-            where: {
-                product_id: {
-                    in: productIds
-                },
-                is_active: true
-            },
-            include: {
-                warehouses: {
-                    select: {
-                        id: true,
-                        name: true,
-                        type: true
-                    }
-                },
-                product_variants: {
-                    select: {
-                        id: true,
-                        title: true,
-                        sku: true
-                    }
-                }
+    async upsertStock(productId, warehouseId, stockData) {
+        const variant = await prisma.product_variants.findFirst({
+            where: { product_id: productId, is_default: true }
+        }) ?? await prisma.product_variants.findFirst({ where: { product_id: productId } });
+        if (!variant) return null;
+        return this.upsertVariantStock(productId, variant.id, warehouseId, stockData);
+    }
+
+    async upsertVariantStock(productId, variantId, warehouseId, stockData) {
+        const existing = await prisma.inventory.findFirst({
+            where: { variant_id: variantId, warehouse_id: parseInt(warehouseId) }
+        });
+        const data = {
+            stock_qty: stockData.stock_quantity ?? stockData.stock_qty ?? 0,
+            reserved_qty: stockData.reserved_quantity ?? stockData.reserved_qty ?? 0,
+            warehouse_id: parseInt(warehouseId),
+            updated_at: new Date()
+        };
+        const result = existing
+            ? await prisma.inventory.update({ where: { id: existing.id }, data })
+            : await prisma.inventory.create({ data: { ...data, variant_id: variantId } });
+        return toStockShape(result);
+    }
+
+    async createMany(records) {
+        const data = records.map(r => ({
+            variant_id: r.variant_id,
+            warehouse_id: parseInt(r.warehouse_id),
+            stock_qty: r.stock_quantity ?? 0,
+            reserved_qty: r.reserved_quantity ?? 0
+        }));
+        return prisma.inventory.createMany({ data, skipDuplicates: true });
+    }
+
+    async updateStock(id, data) {
+        const result = await prisma.inventory.update({
+            where: { id },
+            data: {
+                stock_qty: data.stock_quantity ?? data.stock_qty,
+                reserved_qty: data.reserved_quantity ?? data.reserved_qty
             }
         });
+        return toStockShape(result);
     }
 }
 
-export default new ProductWarehouseStockDAO(prismaConfig);
+export default new ProductWarehouseStockDAO();

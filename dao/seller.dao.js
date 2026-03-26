@@ -462,62 +462,8 @@ class SellerDAO {
      * Update seller stock in inventory (recalculate seller_stock)
      */
     async recalculateSellerStock(warehouseId, variantId) {
-        const { syncInventoryForVariant } = await import('../utils/inventorySync.js');
-
-        // Sum stock from all sellers for this variant in this warehouse
-        const result = await prisma.seller_products.aggregate({
-            where: {
-                warehouse_id: parseInt(warehouseId),
-                variant_id: variantId,
-                is_active: true,
-                status: 'APPROVED',
-            },
-            _sum: { stock_quantity: true },
-        });
-
-        const sellerStock = result._sum.stock_quantity || 0;
-
-        // Get the product_id for this variant
-        const variant = await prisma.product_variants.findUnique({
-            where: { id: variantId },
-            select: { product_id: true }
-        });
-
-        if (variant) {
-            // Upsert into product_warehouse_stock
-            const existingPWS = await prisma.product_warehouse_stock.findFirst({
-                where: {
-                    variant_id: variantId,
-                    warehouse_id: parseInt(warehouseId)
-                },
-                select: { id: true }
-            });
-
-            if (existingPWS) {
-                await prisma.product_warehouse_stock.update({
-                    where: { id: existingPWS.id },
-                    data: {
-                        stock_quantity: sellerStock,
-                        updated_at: new Date()
-                    }
-                });
-            } else {
-                await prisma.product_warehouse_stock.create({
-                    data: {
-                        product_id: variant.product_id,
-                        variant_id: variantId,
-                        warehouse_id: parseInt(warehouseId),
-                        stock_quantity: sellerStock,
-                        reserved_quantity: 0
-                    }
-                });
-            }
-
-            // Sync to inventory table (this upserts — creates if missing, updates if exists)
-            await syncInventoryForVariant(variantId, warehouseId);
-        }
-
-        return sellerStock;
+        // seller_products are read directly by calcVariantStock — no need to write to inventory
+        return 0;
     }
 
     /**

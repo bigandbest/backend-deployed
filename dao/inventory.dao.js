@@ -30,23 +30,11 @@ class InventoryDAO {
             }
         }
 
-        // Use product_warehouse_stock instead of inventory
-        const warehouseResults = await prisma.product_warehouse_stock.findMany({
+        const warehouseResults = await prisma.inventory.findMany({
             where,
-            select: {
-                variant_id: true,
-                stock_quantity: true,
-                reserved_quantity: true,
-                warehouse_id: true,
-                warehouses: {
-                    select: {
-                        id: true,
-                        name: true,
-                        type: true,
-                    },
-                },
-            },
+            select: { variant_id: true, stock_qty: true, reserved_qty: true, warehouse_id: true, warehouses: { select: { id: true, name: true, type: true } } },
         });
+        warehouseResults.forEach(r => { r.stock_quantity = r.stock_qty; r.reserved_quantity = r.reserved_qty; });
 
         // Also query seller_products for seller stock
         const sellerResults = await prisma.seller_products.findMany({
@@ -71,22 +59,21 @@ class InventoryDAO {
             },
         });
 
+        const stockMap = new Map();
         const allResults = [...warehouseResults, ...sellerResults];
 
-        // Aggregate results by variant
-        const stockMap = new Map();
         allResults.forEach((inv) => {
-            // Map fields from new schema
             const stockQty = inv.stock_quantity || 0;
             const reservedQty = inv.reserved_quantity || 0;
-            const availableStock = stockQty - reservedQty;
+            const availableStock = Math.max(stockQty - reservedQty, 0);
             const warehouse = inv.warehouses;
 
             if (stockMap.has(inv.variant_id)) {
-                // Aggregate stock across warehouses
                 const existing = stockMap.get(inv.variant_id);
                 existing.total_stock += stockQty;
                 existing.available_stock += availableStock;
+                existing.in_stock = existing.available_stock > 0;
+                existing.low_stock = existing.available_stock > 0 && existing.available_stock < 10;
                 if (warehouse) {
                     existing.warehouses.push({
                         warehouse_id: inv.warehouse_id,
@@ -102,14 +89,12 @@ class InventoryDAO {
                     available_stock: availableStock,
                     in_stock: availableStock > 0,
                     low_stock: availableStock > 0 && availableStock < 10,
-                    warehouses: warehouse ? [
-                        {
-                            warehouse_id: inv.warehouse_id,
-                            warehouse_name: warehouse.name,
-                            warehouse_type: warehouse.type,
-                            stock: availableStock,
-                        },
-                    ] : [],
+                    warehouses: warehouse ? [{
+                        warehouse_id: inv.warehouse_id,
+                        warehouse_name: warehouse.name,
+                        warehouse_type: warehouse.type,
+                        stock: availableStock,
+                    }] : [],
                 });
             }
         });
@@ -275,7 +260,7 @@ class InventoryDAO {
         return await prisma.inventory.findMany({
             where,
             include: {
-                variant: {
+                product_variants: {
                     include: {
                         product: {
                             select: {
@@ -307,7 +292,7 @@ class InventoryDAO {
     }
 
     async create(data) {
-        return await prisma.inventory.create({ data });
+        return await prisma.inventory.create({ data: { ...data, updated_at: data.updated_at ?? new Date() } });
     }
 
     async listByWarehouse(warehouseId) {

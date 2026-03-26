@@ -8,6 +8,10 @@ import {
     requestNewProductFull,
     requestToSellProduct,
     addProductStock,
+    updateStockQuantity,
+    getLowStockItems,
+    getStockSummary,
+    toggleProductActive,
     updateOfferPrice,
     getNegotiations,
     acceptCounterOffer,
@@ -41,6 +45,12 @@ router.post('/products/request-new-full', authenticateToken, requireSeller, requ
 router.post('/products/request-access', authenticateToken, requireSeller, requestToSellProduct);
 router.post('/products/stock', authenticateToken, requireSeller, addProductStock);
 router.patch('/products/:id/offer-price', authenticateToken, requireSeller, updateOfferPrice);
+router.patch('/products/:id/active', authenticateToken, requireSeller, toggleProductActive);
+
+// Stock management
+router.patch('/stock/:id', authenticateToken, requireSeller, updateStockQuantity);   // update qty only
+router.get('/stock/low', authenticateToken, requireSeller, getLowStockItems);         // low stock alerts
+router.get('/stock/summary', authenticateToken, requireSeller, getStockSummary);      // stock dashboard
 
 // Store open/close toggle
 router.post('/toggle-store', authenticateToken, requireSeller, toggleStoreStatus);

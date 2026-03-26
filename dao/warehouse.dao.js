@@ -189,23 +189,10 @@ class WarehouseDAO {
 
     async getProductStock(warehouseId, productId, variantId = null) {
         const numericId = parseInt(warehouseId, 10);
-        if (isNaN(numericId)) {
-            throw new Error('Invalid warehouse ID');
-        }
-        const where = {
-            warehouse_id: numericId,
-            product_id: productId
-        };
-        if (variantId) where.variant_id = variantId;
-        else where.variant_id = null; // Explicitly check for null variant_id for base products
-
-        return await prisma.product_warehouse_stock.findFirst({
-            where,
-            include: {
-                products: true,
-                product_variants: true
-            }
-        });
+        if (isNaN(numericId)) throw new Error('Invalid warehouse ID');
+        if (!variantId) return null;
+        const inv = await prisma.inventory.findFirst({ where: { variant_id: variantId, warehouse_id: numericId } });
+        return inv ? { ...inv, stock_quantity: inv.stock_qty, reserved_quantity: inv.reserved_qty } : null;
     }
 
     async updateProductStock(warehouseId, productId, variantId, data) {
@@ -227,23 +214,9 @@ class WarehouseDAO {
         const existing = await this.getProductStock(numericId, productId, variantId);
 
         if (existing) {
-            return await prisma.product_warehouse_stock.update({
-                where: { id: existing.id },
-                data: {
-                    ...data,
-                    last_restocked_at: new Date()
-                }
-            });
+            return await prisma.inventory.update({ where: { id: existing.id }, data: { stock_qty: data.stock_quantity ?? data.stock_qty ?? existing.stock_qty } });
         } else {
-            return await prisma.product_warehouse_stock.create({
-                data: {
-                    warehouse_id: numericId,
-                    product_id: productId,
-                    variant_id: variantId,
-                    ...data,
-                    last_restocked_at: new Date()
-                }
-            });
+            return await prisma.inventory.create({ data: { variant_id: variantId, warehouse_id: numericId, stock_qty: data.stock_quantity ?? data.stock_qty ?? 0, reserved_qty: 0, updated_at: new Date() } });
         }
     }
 
@@ -253,12 +226,7 @@ class WarehouseDAO {
             throw new Error('Invalid warehouse ID');
         }
         // Delete all stock records for this product in this warehouse (base + variants)
-        return await prisma.product_warehouse_stock.deleteMany({
-            where: {
-                warehouse_id: numericId,
-                product_id: productId
-            }
-        });
+        return await prisma.inventory.deleteMany({ where: { warehouse_id: numericId, product_variants: { product_id: productId } } });
     }
 
     async findForOrder(pincode, productType, preferredWarehouseId) {
@@ -331,13 +299,8 @@ class WarehouseDAO {
         if (isNaN(numericId)) {
             throw new Error('Invalid warehouse ID');
         }
-        return await prisma.product_warehouse_stock.findMany({
-            where: { warehouse_id: numericId, is_active: true },
-            include: {
-                products: true,
-                product_variants: true
-            }
-        });
+        const items = await prisma.inventory.findMany({ where: { warehouse_id: numericId }, include: { product_variants: { include: { products: true } } } });
+        return items.map(i => ({ ...i, variant: i.product_variants, stock_quantity: i.stock_qty, reserved_quantity: i.reserved_qty }));
     }
 
     async upsertSchedulingConfig(warehouseId, data) {

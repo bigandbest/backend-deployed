@@ -107,7 +107,7 @@ class CartAvailabilityDAO {
     async checkVariantStock(variantId, warehouseIds) {
         try {
             // Use product_warehouse_stock instead of inventory
-            const data = await prisma.product_warehouse_stock.findMany({
+            const data = await prisma.inventory.findMany({
                 where: {
                     variant_id: variantId,
                     warehouse_id: {
