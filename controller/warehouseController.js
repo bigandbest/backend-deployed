@@ -254,10 +254,10 @@ export const getWarehouseProducts = async (req, res) => {
     const productsMap = new Map();
     stocks.forEach((item) => {
       // Structure: item (inventory) -> variant -> product
-      const variant = item.variant;
-      if (!variant) return; // Should not happen due to integrity constraint
+      const variant = item.product_variants;
+      if (!variant) return;
 
-      const product = variant.product;
+      const product = variant.products;
       if (!product) return;
 
       const productId = product.id;
@@ -536,14 +536,50 @@ export const updateWarehousePincode = async (req, res) => {
  * Get Available Products for Warehouse (Legacy/Refactored)
  */
 export const getAvailableProductsForWarehouse = async (req, res) => {
-  // This logic filtered out products already in warehouse.
-  // We can implement this simply by fetching all products (ProductDAO) and filtering in memory or custom DAO query.
-  // For migration simplicity, returning generic 200 or stub if not critical, OR implementing.
-  // Let's implement using simple prisma queries in DAO if added, or direct Prisma here if needed.
-  // I'll skip detailed implementation to avoid bloating this file, assuming updateProductStock covers usage.
-  // But frontend might depend on this list.
-  // Fallback:
-  res.status(501).json({ error: "Not fully implemented in migration" });
+  try {
+    const { id } = req.params;
+
+    // Get variant IDs already stocked in this warehouse
+    const existingStocks = await prisma.inventory.findMany({
+      where: { warehouse_id: Number(id) },
+      select: { variant_id: true },
+    });
+    const stockedVariantIds = new Set(existingStocks.map((s) => s.variant_id));
+
+    // Fetch all active products with their active variants
+    const products = await prisma.products.findMany({
+      where: { active: true },
+      select: {
+        id: true,
+        name: true,
+        product_variants: {
+          where: { active: true },
+          select: { id: true, price: true, is_default: true },
+        },
+      },
+    });
+
+    // Only include products that have at least one variant NOT yet in this warehouse
+    const available = products
+      .filter((p) =>
+        p.product_variants.some((v) => !stockedVariantIds.has(v.id))
+      )
+      .map((p) => {
+        const defaultVariant =
+          p.product_variants.find((v) => v.is_default) ||
+          p.product_variants[0];
+        return {
+          id: p.id,
+          name: p.name,
+          price: defaultVariant?.price ?? 0,
+        };
+      });
+
+    res.status(200).json({ success: true, products: available });
+  } catch (error) {
+    console.error("Error in getAvailableProductsForWarehouse:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 };
 
 // Aliases
@@ -613,21 +649,21 @@ export const getWarehouseSummary = async (req, res) => {
   try {
     const inventory = await prisma.inventory.findMany({
       include: {
-        variant: {
+        product_variants: {
           include: {
-            product: true
+            products: true
           }
         },
-        warehouse: true
+        warehouses: true
       }
     });
 
     const productsMap = new Map();
 
     inventory.forEach((item) => {
-      const variant = item.variant;
+      const variant = item.product_variants;
       if (!variant) return;
-      const product = variant.product;
+      const product = variant.products;
       if (!product) return;
 
       const productId = product.id;
@@ -650,7 +686,7 @@ export const getWarehouseSummary = async (req, res) => {
       } else {
         productEntry.warehouses.push({
           warehouse_id: item.warehouse_id,
-          warehouse_name: item.warehouse?.name || "Unknown",
+          warehouse_name: item.warehouses?.name || "Unknown",
           stock_quantity: item.stock_qty || 0
         });
       }
@@ -673,12 +709,12 @@ export const getGlobalLowStock = async (req, res) => {
   try {
     const allInventory = await prisma.inventory.findMany({
       include: {
-        variant: {
+        product_variants: {
           include: {
-            product: true
+            products: true
           }
         },
-        warehouse: true
+        warehouses: true
       }
     });
 
@@ -687,13 +723,13 @@ export const getGlobalLowStock = async (req, res) => {
     );
 
     const transformed = lowStockItems.map(item => ({
-      product_id: item.variant?.product?.id,
-      product_name: item.variant?.product?.name,
-      product_price: item.variant?.price || 0,
+      product_id: item.product_variants?.products?.id,
+      product_name: item.product_variants?.products?.name,
+      product_price: item.product_variants?.price || 0,
       stock_quantity: item.stock_qty,
       minimum_threshold: item.bulk_stock_threshold,
-      warehouse_name: item.warehouse?.name,
-      warehouse_type: item.warehouse?.type
+      warehouse_name: item.warehouses?.name,
+      warehouse_type: item.warehouses?.type
     }));
 
     res.status(200).json({

@@ -30,7 +30,10 @@ class ProductDAO {
                     include: {
                         inventory: true,
                         variant_attributes: true,
-                        warehouse_stock: true,
+                        seller_products: {
+                            where: { status: 'APPROVED', is_active: true },
+                            select: { stock_quantity: true, reserved_quantity: true, status: true, is_active: true }
+                        }
                     },
                 },
                 category: true,
@@ -114,34 +117,17 @@ class ProductDAO {
                 include: {
                     inventory: true,
                     variant_attributes: true,
-                    warehouse_stock: true,
                 }
             }
             : {
-                where: { is_default: true, active: true },
-                take: 1,
-                select: {
-                    id: true,
-                    sku: true,
-                    title: true,
-                    net_quantity: true,
-                    photo_url: true,
-                    price: true,
-                    old_price: true,
-                    discount_percentage: true,
-                    is_default: true,
-                    active: true,
-                    shipping_amount: true,
-                    is_bulk_enabled: true,
-                    bulk_min_quantity: true,
-                    bulk_discount_percentage: true,
-                    bulk_price: true,
-                    // Include inventory for stock status
+                where: { active: true },
+                include: {
                     inventory: {
                         select: { stock_qty: true, reserved_qty: true, warehouse_id: true },
                     },
-                    warehouse_stock: {
-                        select: { stock_quantity: true, warehouse_id: true },
+                    seller_products: {
+                        where: { status: 'APPROVED', is_active: true },
+                        select: { stock_quantity: true, reserved_quantity: true, status: true, is_active: true },
                     },
                 },
             };
@@ -152,50 +138,18 @@ class ProductDAO {
                 where,
                 skip,
                 take: limit,
-                select: {
-                    id: true,
-                    name: true,
-                    description: true,
-                    active: true,
-                    created_at: true,
-                    updated_at: true,
-                    created_by: true,
-                    seller_id: true,
-                    category_id: true,
-                    subcategory_id: true,
-                    group_id: true,
-                    store_id: true,
-                    vertical: true,
-                    return_applicable: true,
-                    return_days: true,
-                    has_variants: true,
-                    rating: true,
-                    review_count: true,
-                    hsn_or_sac_code: true,
-                    gst_rate: true,
-                    cess_rate: true,
-                    faq: true,
-                    // Dynamic variants selection
+                include: {
                     variants: variantsSelect,
-                    // Optimized relations
                     category: { select: { id: true, name: true } },
                     subcategory: { select: { id: true, name: true } },
                     group: { select: { id: true, name: true } },
                     store: { select: { id: true, name: true } },
                     brands: {
-                        select: {
-                            brand: {
-                                select: { id: true, name: true },
-                            },
-                        },
+                        select: { brand: { select: { id: true, name: true } } },
                         take: 1,
                     },
                     product_recommended_store: {
-                        select: {
-                            recommended_store: {
-                                select: { id: true, name: true },
-                            },
-                        },
+                        select: { recommended_store: { select: { id: true, name: true } } },
                         take: 1,
                     },
                     media: {
@@ -285,7 +239,7 @@ class ProductDAO {
             },
             take: limit,
             include: {
-                variants: { where: { active: true }, orderBy: { price: "asc" }, include: { inventory: true } },
+                variants: { where: { active: true }, orderBy: { price: "asc" }, include: { inventory: true, seller_products: { where: { status: "APPROVED", is_active: true }, select: { stock_quantity: true, reserved_quantity: true, status: true, is_active: true } } } },
                 media: { where: { is_primary: true }, take: 1 },
             },
             orderBy: { rating: "desc" },
@@ -367,22 +321,39 @@ class ProductDAO {
 
                         // Handle inventory separately if provided
                         if (inventory) {
-                            const existingInventory = await tx.inventory.findUnique({
-                                where: { variant_id: variant.id },
-                            });
+                            const { warehouse_id, ...invData } = inventory;
+                            const stockQty = invData.stock_qty ?? invData.stock_quantity ?? 0;
+                            const reservedQty = invData.reserved_qty ?? invData.reserved_quantity ?? 0;
 
-                            if (existingInventory) {
-                                await tx.inventory.update({
-                                    where: { variant_id: variant.id },
-                                    data: inventory,
+                            if (warehouse_id) {
+                                // Upsert for specific warehouse
+                                const existingInv = await tx.inventory.findFirst({
+                                    where: { variant_id: variant.id, warehouse_id: parseInt(warehouse_id) },
                                 });
+                                if (existingInv) {
+                                    await tx.inventory.update({
+                                        where: { id: existingInv.id },
+                                        data: { stock_qty: stockQty, reserved_qty: reservedQty, updated_at: new Date() },
+                                    });
+                                } else {
+                                    await tx.inventory.create({
+                                        data: { variant_id: variant.id, warehouse_id: parseInt(warehouse_id), stock_qty: stockQty, reserved_qty: reservedQty, updated_at: new Date() },
+                                    });
+                                }
                             } else {
-                                await tx.inventory.create({
-                                    data: {
-                                        variant_id: variant.id,
-                                        ...inventory,
-                                    },
+                                // No warehouse specified — update all existing rows for this variant
+                                const existingRows = await tx.inventory.findMany({
+                                    where: { variant_id: variant.id },
                                 });
+                                if (existingRows.length > 0) {
+                                    await tx.inventory.updateMany({
+                                        where: { variant_id: variant.id },
+                                        data: { stock_qty: stockQty, reserved_qty: reservedQty, updated_at: new Date() },
+                                    });
+                                } else {
+                                    // No warehouse context — skip creation, can't create without warehouse_id
+                                    console.warn(`inventory update skipped for variant ${variant.id}: no warehouse_id and no existing rows`);
+                                }
                             }
                         }
                     } else {
@@ -419,6 +390,7 @@ class ProductDAO {
                                 data: {
                                     variant_id: newVariant.id,
                                     ...inventory,
+                                    updated_at: inventory.updated_at ?? new Date(),
                                 },
                             });
                         }
@@ -438,7 +410,7 @@ class ProductDAO {
             take: limit,
             include: {
                 category: true,
-                variants: { where: { active: true }, include: { inventory: true } },
+                variants: { where: { active: true }, include: { inventory: true, seller_products: { where: { status: "APPROVED", is_active: true }, select: { stock_quantity: true, reserved_quantity: true, status: true, is_active: true } } } },
                 media: { where: { is_primary: true }, orderBy: { sort_order: "asc" }, take: 1, select: { url: true, media_type: true } },
             },
             orderBy: { created_at: "desc" },
@@ -453,7 +425,7 @@ class ProductDAO {
             take: limit,
             include: {
                 category: true,
-                variants: { where: { active: true }, include: { inventory: true } },
+                variants: { where: { active: true }, include: { inventory: true, seller_products: { where: { status: "APPROVED", is_active: true }, select: { stock_quantity: true, reserved_quantity: true, status: true, is_active: true } } } },
                 media: { where: { is_primary: true }, orderBy: { sort_order: "asc" }, take: 1, select: { url: true, media_type: true } },
             },
             orderBy: { created_at: "desc" },
@@ -469,7 +441,7 @@ class ProductDAO {
             take: limit,
             include: {
                 category: true,
-                variants: { where: { active: true }, include: { inventory: true } },
+                variants: { where: { active: true }, include: { inventory: true, seller_products: { where: { status: "APPROVED", is_active: true }, select: { stock_quantity: true, reserved_quantity: true, status: true, is_active: true } } } },
                 media: { where: { is_primary: true }, orderBy: { sort_order: "asc" }, take: 1, select: { url: true, media_type: true } },
             },
             orderBy: [{ rating: "desc" }, { review_count: "desc" }],
@@ -494,10 +466,11 @@ class ProductDAO {
                 variants: {
                     where: { active: true },
                     include: {
-                        warehouse_stock: {
-                            where: { is_active: true },
-                            select: { stock_quantity: true, warehouse_id: true },
-                        },
+                        inventory: { select: { stock_qty: true, reserved_qty: true, warehouse_id: true } },
+                        seller_products: {
+                            where: { status: 'APPROVED', is_active: true },
+                            select: { stock_quantity: true, reserved_quantity: true, status: true, is_active: true }
+                        }
                     },
                 },
                 media: {
@@ -549,10 +522,11 @@ class ProductDAO {
                         where: { active: true },
                         orderBy: { price: "asc" },
                         include: {
-                            warehouse_stock: {
-                                where: { is_active: true },
-                                select: { stock_quantity: true, warehouse_id: true },
-                            },
+                            inventory: { select: { stock_qty: true, reserved_qty: true, warehouse_id: true } },
+                            seller_products: {
+                                where: { status: 'APPROVED', is_active: true },
+                                select: { stock_quantity: true, reserved_quantity: true, status: true, is_active: true }
+                            }
                         },
                     },
                     media: {
@@ -594,7 +568,7 @@ class ProductDAO {
                 ],
             },
             include: {
-                variants: { where: { active: true }, include: { inventory: true } },
+                variants: { where: { active: true }, include: { inventory: true, seller_products: { where: { status: "APPROVED", is_active: true }, select: { stock_quantity: true, reserved_quantity: true, status: true, is_active: true } } } },
                 media: { where: { is_primary: true }, orderBy: { sort_order: "asc" }, take: 1, select: { url: true, media_type: true } },
             },
         });
@@ -612,7 +586,7 @@ class ProductDAO {
             },
             take: limit,
             include: {
-                variants: { where: { active: true }, orderBy: { price: "asc" }, include: { inventory: true } },
+                variants: { where: { active: true }, orderBy: { price: "asc" }, include: { inventory: true, seller_products: { where: { status: "APPROVED", is_active: true }, select: { stock_quantity: true, reserved_quantity: true, status: true, is_active: true } } } },
                 media: { where: { is_primary: true }, take: 1, select: { url: true, media_type: true } },
             },
             orderBy: { rating: "desc" },
@@ -626,7 +600,7 @@ class ProductDAO {
                 active: true,
             },
             include: {
-                variants: { where: { active: true }, include: { inventory: true } },
+                variants: { where: { active: true }, include: { inventory: true, seller_products: { where: { status: "APPROVED", is_active: true }, select: { stock_quantity: true, reserved_quantity: true, status: true, is_active: true } } } },
                 media: { where: { is_primary: true }, orderBy: { sort_order: "asc" }, take: 1, select: { url: true, media_type: true } },
             },
         });
@@ -688,10 +662,11 @@ class ProductDAO {
                 variants: {
                     where: { active: true },
                     include: {
-                        warehouse_stock: {
-                            where: { is_active: true },
-                            select: { stock_quantity: true, warehouse_id: true },
-                        },
+                        inventory: { select: { stock_qty: true, reserved_qty: true, warehouse_id: true } },
+                        seller_products: {
+                            where: { status: 'APPROVED', is_active: true },
+                            select: { stock_quantity: true, reserved_quantity: true, status: true, is_active: true }
+                        }
                     },
                 },
                 media: {
@@ -731,6 +706,10 @@ class ProductDAO {
             include: {
                 inventory: true,
                 variant_attributes: true,
+                seller_products: {
+                    where: { status: 'APPROVED', is_active: true },
+                    select: { stock_quantity: true, reserved_quantity: true, status: true, is_active: true }
+                }
             },
         });
     }

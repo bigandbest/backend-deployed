@@ -75,28 +75,18 @@ const resolveOrderItemVariantId = async (item, productId) => {
 const findStockInWarehouses = async (productId, warehouseIds, quantity = 1, variantId = null, warehouseType = null) => {
   if (!warehouseIds?.length) return null;
 
-  return prisma.product_warehouse_stock.findFirst({
+  return prisma.inventory.findFirst({
     where: {
-      product_id: productId,
       warehouse_id: { in: warehouseIds },
-      is_active: true,
-      stock_quantity: { gte: quantity },
-      ...(variantId ? { variant_id: variantId } : {}),
-      ...(warehouseType
-        ? {
-            warehouses: {
-              type: warehouseType,
-              is_active: true,
-            },
-          }
-        : {}),
+      stock_qty: { gte: quantity },
+      product_variants: {
+        ...(variantId ? { id: variantId } : {}),
+        products: { id: productId },
+      },
+      ...(warehouseType ? { warehouses: { type: warehouseType, is_active: true } } : {}),
     },
-    include: {
-      warehouses: true,
-    },
-    orderBy: {
-      stock_quantity: "desc",
-    },
+    include: { warehouses: true },
+    orderBy: { stock_qty: "desc" },
   });
 };
 

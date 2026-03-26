@@ -553,6 +553,156 @@ export const addProductStock = async (req, res) => {
 };
 
 /**
+ * Update stock quantity only (no price change, no approval needed)
+ */
+export const updateStockQuantity = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { stock_quantity } = req.body;
+
+        if (stock_quantity === undefined || parseInt(stock_quantity) < 0) {
+            return res.status(400).json({ success: false, error: 'Valid stock_quantity is required' });
+        }
+
+        const seller = await prisma.sellers.findUnique({ where: { user_id: req.user.id } });
+        if (!seller) return res.status(404).json({ success: false, error: 'Seller profile not found' });
+
+        const sellerProduct = await prisma.seller_products.findUnique({ where: { id } });
+        if (!sellerProduct || sellerProduct.seller_id !== seller.id) {
+            return res.status(404).json({ success: false, error: 'Product not found in your inventory' });
+        }
+
+        // Stock changes never require re-approval — update directly
+        const updated = await prisma.seller_products.update({
+            where: { id },
+            data: { stock_quantity: parseInt(stock_quantity), updated_at: new Date() }
+        });
+
+        // Sync to inventory table so availability checks reflect new stock
+        if (sellerProduct.variant_id) {
+            await SellerDAO.recalculateSellerStock(sellerProduct.warehouse_id, sellerProduct.variant_id);
+        }
+
+        res.status(200).json({
+            success: true,
+            data: updated,
+            message: 'Stock updated successfully'
+        });
+    } catch (error) {
+        console.error('updateStockQuantity error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Get low stock items for the seller (stock < threshold)
+ */
+export const getLowStockItems = async (req, res) => {
+    try {
+        const threshold = parseInt(req.query.threshold ?? 5);
+        const seller = await prisma.sellers.findUnique({ where: { user_id: req.user.id } });
+        if (!seller) return res.status(404).json({ success: false, error: 'Seller profile not found' });
+
+        const items = await prisma.seller_products.findMany({
+            where: {
+                seller_id: seller.id,
+                is_active: true,
+                status: 'APPROVED',
+                stock_quantity: { lte: threshold }
+            },
+            include: {
+                products: { select: { id: true, name: true, media: { where: { is_primary: true }, take: 1, select: { url: true } } } },
+                product_variants: { select: { id: true, title: true, sku: true } },
+                warehouses: { select: { id: true, name: true } }
+            },
+            orderBy: { stock_quantity: 'asc' }
+        });
+
+        res.status(200).json({
+            success: true,
+            data: items.map(i => ({
+                id: i.id,
+                product_id: i.product_id,
+                product_name: i.products?.name,
+                product_image: i.products?.media?.[0]?.url ?? null,
+                variant_id: i.variant_id,
+                variant_name: i.product_variants?.title,
+                sku: i.product_variants?.sku,
+                warehouse_name: i.warehouses?.name,
+                stock_quantity: i.stock_quantity,
+                reserved_quantity: i.reserved_quantity,
+                available: i.stock_quantity - i.reserved_quantity
+            }))
+        });
+    } catch (error) {
+        console.error('getLowStockItems error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Get stock summary for seller dashboard
+ */
+export const getStockSummary = async (req, res) => {
+    try {
+        const seller = await prisma.sellers.findUnique({ where: { user_id: req.user.id } });
+        if (!seller) return res.status(404).json({ success: false, error: 'Seller profile not found' });
+
+        const [total, approved, pending, lowStock, agg] = await Promise.all([
+            prisma.seller_products.count({ where: { seller_id: seller.id, is_active: true } }),
+            prisma.seller_products.count({ where: { seller_id: seller.id, is_active: true, status: 'APPROVED' } }),
+            prisma.seller_products.count({ where: { seller_id: seller.id, is_active: true, status: 'PENDING_APPROVAL' } }),
+            prisma.seller_products.count({ where: { seller_id: seller.id, is_active: true, status: 'APPROVED', stock_quantity: { lte: 5 } } }),
+            prisma.seller_products.aggregate({ where: { seller_id: seller.id, is_active: true, status: 'APPROVED' }, _sum: { stock_quantity: true } })
+        ]);
+
+        res.status(200).json({
+            success: true,
+            data: {
+                total_products: total,
+                approved_products: approved,
+                pending_approval: pending,
+                low_stock_count: lowStock,
+                total_stock_units: agg._sum.stock_quantity ?? 0
+            }
+        });
+    } catch (error) {
+        console.error('getStockSummary error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Toggle product active/inactive in seller inventory
+ */
+export const toggleProductActive = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const seller = await prisma.sellers.findUnique({ where: { user_id: req.user.id } });
+        if (!seller) return res.status(404).json({ success: false, error: 'Seller profile not found' });
+
+        const sellerProduct = await prisma.seller_products.findUnique({ where: { id } });
+        if (!sellerProduct || sellerProduct.seller_id !== seller.id) {
+            return res.status(404).json({ success: false, error: 'Product not found in your inventory' });
+        }
+
+        const updated = await prisma.seller_products.update({
+            where: { id },
+            data: { is_active: !sellerProduct.is_active, updated_at: new Date() }
+        });
+
+        res.status(200).json({
+            success: true,
+            data: updated,
+            message: `Product ${updated.is_active ? 'activated' : 'deactivated'} successfully`
+        });
+    } catch (error) {
+        console.error('toggleProductActive error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
  * Update offer price for a product
  */
 export const updateOfferPrice = async (req, res) => {

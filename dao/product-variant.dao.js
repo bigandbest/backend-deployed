@@ -29,7 +29,14 @@ class ProductVariantDAO {
                 product_id: productId,
                 ...(activeOnly && { active: true })
             },
-            include: { variant_attributes: true },
+            include: {
+                variant_attributes: true,
+                inventory: true,
+                seller_products: {
+                    where: { status: 'APPROVED', is_active: true },
+                    select: { stock_quantity: true, reserved_quantity: true }
+                }
+            },
             orderBy: { price: 'asc' }
         });
     }

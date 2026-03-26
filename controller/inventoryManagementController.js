@@ -21,11 +21,10 @@ export const getWarehouseInventory = async (req, res) => {
 
     // Get all stock records for warehouse
     let whereCondition = {
-      warehouse_id: warehouseId,
-      is_active: true,
+      warehouse_id: parseInt(warehouseId),
     };
 
-    const inventory = await prisma.product_warehouse_stock.findMany({
+    const inventory = await prisma.inventory.findMany({
       where: whereCondition,
       include: {
         products: {
@@ -62,8 +61,8 @@ export const getWarehouseInventory = async (req, res) => {
       product_image: stock.products?.image,
       variant_name: stock.product_variants?.title || "Base Variant",
       sku: stock.product_variants?.sku || stock.products?.sku,
-      stock_quantity: stock.stock_quantity,
-      reserved_quantity: stock.reserved_quantity || 0,
+      stock_qty: stock.stock_quantity,
+      reserved_qty: stock.reserved_quantity || 0,
       available_quantity: stock.stock_quantity - (stock.reserved_quantity || 0),
       minimum_threshold: stock.minimum_threshold || 0,
       cost_per_unit: stock.cost_per_unit,
@@ -123,10 +122,9 @@ export const getProductInventoryAcrossWarehouses = async (req, res) => {
     }
 
     // Get stock in all warehouses
-    const inventory = await prisma.product_warehouse_stock.findMany({
+    const inventory = await prisma.inventory.findMany({
       where: {
-        product_id: productId,
-        is_active: true,
+        product_variants: { product_id: productId },
       },
       include: {
         warehouses: {
@@ -241,9 +239,7 @@ export const updateWarehouseStock = async (req, res) => {
     // Upsert stock record
     const stockData = {
       stock_quantity: parseInt(stock_quantity),
-      minimum_threshold: minimum_threshold ? parseInt(minimum_threshold) : 10,
-      cost_per_unit: cost_per_unit ? parseFloat(cost_per_unit) : 0,
-      is_active: true,
+      reserved_quantity: 0,
       last_restocked_at: new Date(),
     };
 
@@ -295,9 +291,7 @@ export const updateMultiWarehouseStock = async (req, res) => {
     const {
       product_id,
       variant_id,
-      minimum_threshold,
-      cost_per_unit,
-      warehouse_allocations // Array of { warehouse_id, stock_quantity }
+      warehouse_allocations
     } = req.body;
 
     // Validate inputs
@@ -336,34 +330,25 @@ export const updateMultiWarehouseStock = async (req, res) => {
       const updatedRecords = [];
 
       for (const allocation of warehouse_allocations) {
-        const { warehouse_id, stock_quantity } = allocation;
+        const { variant_id: allocationVariantId, warehouse_id, stock_quantity } = allocation;
+        const effectiveVariantId = allocationVariantId || variant_id;
+        if (!warehouse_id || stock_quantity === undefined || !effectiveVariantId) continue;
 
-        if (!warehouse_id || stock_quantity === undefined) continue;
-
-        const stockData = {
-          stock_quantity: parseInt(stock_quantity),
-          minimum_threshold: minimum_threshold ? parseInt(minimum_threshold) : 10,
-          cost_per_unit: cost_per_unit ? parseFloat(cost_per_unit) : 0,
-          is_active: true,
-          last_restocked_at: new Date(),
-        };
-
-        const updated = await tx.product_warehouse_stock.upsert({
-          where: {
-            product_id_warehouse_id_variant_id: {
-              product_id,
-              warehouse_id: warehouse_id,
-              variant_id: variant_id || null,
-            },
-          },
-          update: stockData,
-          create: {
-            product_id,
-            variant_id: variant_id || null,
-            warehouse_id: warehouse_id,
-            ...stockData
-          },
+        const existingInv = await tx.inventory.findFirst({
+          where: { variant_id: effectiveVariantId, warehouse_id: parseInt(warehouse_id) },
+          select: { id: true },
         });
+        let updated;
+        if (existingInv) {
+          updated = await tx.inventory.update({
+            where: { id: existingInv.id },
+            data: { stock_qty: parseInt(stock_quantity), updated_at: new Date() },
+          });
+        } else {
+          updated = await tx.inventory.create({
+            data: { variant_id: effectiveVariantId, warehouse_id: parseInt(warehouse_id), stock_qty: parseInt(stock_quantity), reserved_qty: 0, updated_at: new Date() },
+          });
+        }
         updatedRecords.push(updated);
       }
       return updatedRecords;
@@ -430,29 +415,21 @@ export const allocateStockToZonal = async (req, res) => {
         }
 
         // Create or update allocation record
-        const allocated = await tx.product_warehouse_stock.upsert({
-          where: {
-            product_id_warehouse_id_variant_id: {
-              product_id,
-              warehouse_id: zonal_warehouse_id,
-              variant_id: variant_id || null,
-            },
-          },
-          update: {
-            stock_quantity: {
-              increment: parseInt(quantity),
-            },
-            last_restocked_at: new Date(),
-          },
-          create: {
-            product_id,
-            variant_id: variant_id || null,
-            warehouse_id: zonal_warehouse_id,
-            stock_quantity: parseInt(quantity),
-            is_active: true,
-            last_restocked_at: new Date(),
-          },
+        const existingZonalInv = await tx.inventory.findFirst({
+          where: { variant_id, warehouse_id: parseInt(zonal_warehouse_id) },
+          select: { id: true, stock_qty: true },
         });
+        let allocated;
+        if (existingZonalInv) {
+          allocated = await tx.inventory.update({
+            where: { id: existingZonalInv.id },
+            data: { stock_qty: existingZonalInv.stock_qty + parseInt(quantity), updated_at: new Date() },
+          });
+        } else {
+          allocated = await tx.inventory.create({
+            data: { variant_id, warehouse_id: parseInt(zonal_warehouse_id), stock_qty: parseInt(quantity), reserved_qty: 0, updated_at: new Date() },
+          });
+        }
 
         allocatedRecords.push(allocated);
       }
@@ -482,13 +459,10 @@ export const getLowStockProducts = async (req, res) => {
   try {
     const { warehouseId } = req.params;
 
-    const lowStockProducts = await prisma.product_warehouse_stock.findMany({
+    const lowStockProducts = await prisma.inventory.findMany({
       where: {
-        warehouse_id: warehouseId,
-        is_active: true,
-        stock_quantity: {
-          lte: prisma.raw("minimum_threshold"),
-        },
+        warehouse_id: parseInt(warehouseId),
+        stock_qty: { lte: 10 },
       },
       include: {
         products: {
@@ -507,7 +481,7 @@ export const getLowStockProducts = async (req, res) => {
           },
         },
       },
-      orderBy: { stock_quantity: "asc" },
+      orderBy: { stock_qty: "asc" },
     });
 
     res.status(200).json({
@@ -560,29 +534,22 @@ export const bulkUpdateInventory = async (req, res) => {
           continue;
         }
 
-        const updated = await tx.product_warehouse_stock.upsert({
-          where: {
-            product_id_warehouse_id_variant_id: {
-              product_id,
-              warehouse_id: warehouseId,
-              variant_id: variant_id || null,
-            },
-          },
-          update: {
-            stock_quantity: parseInt(stock_quantity),
-            minimum_threshold: minimum_threshold ? parseInt(minimum_threshold) : 10,
-            last_restocked_at: new Date(),
-          },
-          create: {
-            product_id,
-            variant_id: variant_id || null,
-            warehouse_id: warehouseId,
-            stock_quantity: parseInt(stock_quantity),
-            minimum_threshold: minimum_threshold ? parseInt(minimum_threshold) : 10,
-            is_active: true,
-            last_restocked_at: new Date(),
-          },
+        if (!variant_id) continue;
+        const existingBulkInv = await tx.inventory.findFirst({
+          where: { variant_id, warehouse_id: parseInt(warehouseId) },
+          select: { id: true },
         });
+        let updated;
+        if (existingBulkInv) {
+          updated = await tx.inventory.update({
+            where: { id: existingBulkInv.id },
+            data: { stock_qty: parseInt(stock_quantity), updated_at: new Date() },
+          });
+        } else {
+          updated = await tx.inventory.create({
+            data: { variant_id, warehouse_id: parseInt(warehouseId), stock_qty: parseInt(stock_quantity), reserved_qty: 0, updated_at: new Date() },
+          });
+        }
 
         updatedRecords.push(updated);
       }
@@ -613,10 +580,9 @@ export const getInventoryAnalytics = async (req, res) => {
   try {
     const { warehouseId } = req.params;
 
-    const inventory = await prisma.product_warehouse_stock.findMany({
+    const inventory = await prisma.inventory.findMany({
       where: {
-        warehouse_id: warehouseId,
-        is_active: true,
+        warehouse_id: parseInt(warehouseId),
       },
       include: {
         products: {
@@ -648,7 +614,7 @@ export const getInventoryAnalytics = async (req, res) => {
       const categoryName = stock.products?.category?.name || "Uncategorized";
       if (!byCategory[categoryName]) {
         byCategory[categoryName] = {
-          stock_quantity: 0,
+          stock_qty: 0,
           product_count: 0,
           variants_count: 0,
         };

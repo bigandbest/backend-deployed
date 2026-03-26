@@ -38,20 +38,28 @@ const extractMediaUrls = (product) => {
 };
 
 // Helper for consistency in transformations
+const calcVariantStock = (inv, sellerProducts) => {
+  const adminStock = Array.isArray(inv)
+    ? inv.reduce((s, i) => s + Math.max((i.stock_qty || 0) - (i.reserved_qty || 0), 0), 0)
+    : inv ? Math.max((inv.stock_qty || 0) - (inv.reserved_qty || 0), 0) : 0;
+  const sellerStock = Array.isArray(sellerProducts)
+    ? sellerProducts.filter(sp => sp.status === 'APPROVED' && sp.is_active !== false)
+        .reduce((s, sp) => s + Math.max((sp.stock_quantity || 0) - (sp.reserved_quantity || 0), 0), 0)
+    : 0;
+  return adminStock + sellerStock;
+};
+
+const transformVariant = (v) => {
+  const avail = calcVariantStock(v.inventory, v.seller_products);
+  return { ...v, availableStock: avail, inStock: avail > 0 };
+};
+
 const transformProduct = (product, assignments = []) => {
   const activeVariants = (product.variants || []).filter(v => v.active !== false);
   const defaultVariant = activeVariants.find(v => v.is_default === true);
 
-  // Calculate total stock from all variant warehouse stocks
-  const totalStock = activeVariants.reduce((sum, variant) => {
-    const variantStock = (variant.warehouse_stock || []).reduce(
-      (variantSum, ws) => variantSum + (ws.stock_quantity || 0),
-      0
-    );
-    return sum + variantStock;
-  }, 0);
+  const totalStock = activeVariants.reduce((sum, v) => sum + calcVariantStock(v.inventory, v.seller_products), 0);
 
-  // Extract image from product_media
   const productImage = product.media?.[0]?.url || product.image || null;
   const productImages = (product.media || []).map(media => media.url).filter(Boolean);
 
@@ -84,8 +92,8 @@ const transformProduct = (product, assignments = []) => {
     return_days: product.return_days || 7,
     quick_delivery: product.quick_delivery || false,
     hasVariants: activeVariants.length > 0,
-    variants: activeVariants,
-    defaultVariant: defaultVariant || null,
+    variants: activeVariants.map(transformVariant),
+    defaultVariant: defaultVariant ? transformVariant(defaultVariant) : null,
     warehouse_assignments: assignments
   };
 };
@@ -98,30 +106,7 @@ export const getAllProducts = async (req, res) => {
       { limit: 1000, page: 1 },
     );
 
-    // Transform products to include proper stock calculation and images
-    const transformedProducts = (result.items || []).map((product) => {
-      const activeVariants = (product.variants || []).filter(v => v.active !== false);
-      const totalStock = activeVariants.reduce((sum, variant) => {
-        const variantStock = (variant.warehouse_stock || []).reduce(
-          (variantSum, ws) => variantSum + (ws.stock_quantity || 0),
-          0
-        );
-        return sum + variantStock;
-      }, 0);
-
-      // Extract image from product_media
-      const productImage = product.media?.[0]?.url || product.image || null;
-      const productImages = (product.media || []).map(media => media.url).filter(Boolean);
-
-      return {
-        ...product,
-        image: productImage,
-        images: productImages.length > 0 ? productImages : product.images,
-        inStock: totalStock > 0,
-        stock: totalStock,
-        stockQuantity: totalStock,
-      };
-    });
+    const transformedProducts = (result.items || []).map((product) => transformProduct(product));
 
     res.status(200).json({
       success: true,
@@ -512,10 +497,7 @@ export const getProductsByDeliveryZone = async (req, res) => {
     const transformedProducts = products.map((product) => {
       const activeVariants = (product.product_variants || []).filter(v => v.active !== false);
       const totalStock = activeVariants.reduce((sum, variant) => {
-        const variantStock = (variant.warehouse_stock || []).reduce(
-          (variantSum, ws) => variantSum + (ws.stock_quantity || 0),
-          0
-        );
+        const variantStock = calcVariantStock(variant.inventory, variant.seller_products);
         return sum + variantStock;
       }, 0);
 
@@ -545,9 +527,11 @@ export const getProductsByDeliveryZone = async (req, res) => {
         delivery_available: true,
         created_at: product.created_at,
         hasVariants: product.product_variants?.length > 0,
-        variants: product.product_variants || [],
+        variants: (product.product_variants || []).map(transformVariant),
         defaultVariant:
-          product.product_variants?.find((v) => v.is_default === true) || null,
+          product.product_variants?.find((v) => v.is_default === true)
+            ? transformVariant(product.product_variants.find((v) => v.is_default === true))
+            : null,
       };
     });
 
@@ -838,10 +822,7 @@ export const getQuickPicks = async (req, res) => {
       );
       const activeVariants = (product.product_variants || []).filter(v => v.active !== false);
       const totalStock = activeVariants.reduce((sum, variant) => {
-        const variantStock = (variant.warehouse_stock || []).reduce(
-          (variantSum, ws) => variantSum + (ws.stock_quantity || 0),
-          0
-        );
+        const variantStock = calcVariantStock(variant.inventory, variant.seller_products);
         return sum + variantStock;
       }, 0);
 
@@ -875,8 +856,8 @@ export const getQuickPicks = async (req, res) => {
         specifications: product.specifications,
         created_at: product.created_at,
         hasVariants: product.product_variants?.length > 0,
-        variants: product.product_variants || [],
-        defaultVariant: defaultVariant,
+        variants: (product.product_variants || []).map(transformVariant),
+        defaultVariant: defaultVariant ? transformVariant(defaultVariant) : null,
         // ✅ Preserve original product data (for card display)
         originalPrice: product.price,
         originalOldPrice: product.old_price,
@@ -1163,10 +1144,11 @@ export const getProductVariants = async (req, res) => {
   try {
     const { productId } = req.params;
     const variants = await productVariantDao.listByProduct(productId, true);
-
+    const enriched = (variants || []).map(transformVariant);
     res.status(200).json({
       success: true,
-      variants: variants || [],
+      data: enriched,
+      variants: enriched,
     });
   } catch (error) {
     console.error("Server error:", error);
@@ -1717,10 +1699,12 @@ export const autoTransferInventory = async (req, res) => {
 export const monitorAndAutoTransfer = async (req, res) => {
   try {
     const lowStockThreshold = 2;
-    const records = await prisma.product_warehouse_stock.findMany({
-      where: { is_active: true, stock_quantity: { lte: lowStockThreshold }, warehouses: { type: 'division' } },
-      include: { warehouses: true }
+    const records = await prisma.inventory.findMany({
+      where: { stock_qty: { lte: lowStockThreshold }, warehouses: { type: 'division' } },
+      include: { warehouses: true, variant: { select: { product_id: true } } }
     });
+    // Normalize to expected shape
+    records.forEach(r => { r.product_id = r.variant?.product_id; r.stock_quantity = r.stock_qty; r.minimum_threshold = 10; });
 
     const transfers = [];
     for (const item of records) {
