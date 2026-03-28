@@ -17,11 +17,7 @@ const VARIANT_JOIN = "product_variants(*)";
 const MEDIA_JOIN = "product_media(url, media_type, is_primary, sort_order)";
 
 const extractMediaUrls = (product) => {
-  const mediaRaw = Array.isArray(product?.media)
-    ? product.media
-    : Array.isArray(product?.media)
-      ? product.media
-      : [];
+  const mediaRaw = Array.isArray(product?.media) ? product.media : [];
 
   const mediaSorted = [...mediaRaw].sort((a, b) => {
     const ap = a?.is_primary ? 1 : 0;
@@ -100,10 +96,12 @@ const transformProduct = (product, assignments = []) => {
 
 export const getAllProducts = async (req, res) => {
   try {
-    // Use Prisma through ProductDAO instead of Supabase
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
+
     const result = await productDao.listProducts(
       { active: true },
-      { limit: 1000, page: 1 },
+      { limit, page },
     );
 
     const transformedProducts = (result.items || []).map((product) => transformProduct(product));
@@ -112,6 +110,9 @@ export const getAllProducts = async (req, res) => {
       success: true,
       products: transformedProducts,
       total: result.total || 0,
+      page,
+      limit,
+      totalPages: Math.ceil((result.total || 0) / limit),
     });
   } catch (err) {
     console.error("Error fetching products:", err);

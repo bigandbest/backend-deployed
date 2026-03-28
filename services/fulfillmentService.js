@@ -161,26 +161,32 @@ export const checkProductAvailability = async (
 
     // ──── PRIORITY C: Seller Stores ────
     const sellers = await getSellerStoresForPincode(normalizedPincode, excludeSellerIds);
-    for (const seller of sellers) {
-        // Find seller product with stock
-        const sellerProduct = await prisma.seller_products.findFirst({
-            where: {
-                seller_id: seller.id,
-                product_id: productId,
-                ...(variantId ? { variant_id: variantId } : {}),
-                is_active: true,
-                status: 'APPROVED',
-                stock_quantity: { gte: quantity },
-            },
-            include: {
-                warehouse: {
-                    select: { id: true, name: true, delivery_sla_minutes: true },
-                },
-            },
-            orderBy: { stock_quantity: 'desc' },
-        });
+    if (sellers.length > 0) {
+        // Query all sellers in parallel, then pick the first match
+        const sellerResults = await Promise.all(
+            sellers.map((seller) =>
+                prisma.seller_products.findFirst({
+                    where: {
+                        seller_id: seller.id,
+                        product_id: productId,
+                        ...(variantId ? { variant_id: variantId } : {}),
+                        is_active: true,
+                        status: 'APPROVED',
+                        stock_quantity: { gte: quantity },
+                    },
+                    include: {
+                        warehouse: {
+                            select: { id: true, name: true, delivery_sla_minutes: true },
+                        },
+                    },
+                    orderBy: { stock_quantity: 'desc' },
+                }).then((product) => ({ seller, product }))
+            )
+        );
 
-        if (sellerProduct) {
+        const match = sellerResults.find((r) => r.product !== null);
+        if (match) {
+            const { seller, product: sellerProduct } = match;
             return {
                 available: true,
                 source_type: 'seller',
@@ -216,30 +222,28 @@ export const checkProductAvailability = async (
  * @returns {Array} Items with resolved source info
  */
 export const resolveCartSources = async (items, pincode) => {
-    const results = [];
-
-    for (const item of items) {
-        const availability = await checkProductAvailability(
-            item.product_id,
-            item.variant_id,
-            pincode,
-            item.quantity || 1
-        );
-
-        results.push({
-            ...item,
-            available: availability.available,
-            source_type: availability.source_type,
-            source_id: availability.source_id,
-            seller_id: availability.seller_id || null,
-            available_qty: availability.available_qty,
-            estimated_delivery_minutes: availability.estimated_delivery_minutes,
-            warehouse_name: availability.warehouse_name,
-            reason: availability.reason || null,
-        });
-    }
-
-    return results;
+    const resolved = await Promise.all(
+        items.map(async (item) => {
+            const availability = await checkProductAvailability(
+                item.product_id,
+                item.variant_id,
+                pincode,
+                item.quantity || 1
+            );
+            return {
+                ...item,
+                available: availability.available,
+                source_type: availability.source_type,
+                source_id: availability.source_id,
+                seller_id: availability.seller_id || null,
+                available_qty: availability.available_qty,
+                estimated_delivery_minutes: availability.estimated_delivery_minutes,
+                warehouse_name: availability.warehouse_name,
+                reason: availability.reason || null,
+            };
+        })
+    );
+    return resolved;
 };
 
 // ================================================================

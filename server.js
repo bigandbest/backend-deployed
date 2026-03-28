@@ -178,8 +178,8 @@ const createApp = () => {
     }),
   );
 
-  app.use(express.json({ limit: "50mb" })); // Add size limit
-  app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+  app.use(express.json({ limit: "1mb" }));
+  app.use(express.urlencoded({ extended: true, limit: "1mb" }));
   app.use(cookieParser());
 
   // API Routes
@@ -654,5 +654,5 @@ startServer().catch((error) => {
   process.exit(1);
 });
 
-// Export the app for testing or other purposes
-export default createApp();
+// Export the app instance (used by index.js and tests)
+export default app;

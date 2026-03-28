@@ -142,14 +142,10 @@ export const cacheMiddleware = (ttl = 300, keyGenerator = null) => {
         // Check cache
         const cachedData = cache.get(cacheKey);
         if (cachedData) {
-            console.log(`✅ Cache HIT: ${cacheKey}`);
-            // Add cache headers for browser caching
             res.set('X-Cache', 'HIT');
             res.set('Cache-Control', `public, max-age=${ttl}`);
             return res.json(cachedData);
         }
-
-        console.log(`❌ Cache MISS: ${cacheKey}`);
 
         // Store original json method
         const originalJson = res.json.bind(res);
