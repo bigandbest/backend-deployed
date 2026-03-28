@@ -21,6 +21,7 @@ model sub_orders {
   warehouse             warehouses          @relation(fields: [source_id], references: [id])
   sub_order_items       sub_order_items[]
   fulfillment_events    fulfillment_events[]
+  rider_payouts         rider_payouts[]
 
   @@index([parent_order_id])
   @@index([source_type])

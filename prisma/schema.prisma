@@ -1196,6 +1196,16 @@ model rider_documents {
 }
 
 
+// --- Model: rider_payout_milestones.prisma ---
+model rider_payout_milestones {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  min_order_value Decimal   @db.Decimal
+  max_order_value Decimal   @db.Decimal
+  base_pay_per_km Decimal   @db.Decimal
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime? @default(now()) @db.Timestamptz(6)
+}
+
 // --- Model: rider_wage_logs.prisma ---
 model rider_wage_logs {
   id                          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid

@@ -314,16 +314,22 @@ class SellerDAO {
      * Get seller orders
      */
     async getSellerOrders(sellerId, filters = {}) {
-        const sellerProducts = await prisma.seller_products.findMany({
-            where: { seller_id: sellerId, status: 'APPROVED' },
-            select: { product_id: true, variant_id: true }
-        });
+        const [sellerProducts, approvedPincodeRows] = await Promise.all([
+            prisma.seller_products.findMany({
+                where: { seller_id: sellerId, status: 'APPROVED' },
+                select: { product_id: true, variant_id: true },
+            }),
+            prisma.seller_pincode_requests.findMany({
+                where: { seller_id: sellerId, status: 'APPROVED' },
+                select: { pincode: true },
+            }),
+        ]);
 
-        const productIds = sellerProducts.map(sp => sp.product_id);
-
-        if (productIds.length === 0) {
+        if (sellerProducts.length === 0) {
             return [];
         }
+
+        const approvedPincodes = approvedPincodeRows.map(r => r.pincode);
 
         const where = {
             order_items: {
@@ -334,7 +340,12 @@ class SellerDAO {
                             : { product_variants: { product_id: sp.product_id } })
                     }))
                 }
-            }
+            },
+            // Only show orders destined for the seller's approved pincodes
+            ...(approvedPincodes.length > 0
+                ? { delivery_pincode: { in: approvedPincodes } }
+                : { delivery_pincode: '__no_pincode_approved__' } // blocks all if no approved pincode
+            ),
         };
 
         if (filters.status) {

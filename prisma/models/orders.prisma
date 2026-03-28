@@ -28,8 +28,11 @@ model orders {
   mobile               String?          @db.VarChar
   razorpay_signature   String?          @db.VarChar
   receiver_name        String?          @db.VarChar
-  delivery_distance_km Decimal?         @default(0) @db.Decimal
-  rider_payout_amount  Decimal?         @default(0) @db.Decimal
+  delivery_distance_km   Decimal?         @default(0) @db.Decimal
+  rider_payout_amount    Decimal?         @default(0) @db.Decimal
+  delivery_latitude      Decimal?         @db.Decimal(10, 7)
+  delivery_longitude     Decimal?         @db.Decimal(10, 7)
+  customer_address_id    Int?
 
   // Relations — matching backup schema exactly
   coupon_usage         coupon_usage?

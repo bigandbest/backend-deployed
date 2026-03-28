@@ -7,6 +7,9 @@ import crypto from "crypto";
 import Razorpay from "razorpay";
 // import { createNotificationHelper } from "./NotificationHelpers.js";
 import dotenv from "dotenv";
+import subOrderDao from "../dao/sub-order.dao.js";
+import { findWarehouseForProduct } from "../services/warehouseService.js";
+import { routeSubOrders } from "../services/fulfillmentRouter.js";
 
 dotenv.config();
 
@@ -763,6 +766,11 @@ export const createWalletOrder = async (req, res) => {
       user_email,
       product_name,
       product_total_price,
+      subtotal: bodySubtotal,
+      handling_charge = 0,
+      surge_charge = 0,
+      platform_charge = 0,
+      shipping = 0,
       user_address,
       user_location,
       quantity = 1,
@@ -833,18 +841,25 @@ export const createWalletOrder = async (req, res) => {
       });
     }
 
+    const deliveryPincode = delivery_address?.pincode ? String(delivery_address.pincode).trim() : null;
+
+    const subtotalValue = bodySubtotal != null ? parseFloat(bodySubtotal) : totalPrice;
+
     // Create order data with nested items - strictly matching schema
     const orderCreateData = {
       user_id: String(user_id),
-      address: String(user_address), // Assuming address maps to 'address' column
-      payment_method: 'wallet',
+      address: String(user_address),
+      payment_method: 'Prepaid (wallet)',
       status: 'pending',
       total: parseFloat(totalPrice),
-      subtotal: parseFloat(totalPrice), // Simplified for now
-      shipping: 0,
-      // Map other fields if they exist in schema
-      receiver_name: user_name, // Mapping user_name to receiver_name
+      subtotal: subtotalValue,
+      shipping: parseFloat(shipping) || 0,
+      handling_charge: parseFloat(handling_charge) || 0,
+      surge_charge: parseFloat(surge_charge) || 0,
+      platform_charge: parseFloat(platform_charge) || 0,
+      receiver_name: user_name,
       mobile: mobile ? String(mobile) : null,
+      delivery_pincode: deliveryPincode,
       order_items: {
         create: orderItemsData
       }
@@ -873,6 +888,117 @@ export const createWalletOrder = async (req, res) => {
         null,
         idempotencyKey
       );
+
+      // Create sub-orders for fulfillment routing
+      if (deliveryPincode && items && items.length > 0) {
+        (async () => {
+          try {
+            // Separate items that have a variant_id from those that only have product_id
+            const explicitVariantIds = [...new Set(
+              items.map(i => i.variant_id ? String(extractUuid(i.variant_id)) : null).filter(Boolean)
+            )];
+            const productIdsNeedingVariant = [...new Set(
+              items.filter(i => !i.variant_id && i.product_id).map(i => String(extractUuid(i.product_id)))
+            )];
+
+            // Batch-fetch known variants + default variants for products that have none
+            const [knownVariants, defaultVariants] = await Promise.all([
+              explicitVariantIds.length
+                ? prisma.product_variants.findMany({ where: { id: { in: explicitVariantIds } }, select: { id: true, product_id: true } })
+                : Promise.resolve([]),
+              productIdsNeedingVariant.length
+                ? prisma.product_variants.findMany({
+                    where: { product_id: { in: productIdsNeedingVariant } },
+                    select: { id: true, product_id: true },
+                    orderBy: { created_at: 'asc' }, // pick earliest = default
+                    distinct: ['product_id'],
+                  })
+                : Promise.resolve([]),
+            ]);
+
+            const variantByVariantId = Object.fromEntries(knownVariants.map(v => [v.id, v]));
+            const variantByProductId = Object.fromEntries(defaultVariants.map(v => [v.product_id, v]));
+
+            // Resolve warehouse info for all items
+            const resolvedItems = [];
+            for (const item of items) {
+              const rawProductId = item.product_id;
+              if (!rawProductId) continue;
+              const productId = String(extractUuid(rawProductId));
+
+              let variantId = item.variant_id ? String(extractUuid(item.variant_id)) : null;
+              // Resolve to a real variant_id if not provided
+              if (!variantId) {
+                variantId = variantByProductId[productId]?.id || null;
+              }
+              if (!variantId) continue; // can't create sub_order_item without valid variant
+
+              const resolvedProductId = variantByVariantId[variantId]?.product_id
+                || variantByProductId[productId]?.product_id
+                || productId;
+
+              const warehouseInfo = await findWarehouseForProduct(
+                resolvedProductId, deliveryPincode, null, parseInt(item.quantity) || 1, variantId
+              );
+              if (!warehouseInfo) continue;
+
+              resolvedItems.push({ item, productId: resolvedProductId, variantId, warehouseInfo });
+            }
+
+            if (resolvedItems.length === 0) return;
+
+            // Batch-fetch warehouse types to resolve 'seller' → 'division'/'zonal'
+            const warehouseIds = [...new Set(resolvedItems.map(r => r.warehouseInfo.warehouse_id).filter(Boolean))];
+            const warehouseList = await prisma.warehouses.findMany({
+              where: { id: { in: warehouseIds } },
+              select: { id: true, type: true },
+            });
+            const warehouseTypeMap = Object.fromEntries(warehouseList.map(w => [w.id, w.type]));
+
+            const sourceGroups = {};
+            for (const { item, productId, variantId, warehouseInfo } of resolvedItems) {
+              const sourceType = warehouseTypeMap[warehouseInfo.warehouse_id] === 'zonal' ? 'zonal' : 'division';
+              const key = `${sourceType}__${warehouseInfo.warehouse_id}__${warehouseInfo.seller_id || ''}`;
+              if (!sourceGroups[key]) {
+                sourceGroups[key] = {
+                  source_type: sourceType,
+                  source_id: warehouseInfo.warehouse_id,
+                  seller_id: warehouseInfo.seller_id || null,
+                  items: [],
+                };
+              }
+              sourceGroups[key].items.push({
+                product_id: productId,
+                variant_id: variantId,
+                quantity: parseInt(item.quantity) || 1,
+                unit_price: parseFloat(item.price) || 0,
+              });
+            }
+
+            for (const group of Object.values(sourceGroups)) {
+              const subOrder = await subOrderDao.create({
+                parent_order_id: order.id,
+                source_type: group.source_type,
+                source_id: group.source_id,
+                seller_id: group.seller_id,
+                fulfillment_status: 'pending',
+                estimated_delivery_at: new Date(Date.now() + (group.source_type === 'zonal' ? 30 : 120) * 60 * 1000),
+              });
+
+              await prisma.sub_order_items.createMany({
+                data: group.items.map(i => ({ ...i, sub_order_id: subOrder.id })),
+                skipDuplicates: true,
+              });
+            }
+
+            routeSubOrders(order.id).catch(err =>
+              console.error('Wallet order fulfillment routing error:', err.message)
+            );
+          } catch (subErr) {
+            console.error('Wallet order sub-order creation error:', subErr.message, subErr.stack);
+          }
+        })();
+      }
 
       return res.status(201).json({
         success: true,

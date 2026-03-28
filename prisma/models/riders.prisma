@@ -37,6 +37,8 @@ model riders {
   attendance_logs       attendance_logs[]
   rider_wage_logs       rider_wage_logs[]
   rider_assignments     rider_assignments[]
+  rider_locations       rider_locations[]
+  rider_payouts         rider_payouts[]
 
   @@index([user_id])
   @@index([is_available])

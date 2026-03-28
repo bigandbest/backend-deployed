@@ -664,6 +664,92 @@ export async function resolveApplicablePlatformFee({
   };
 }
 
+/**
+ * Batch-resolve platform fees for multiple items.
+ * Makes exactly 2 DB queries regardless of item count.
+ * @param {Array<{groupId, subcategoryId, categoryId}>} items
+ * @returns {Map<string, {fee_percentage, ...}>} key is `${groupId}|${subcategoryId}|${categoryId}`
+ */
+export async function batchResolvePlatformFees(items) {
+  const groupIds = [...new Set(items.map((i) => i.groupId).filter(Boolean))];
+  const subcategoryIds = [...new Set(items.map((i) => i.subcategoryId).filter(Boolean))];
+  const categoryIds = [...new Set(items.map((i) => i.categoryId).filter(Boolean))];
+
+  const conditions = [];
+  if (groupIds.length > 0) conditions.push({ entity_type: 'group', entity_id: { in: groupIds } });
+  if (subcategoryIds.length > 0) conditions.push({ entity_type: 'subcategory', entity_id: { in: subcategoryIds } });
+  if (categoryIds.length > 0) conditions.push({ entity_type: 'category', entity_id: { in: categoryIds } });
+
+  if (conditions.length === 0) {
+    const resultMap = new Map();
+    for (const item of items) {
+      resultMap.set(`${item.groupId}|${item.subcategoryId}|${item.categoryId}`, { fee_percentage: 0, source_level: null, source_entity_id: null, source_type: null });
+    }
+    return resultMap;
+  }
+
+  const [directFees, groupEntityFees] = await Promise.all([
+    feeConfig(prisma).findMany({ where: { OR: conditions, is_active: true } }),
+    feeGroupEntityConfig(prisma).findMany({
+      where: { OR: conditions },
+      include: { fee_group: { select: { id: true, name: true, fee_percentage: true } } },
+    }),
+  ]);
+
+  const directMap = new Map();
+  for (const fee of directFees) directMap.set(`${fee.entity_type}:${fee.entity_id}`, fee);
+
+  const groupMap = new Map();
+  for (const gfe of groupEntityFees) groupMap.set(`${gfe.entity_type}:${gfe.entity_id}`, gfe);
+
+  const resultMap = new Map();
+  for (const item of items) {
+    const key = `${item.groupId}|${item.subcategoryId}|${item.categoryId}`;
+    if (resultMap.has(key)) continue;
+
+    let resolved = null;
+
+    if (item.groupId) {
+      const df = directMap.get(`group:${item.groupId}`);
+      if (df) {
+        resolved = { fee_percentage: Number(df.fee_percentage), source_level: 'group', source_entity_id: item.groupId, source_type: 'single' };
+      } else {
+        const gfe = groupMap.get(`group:${item.groupId}`);
+        if (gfe?.fee_group) {
+          resolved = { fee_percentage: Number(gfe.fee_group.fee_percentage), source_level: 'group', source_entity_id: item.groupId, source_type: 'group', source_group_id: gfe.fee_group.id, source_group_name: gfe.fee_group.name };
+        }
+      }
+    }
+
+    if (!resolved && item.subcategoryId) {
+      const df = directMap.get(`subcategory:${item.subcategoryId}`);
+      if (df) {
+        resolved = { fee_percentage: Number(df.fee_percentage), source_level: 'subcategory', source_entity_id: item.subcategoryId, source_type: 'single' };
+      } else {
+        const gfe = groupMap.get(`subcategory:${item.subcategoryId}`);
+        if (gfe?.fee_group) {
+          resolved = { fee_percentage: Number(gfe.fee_group.fee_percentage), source_level: 'subcategory', source_entity_id: item.subcategoryId, source_type: 'group', source_group_id: gfe.fee_group.id, source_group_name: gfe.fee_group.name };
+        }
+      }
+    }
+
+    if (!resolved && item.categoryId) {
+      const df = directMap.get(`category:${item.categoryId}`);
+      if (df) {
+        resolved = { fee_percentage: Number(df.fee_percentage), source_level: 'category', source_entity_id: item.categoryId, source_type: 'single' };
+      } else {
+        const gfe = groupMap.get(`category:${item.categoryId}`);
+        if (gfe?.fee_group) {
+          resolved = { fee_percentage: Number(gfe.fee_group.fee_percentage), source_level: 'category', source_entity_id: item.categoryId, source_type: 'group', source_group_id: gfe.fee_group.id, source_group_name: gfe.fee_group.name };
+        }
+      }
+    }
+
+    resultMap.set(key, resolved || { fee_percentage: 0, source_level: null, source_entity_id: null, source_type: null });
+  }
+  return resultMap;
+}
+
 export async function getPlatformFeeByProductId(productId) {
   const product = await prisma.products.findUnique({
     where: { id: productId },

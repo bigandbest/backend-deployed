@@ -1,5 +1,6 @@
 import sellerPincodeDao from '../dao/sellerPincode.dao.js';
 import prisma from '../config/prisma.js';
+import { geocodeAddress, buildAddressString } from '../utils/geocode.js';
 
 export const requestPincode = async (req, res) => {
     try {
@@ -113,6 +114,47 @@ export const approveRequest = async (req, res) => {
                 where: { id: sellerId },
                 data: { pincode: pincode, address: address, is_active: true }
             });
+        });
+
+        // Non-blocking: geocode seller address now that it's finalized
+        setImmediate(async () => {
+            try {
+                const seller = await prisma.sellers.findUnique({
+                    where: { id: sellerId },
+                    select: { address: true, city: true, state: true, pincode: true },
+                });
+                const addressStr = buildAddressString({
+                    addressLine1: seller.address || '',
+                    city: seller.city || '',
+                    state: seller.state || '',
+                    pincode: seller.pincode || '',
+                    country: 'India',
+                });
+                const geo = await geocodeAddress(addressStr);
+                if (geo) {
+                    await prisma.sellers.update({
+                        where: { id: sellerId },
+                        data: {
+                            latitude: geo.latitude,
+                            longitude: geo.longitude,
+                            geocode_source: geo.source,
+                            geocode_status: 'SUCCESS',
+                            geocoded_at: new Date(),
+                            geocoded_display_name: geo.display_name,
+                        },
+                    });
+                } else {
+                    await prisma.sellers.update({
+                        where: { id: sellerId },
+                        data: { geocode_status: 'FAILED' },
+                    });
+                    await prisma.geocode_retry_queue.create({
+                        data: { entity_type: 'SELLER', entity_id: sellerId, address_string: addressStr },
+                    });
+                }
+            } catch (err) {
+                console.error('[geocode] seller geocode failed:', err.message);
+            }
         });
 
         return res.status(200).json({

@@ -18,6 +18,10 @@ import userControlDao from "../dao/user.dao.js";
 import chargeSettingDao from "../dao/charge-setting.dao.js";
 import prisma from "../config/prisma.js";
 import { checkMultipleProductsDelivery } from "./deliveryValidationService.js";
+import subOrderDao from "../dao/sub-order.dao.js";
+import { routeSubOrders } from "../services/fulfillmentRouter.js";
+import walletDao from "../dao/wallet.dao.js";
+import { findWarehouseForProduct } from "../services/warehouseService.js";
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -72,180 +76,6 @@ const resolveOrderItemVariantId = async (item, productId) => {
   return product?.variants?.find((v) => v.is_default)?.id || product?.variants?.[0]?.id || null;
 };
 
-const findStockInWarehouses = async (productId, warehouseIds, quantity = 1, variantId = null, warehouseType = null) => {
-  if (!warehouseIds?.length) return null;
-
-  return prisma.inventory.findFirst({
-    where: {
-      warehouse_id: { in: warehouseIds },
-      stock_qty: { gte: quantity },
-      product_variants: {
-        ...(variantId ? { id: variantId } : {}),
-        products: { id: productId },
-      },
-      ...(warehouseType ? { warehouses: { type: warehouseType, is_active: true } } : {}),
-    },
-    include: { warehouses: true },
-    orderBy: { stock_qty: "desc" },
-  });
-};
-
-const getDivisionWarehousesForPincode = async (pincode) => {
-  return prisma.warehouse_pincodes.findMany({
-    where: {
-      pincode,
-      is_active: true,
-      warehouse: {
-        is_active: true,
-        type: "division",
-      },
-    },
-    include: {
-      warehouse: true,
-    },
-  });
-};
-
-const getZonalWarehousesForPincode = async (pincode) => {
-  const zoneMappings = await prisma.zone_pincodes.findMany({
-    where: {
-      pincode,
-      is_active: true,
-    },
-    include: {
-      delivery_zones: {
-        include: {
-          warehouse_zones: {
-            where: { is_active: true },
-            include: {
-              warehouses: true,
-            },
-          },
-        },
-      },
-    },
-  });
-
-  const zonalWarehouses = [];
-  const seenWarehouseIds = new Set();
-
-  for (const zoneMapping of zoneMappings) {
-    for (const warehouseZone of zoneMapping.delivery_zones?.warehouse_zones || []) {
-      const warehouse = warehouseZone.warehouses;
-      if (
-        warehouse &&
-        warehouse.is_active &&
-        warehouse.type === "zonal" &&
-        !seenWarehouseIds.has(warehouse.id)
-      ) {
-        seenWarehouseIds.add(warehouse.id);
-        zonalWarehouses.push(warehouse);
-      }
-    }
-  }
-
-  return zonalWarehouses;
-};
-
-// Priority: seller -> division warehouse -> zonal warehouse -> unavailable
-const findWarehouseForProduct = async (productId, pincode, productType, quantity = 1, variantId = null) => {
-  try {
-    const product = await productDao.getProductById(productId);
-    if (!product) {
-      console.warn(`Product not found: ${productId}`);
-      return null;
-    }
-
-    const normalizedPincode = String(pincode || "").trim();
-    const divisionMappings = normalizedPincode
-      ? await getDivisionWarehousesForPincode(normalizedPincode)
-      : [];
-    const divisionWarehouseIds = divisionMappings.map((mapping) => mapping.warehouse_id);
-
-    // 1. Seller stock in division warehouse serving this pincode
-    if (divisionWarehouseIds.length > 0) {
-      const sellerProduct = await prisma.seller_products.findFirst({
-        where: {
-          product_id: productId,
-          warehouse_id: { in: divisionWarehouseIds },
-          is_active: true,
-          status: "APPROVED",
-          stock_quantity: { gte: quantity },
-          ...(variantId ? { variant_id: variantId } : {}),
-          sellers: {
-            is_active: true,
-            is_open: true,
-          },
-        },
-        include: {
-          sellers: true,
-          warehouses: true,
-        },
-        orderBy: {
-          stock_quantity: "desc",
-        },
-      });
-
-      if (sellerProduct) {
-        return {
-          warehouse_id: sellerProduct.warehouse_id,
-          warehouse_name: sellerProduct.warehouses?.name || "Division Warehouse",
-          seller_id: sellerProduct.seller_id,
-          assignment_source: "seller",
-          priority: 1,
-          fallback_level: 0,
-        };
-      }
-    }
-
-    // 2. Division warehouse stock for this pincode
-    const divisionStock = await findStockInWarehouses(
-      productId,
-      divisionWarehouseIds,
-      quantity,
-      variantId,
-      "division"
-    );
-    if (divisionStock) {
-      return {
-        warehouse_id: divisionStock.warehouse_id,
-        warehouse_name: divisionStock.warehouses?.name || "Division Warehouse",
-        seller_id: null,
-        assignment_source: "division",
-        priority: 2,
-        fallback_level: 1,
-      };
-    }
-
-    // 3. Zonal warehouse stock for the zone serving this pincode
-    const zonalWarehouses = normalizedPincode
-      ? await getZonalWarehousesForPincode(normalizedPincode)
-      : [];
-    const zonalWarehouseIds = zonalWarehouses.map((warehouse) => warehouse.id);
-    const zonalStock = await findStockInWarehouses(
-      productId,
-      zonalWarehouseIds,
-      quantity,
-      variantId,
-      "zonal"
-    );
-    if (zonalStock) {
-      return {
-        warehouse_id: zonalStock.warehouse_id,
-        warehouse_name: zonalStock.warehouses?.name || "Zonal Warehouse",
-        seller_id: null,
-        assignment_source: "zonal",
-        priority: 3,
-        fallback_level: 2,
-      };
-    }
-
-    return null;
-  } catch (err) {
-    console.error("Error in findWarehouseForProduct:", err);
-    return null;
-  }
-};
 
 /** Get all orders (admin usage) */
 export const getAllOrders = async (req, res) => {
@@ -625,6 +455,69 @@ export const placeOrder = async (req, res) => {
     // Clear user's cart
     await cartDao.clearCart(user_id);
 
+    // ── Create sub-orders grouped by fulfillment source ──────────────────────
+    try {
+      // Resolve warehouse types upfront so seller-sourced items in division
+      // warehouses are classified as 'division', matching backfill behaviour.
+      const warehouseIds = [...new Set(
+        preparedItems.map(p => p.warehouseInfo?.warehouse_id).filter(Boolean)
+      )];
+      const warehouses = await prisma.warehouses.findMany({
+        where: { id: { in: warehouseIds } },
+        select: { id: true, type: true },
+      });
+      const warehouseTypeMap = Object.fromEntries(warehouses.map(w => [w.id, w.type]));
+
+      const sourceGroups = {};
+      for (const { productId, quantity, variantId, item, warehouseInfo } of preparedItems) {
+        if (!warehouseInfo) continue;
+        const wType = warehouseTypeMap[warehouseInfo.warehouse_id];
+        const resolvedSourceType = wType === 'zonal' ? 'zonal' : 'division';
+        const key = `${resolvedSourceType}__${warehouseInfo.warehouse_id}__${warehouseInfo.seller_id || ''}`;
+        if (!sourceGroups[key]) {
+          sourceGroups[key] = {
+            source_type: resolvedSourceType,
+            source_id: warehouseInfo.warehouse_id,
+            seller_id: warehouseInfo.seller_id || null,
+            items: [],
+          };
+        }
+        sourceGroups[key].items.push({
+          product_id: productId,
+          variant_id: variantId,
+          quantity,
+          unit_price: parseFloat(item.price) || 0,
+        });
+      }
+
+      const estimatedDeliveryMinutes = { division: 120, zonal: 30 };
+
+      for (const group of Object.values(sourceGroups)) {
+        const subOrder = await subOrderDao.create({
+          parent_order_id: order.id,
+          source_type: group.source_type,
+          source_id: group.source_id,
+          seller_id: group.seller_id,
+          fulfillment_status: 'pending',
+          estimated_delivery_at: new Date(
+            Date.now() + (estimatedDeliveryMinutes[group.source_type] || 120) * 60 * 1000
+          ),
+        });
+
+        await prisma.sub_order_items.createMany({
+          data: group.items.map(i => ({ ...i, sub_order_id: subOrder.id })),
+          skipDuplicates: true,
+        });
+      }
+
+      routeSubOrders(order.id).catch(err =>
+        console.error('Fulfillment routing error:', err.message)
+      );
+    } catch (subOrderErr) {
+      console.error('Sub-order creation error:', subOrderErr.message, subOrderErr.stack);
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     return res.json({
       success: true,
       order,
@@ -865,12 +758,73 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
     // Clear cart
     await cartDao.clearCart(user_id);
 
-    // Get user details for admin notification
-    const userData = await userControlDao.getUserById(user_id);
+    // ── Create sub-orders grouped by fulfillment source ──────────────────────
+    try {
+      // Resolve warehouse types so seller-sourced items in division warehouses
+      // are classified as 'division', matching backfill behaviour.
+      const warehouseIds = [...new Set(
+        preparedItems.map(p => p.warehouseInfo?.warehouse_id).filter(Boolean)
+      )];
+      const warehouses = await prisma.warehouses.findMany({
+        where: { id: { in: warehouseIds } },
+        select: { id: true, type: true },
+      });
+      const warehouseTypeMap = Object.fromEntries(warehouses.map(w => [w.id, w.type]));
 
-    // Create notifications for new order
-    // await createOrderNotification(user_id, order.id, order.status === "confirmed" ? "confirmed" : "pending");
-    // await createAdminOrderNotification(order.id, userData?.name, total);
+      const sourceGroups = {};
+      for (const { productId, quantity, variantId, item, warehouseInfo } of preparedItems) {
+        if (!warehouseInfo) continue;
+        const wType = warehouseTypeMap[warehouseInfo.warehouse_id];
+        const resolvedSourceType = wType === 'zonal' ? 'zonal' : 'division';
+        const key = `${resolvedSourceType}__${warehouseInfo.warehouse_id}__${warehouseInfo.seller_id || ''}`;
+        if (!sourceGroups[key]) {
+          sourceGroups[key] = {
+            source_type: resolvedSourceType,
+            source_id: warehouseInfo.warehouse_id,
+            seller_id: warehouseInfo.seller_id || null,
+            items: [],
+          };
+        }
+        sourceGroups[key].items.push({
+          product_id: productId,
+          variant_id: variantId,
+          quantity,
+          unit_price: parseFloat(item.price),
+        });
+      }
+
+      const estimatedDeliveryMinutes = { division: 120, zonal: 30 };
+
+      for (const group of Object.values(sourceGroups)) {
+        const estimated_delivery_at = new Date(
+          Date.now() + (estimatedDeliveryMinutes[group.source_type] || 120) * 60 * 1000
+        );
+
+        const subOrder = await subOrderDao.create({
+          parent_order_id: order.id,
+          source_type: group.source_type,
+          source_id: group.source_id,
+          seller_id: group.seller_id,
+          fulfillment_status: 'pending',
+          estimated_delivery_at,
+        });
+
+        // Create sub-order items
+        await prisma.sub_order_items.createMany({
+          data: group.items.map(i => ({ ...i, sub_order_id: subOrder.id })),
+          skipDuplicates: true,
+        });
+      }
+
+      // Trigger fulfillment routing asynchronously (non-blocking)
+      routeSubOrders(order.id).catch(err =>
+        console.error('Fulfillment routing error:', err.message)
+      );
+    } catch (subOrderErr) {
+      // Sub-order creation failure is non-fatal — order is already placed
+      console.error('Sub-order creation error:', subOrderErr.message);
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     return res.json({ success: true, order });
   } catch (error) {
@@ -915,30 +869,35 @@ export const cancelOrder = async (req, res) => {
       console.error("Error creating notifications:", notificationError);
     }
 
-    // Auto-create refund request for prepaid orders
+    // Auto-refund into wallet for prepaid orders
+    let walletRefunded = false;
     if (order.payment_method === "Razorpay" || order.payment_method === "prepaid") {
       try {
-        const refundRequest = await refundRequestDao.create({
-          order_id: id,
-          user_id: order.user_id,
-          refund_amount: parseFloat(order.total),
-          refund_type: "order_cancellation",
-          payment_method: order.payment_method,
-          original_payment_id: order.razorpay_payment_id,
-          refund_mode: "bank_transfer",
-          status: "pending",
-        });
+        const refundAmount = parseFloat(order.total);
+        // Find or create wallet
+        let wallet = await walletDao.getByUserId(order.user_id);
+        if (!wallet) {
+          wallet = await walletDao.create(order.user_id);
+        }
 
-        console.log("Auto-created refund request:", refundRequest.id);
+        await walletDao.updateBalance(
+          wallet.id,
+          refundAmount,
+          'REFUND',
+          'order_cancellation',
+          id,
+          `Refund for cancelled order #${id}`,
+          {
+            order_id: id,
+            razorpay_payment_id: order.razorpay_payment_id || null,
+            reason: reason || 'Order cancelled',
+          }
+        );
 
-        // Create admin notification for refund request (keeping it as is if it's not and admin notification helper)
-        // If there's an admin notification DAO, I'd use it.
-        // The original code was inserting into "notifications" table directly.
-        // I'll used userControlDao.createNotification if it supports it, 
-        // but the table name in original was "notifications" which might be different from "user_notifications".
-        // Actually, the implementation plan mentioned notification.dao.js for general notifications.
+        walletRefunded = true;
+        console.log(`Refunded ₹${refundAmount} to wallet for user ${order.user_id}, order ${id}`);
       } catch (refundError) {
-        console.error("Error auto-creating refund request:", refundError);
+        console.error("Error processing wallet refund:", refundError);
       }
     }
 
@@ -946,7 +905,8 @@ export const cancelOrder = async (req, res) => {
     return res.json({
       success: true,
       message: "Order cancelled successfully",
-      refundCreated: order.payment_method === "Razorpay" || order.payment_method === "prepaid",
+      walletRefunded,
+      refundAmount: walletRefunded ? parseFloat(order.total) : 0,
     });
   } catch (error) {
     console.error("Unexpected error in cancelOrder:", error);
