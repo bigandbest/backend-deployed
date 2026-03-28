@@ -94,10 +94,33 @@ const routeWithRider = async (subOrder, orderId) => {
 };
 
 /**
+ * Retry a function with exponential backoff.
+ * @param {Function} fn        — async function to retry
+ * @param {number}   maxRetries
+ * @param {number}   baseDelayMs — initial delay (doubles each attempt)
+ */
+const withRetry = async (fn, maxRetries = 3, baseDelayMs = 1000) => {
+    let lastErr;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            return await fn();
+        } catch (err) {
+            lastErr = err;
+            if (attempt < maxRetries) {
+                const delay = baseDelayMs * Math.pow(2, attempt);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+    }
+    throw lastErr;
+};
+
+/**
  * Standard rider assignment flow:
  * 1. Find available rider in the delivery zone
  * 2. Build pickup sequence (sellers first, division last)
  * 3. Assign rider
+ * Retries up to 3 times with exponential backoff before setting status = rider_pending.
  */
 const assignStandardRider = async (subOrder, orderId) => {
     const parentOrder = await prisma.orders.findUnique({
@@ -105,8 +128,8 @@ const assignStandardRider = async (subOrder, orderId) => {
         select: { delivery_pincode: true },
     });
 
-    // Find available riders in the delivery zone
-    const rider = await findAvailableRider(parentOrder.delivery_pincode);
+    // Find available riders in the delivery zone (with retry)
+    const rider = await withRetry(() => findAvailableRider(parentOrder.delivery_pincode));
 
     if (!rider) {
         // No rider available — queue for retry
@@ -241,14 +264,14 @@ const findAvailableRider = async (pincode) => {
         where: {
             warehouse_id: { in: warehouseIds },
             is_active: true,
-            rider: {
+            riders: {
                 is_active: true,
                 is_available: true,
                 verification_status: 'VERIFIED',
             },
         },
         include: {
-            rider: {
+            riders: {
                 include: {
                     user: {
                         select: { id: true, name: true, phone: true },
@@ -258,7 +281,7 @@ const findAvailableRider = async (pincode) => {
         },
     });
 
-    return warehouseRider?.rider || null;
+    return warehouseRider?.riders || null;
 };
 
 // ================================================================
