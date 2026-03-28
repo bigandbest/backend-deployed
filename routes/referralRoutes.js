@@ -1,6 +1,7 @@
 // routes/referralRoutes.js
 import express from "express";
 import {
+  getPublicConfig,
   getProfile,
   generateCode,
   getStats,
@@ -22,7 +23,10 @@ import { authenticateToken } from "../middleware/authenticate.js";
 
 const router = express.Router();
 
-// All routes require authentication
+// Public — no auth required
+router.get("/public-config", getPublicConfig);
+
+// All routes below require authentication
 router.use(authenticateToken);
 
 // Profile & Stats
