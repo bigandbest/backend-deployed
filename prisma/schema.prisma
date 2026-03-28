@@ -2121,6 +2121,7 @@ model referral_configs {
   return_window_days       Int       @default(7)
   min_withdrawal_amount    Decimal   @default(100) @db.Decimal
   max_withdrawals_per_month Int      @default(10)
+  withdrawal_enabled       Boolean?  @default(true)
   tiered_rewards_enabled   Boolean?  @default(false)
   tiered_rewards_config    Json?
   enable_device_tracking   Boolean?  @default(true)

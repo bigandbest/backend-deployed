@@ -6,6 +6,48 @@ import * as referralService from "../services/referralService.js";
 // USER PROFILE & STATS
 // ============================================================================
 
+// Public config — no auth required, returns only frontend-facing fields
+export const getPublicConfig = async (req, res) => {
+  try {
+    const config = await prisma.referral_configs.findFirst();
+    if (!config) {
+      return res.json({
+        success: true,
+        config: {
+          is_enabled: true,
+          referrer_reward_amount: 75,
+          referee_reward_amount: 75,
+          min_order_value: 200,
+          reward_validity_days: 7,
+          min_withdrawal_amount: 100,
+          max_withdrawals_per_month: 10,
+          withdrawal_enabled: true,
+          return_window_days: 7,
+          max_earning_per_user: 1000,
+        },
+      });
+    }
+    res.json({
+      success: true,
+      config: {
+        is_enabled: config.is_enabled,
+        referrer_reward_amount: parseFloat(config.referrer_reward_amount),
+        referee_reward_amount: parseFloat(config.referee_reward_amount),
+        min_order_value: parseFloat(config.min_order_value),
+        reward_validity_days: config.reward_validity_days,
+        min_withdrawal_amount: parseFloat(config.min_withdrawal_amount),
+        max_withdrawals_per_month: config.max_withdrawals_per_month,
+        withdrawal_enabled: config.withdrawal_enabled !== false,
+        return_window_days: config.return_window_days,
+        max_earning_per_user: parseFloat(config.max_earning_per_user),
+      },
+    });
+  } catch (error) {
+    console.error("Error in getPublicConfig:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
 export const getProfile = async (req, res) => {
   try {
     const { user } = req;
@@ -37,8 +79,11 @@ export const generateCode = async (req, res) => {
 export const getStats = async (req, res) => {
   try {
     const { user } = req;
-    const profile = await referralService.getOrCreateReferralProfile(user.id, user.name);
-    const wallet = await referralService.getWalletBalance(user.id);
+    const [profile, wallet, config] = await Promise.all([
+      referralService.getOrCreateReferralProfile(user.id, user.name),
+      referralService.getWalletBalance(user.id),
+      prisma.referral_configs.findFirst(),
+    ]);
 
     res.json({
       success: true,
@@ -55,6 +100,8 @@ export const getStats = async (req, res) => {
         current_tier: profile.current_tier,
         was_referred: profile.was_referred,
         referred_by_code: profile.referred_by_code,
+        withdrawal_enabled: config?.withdrawal_enabled !== false,
+        program_enabled: config?.is_enabled !== false,
       },
     });
   } catch (error) {
