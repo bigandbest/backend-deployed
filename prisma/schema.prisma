@@ -2102,3 +2102,355 @@ model zone_pincodes {
   delivery_zones delivery_zones  @relation(fields: [zone_id], references: [id], onDelete: Cascade)
 }
 
+
+// ============================================================================
+// REFER & EARN SYSTEM
+// ============================================================================
+
+// --- Model: referral_configs.prisma ---
+model referral_configs {
+  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  is_enabled               Boolean?  @default(true)
+  program_name             String?   @default("Refer & Earn")
+  referrer_reward_amount   Decimal   @default(75) @db.Decimal
+  referee_reward_amount    Decimal   @default(75) @db.Decimal
+  max_earning_per_user     Decimal   @default(1000) @db.Decimal
+  reward_validity_days     Int       @default(7)
+  min_order_value          Decimal   @default(200) @db.Decimal
+  applicable_first_order   Boolean?  @default(true)
+  return_window_days       Int       @default(7)
+  min_withdrawal_amount    Decimal   @default(100) @db.Decimal
+  max_withdrawals_per_month Int      @default(10)
+  tiered_rewards_enabled   Boolean?  @default(false)
+  tiered_rewards_config    Json?
+  enable_device_tracking   Boolean?  @default(true)
+  enable_ip_tracking       Boolean?  @default(true)
+  max_referrals_per_ip     Int       @default(5)
+  cooldown_hours           Int       @default(24)
+  enable_notifications     Boolean?  @default(true)
+  reminder_before_expiry   Int       @default(48)
+  created_at               DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime? @default(now()) @db.Timestamptz(6)
+  created_by               String?   @db.Uuid
+  updated_by               String?   @db.Uuid
+
+  @@map("referral_configs")
+}
+
+// --- Model: user_referral_profiles.prisma ---
+model user_referral_profiles {
+  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                 String    @unique @db.Uuid
+  referral_code           String    @unique
+  referral_code_active    Boolean?  @default(true)
+  referral_code_created_at DateTime? @default(now()) @db.Timestamptz(6)
+  total_referrals         Int       @default(0)
+  successful_referrals    Int       @default(0)
+  pending_referrals       Int       @default(0)
+  failed_referrals        Int       @default(0)
+  total_earnings          Decimal   @default(0) @db.Decimal
+  available_balance       Decimal   @default(0) @db.Decimal
+  pending_balance         Decimal   @default(0) @db.Decimal
+  withdrawn_amount        Decimal   @default(0) @db.Decimal
+  expired_amount          Decimal   @default(0) @db.Decimal
+  used_for_purchase       Decimal   @default(0) @db.Decimal
+  was_referred            Boolean?  @default(false)
+  referred_by_user_id     String?   @db.Uuid
+  referred_by_code        String?
+  referred_at             DateTime? @db.Timestamptz(6)
+  referral_bonus_received Boolean?  @default(false)
+  status                  String    @default("ACTIVE")
+  is_blocked              Boolean?  @default(false)
+  block_reason            String?
+  blocked_at              DateTime? @db.Timestamptz(6)
+  blocked_by              String?   @db.Uuid
+  current_tier            String    @default("BRONZE")
+  tier_updated_at         DateTime? @db.Timestamptz(6)
+  created_at              DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime? @default(now()) @db.Timestamptz(6)
+
+  referral_transactions   referral_transactions[]
+  referral_rewards        referral_rewards[]
+  referral_withdrawals    referral_withdrawals[]
+
+  @@index([user_id])
+  @@index([referral_code])
+  @@index([referred_by_user_id])
+  @@index([status])
+  @@map("user_referral_profiles")
+}
+
+// --- Model: referral_transactions.prisma ---
+model referral_transactions {
+  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  referrer_id             String    @db.Uuid
+  referrer_profile_id     String    @db.Uuid
+  referral_code_used      String
+  referee_id              String    @db.Uuid
+  referee_email           String?
+  referee_name            String?
+  referee_phone           String?
+  status                  String    @default("PENDING")
+  status_history          Json?
+  order_id                String?   @unique @db.Uuid
+  order_number            String?
+  order_amount            Decimal?  @db.Decimal
+  order_date              DateTime? @db.Timestamptz(6)
+  order_status            String?
+  delivered_at            DateTime? @db.Timestamptz(6)
+  return_window_starts_at DateTime? @db.Timestamptz(6)
+  return_window_ends_at   DateTime? @db.Timestamptz(6)
+  is_returned             Boolean?  @default(false)
+  return_type             String?
+  return_amount           Decimal?  @db.Decimal
+  returned_at             DateTime? @db.Timestamptz(6)
+  referrer_reward_amount  Decimal?  @db.Decimal
+  referee_reward_amount   Decimal?  @db.Decimal
+  referrer_reward_id      String?   @db.Uuid
+  referee_reward_id       String?   @db.Uuid
+  reward_credited_at      DateTime? @db.Timestamptz(6)
+  failure_reason          String?
+  failed_at               DateTime? @db.Timestamptz(6)
+  ip_address              String?
+  device_fingerprint      String?
+  user_agent              String?
+  is_fraud_suspected      Boolean?  @default(false)
+  fraud_check_passed      Boolean?
+  fraud_notes             String?
+  created_at              DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime? @default(now()) @db.Timestamptz(6)
+
+  referrer_profile        user_referral_profiles @relation(fields: [referrer_profile_id], references: [id])
+
+  @@index([referrer_id])
+  @@index([referee_id])
+  @@index([referral_code_used])
+  @@index([order_id])
+  @@index([status])
+  @@index([created_at])
+  @@map("referral_transactions")
+}
+
+// --- Model: referral_rewards.prisma ---
+model referral_rewards {
+  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                  String    @db.Uuid
+  user_profile_id          String    @db.Uuid
+  amount                   Decimal   @db.Decimal
+  original_amount          Decimal   @db.Decimal
+  reward_type              String
+  referral_transaction_id  String?   @db.Uuid
+  source_type              String?
+  source_description       String?
+  credited_at              DateTime? @default(now()) @db.Timestamptz(6)
+  expires_at               DateTime  @db.Timestamptz(6)
+  status                   String    @default("ACTIVE")
+  used_amount              Decimal   @default(0) @db.Decimal
+  remaining_amount         Decimal   @db.Decimal
+  expiry_reminder_sent     Boolean?  @default(false)
+  expiry_reminder_sent_at  DateTime? @db.Timestamptz(6)
+  urgent_reminder_sent     Boolean?  @default(false)
+  urgent_reminder_sent_at  DateTime? @db.Timestamptz(6)
+  expired_at               DateTime? @db.Timestamptz(6)
+  is_extended              Boolean?  @default(false)
+  extended_by              String?   @db.Uuid
+  extended_at              DateTime? @db.Timestamptz(6)
+  previous_expiry_date     DateTime? @db.Timestamptz(6)
+  extension_reason         String?
+  is_cancelled             Boolean?  @default(false)
+  cancelled_by             String?   @db.Uuid
+  cancelled_at             DateTime? @db.Timestamptz(6)
+  cancellation_reason      String?
+  created_at               DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime? @default(now()) @db.Timestamptz(6)
+
+  user_profile             user_referral_profiles @relation(fields: [user_profile_id], references: [id])
+  usage_records            referral_reward_usages[]
+
+  @@index([user_id])
+  @@index([user_profile_id])
+  @@index([status])
+  @@index([expires_at])
+  @@index([credited_at])
+  @@map("referral_rewards")
+}
+
+// --- Model: referral_reward_usages.prisma ---
+model referral_reward_usages {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reward_id            String    @db.Uuid
+  user_id              String    @db.Uuid
+  amount_used          Decimal   @db.Decimal
+  usage_type           String
+  order_id             String?   @db.Uuid
+  order_number         String?
+  withdrawal_id        String?   @db.Uuid
+  reward_balance_after Decimal   @db.Decimal
+  note                 String?
+  created_at           DateTime? @default(now()) @db.Timestamptz(6)
+
+  reward               referral_rewards @relation(fields: [reward_id], references: [id])
+
+  @@index([reward_id])
+  @@index([user_id])
+  @@index([order_id])
+  @@index([withdrawal_id])
+  @@map("referral_reward_usages")
+}
+
+// --- Model: referral_withdrawals.prisma ---
+model referral_withdrawals {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id               String    @db.Uuid
+  user_profile_id       String    @db.Uuid
+  requested_amount      Decimal   @db.Decimal
+  processed_amount      Decimal?  @db.Decimal
+  payment_method        String
+  bank_name             String?
+  bank_account_number   String?
+  bank_ifsc_code        String?
+  account_holder_name   String?
+  upi_id                String?
+  status                String    @default("PENDING")
+  status_history        Json?
+  processed_at          DateTime? @db.Timestamptz(6)
+  processed_by          String?   @db.Uuid
+  payment_gateway_ref   String?
+  transaction_id        String?
+  failure_reason        String?
+  failed_at             DateTime? @db.Timestamptz(6)
+  retry_count           Int       @default(0)
+  max_retries           Int       @default(3)
+  is_re_credited        Boolean?  @default(false)
+  re_credited_at        DateTime? @db.Timestamptz(6)
+  re_credited_reward_id String?   @db.Uuid
+  admin_notes           String?
+  rejection_reason      String?
+  rejected_by           String?   @db.Uuid
+  rejected_at           DateTime? @db.Timestamptz(6)
+  created_at            DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
+
+  user_profile          user_referral_profiles @relation(fields: [user_profile_id], references: [id])
+
+  @@index([user_id])
+  @@index([user_profile_id])
+  @@index([status])
+  @@index([created_at])
+  @@map("referral_withdrawals")
+}
+
+// --- Model: referral_notifications.prisma ---
+model referral_notifications {
+  id                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                   String    @db.Uuid
+  type                      String
+  title                     String
+  message                   String
+  data                      Json?
+  referral_transaction_id   String?   @db.Uuid
+  reward_id                 String?   @db.Uuid
+  withdrawal_id             String?   @db.Uuid
+  channels                  String[]
+  is_push_sent              Boolean?  @default(false)
+  push_sent_at              DateTime? @db.Timestamptz(6)
+  is_email_sent             Boolean?  @default(false)
+  email_sent_at             DateTime? @db.Timestamptz(6)
+  is_sms_sent               Boolean?  @default(false)
+  sms_sent_at               DateTime? @db.Timestamptz(6)
+  is_read                   Boolean?  @default(false)
+  read_at                   DateTime? @db.Timestamptz(6)
+  created_at                DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([user_id])
+  @@index([type])
+  @@index([is_read])
+  @@index([created_at])
+  @@map("referral_notifications")
+}
+
+// --- Model: referral_fraud_logs.prisma ---
+model referral_fraud_logs {
+  id                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                   String?   @db.Uuid
+  referral_code             String?
+  referral_transaction_id   String?   @db.Uuid
+  fraud_type                String
+  severity                  String
+  description               String
+  ip_address                String?
+  device_fingerprint        String?
+  user_agent                String?
+  evidence_data             Json?
+  detected_by               String    @default("SYSTEM")
+  detection_rule            String?
+  status                    String    @default("PENDING_REVIEW")
+  reviewed_by               String?   @db.Uuid
+  reviewed_at               DateTime? @db.Timestamptz(6)
+  review_notes              String?
+  action_taken              String?
+  action_taken_by           String?   @db.Uuid
+  action_taken_at           DateTime? @db.Timestamptz(6)
+  created_at                DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([user_id])
+  @@index([fraud_type])
+  @@index([severity])
+  @@index([status])
+  @@index([created_at])
+  @@map("referral_fraud_logs")
+}
+
+// --- Model: referral_admin_logs.prisma ---
+model referral_admin_logs {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  admin_id            String    @db.Uuid
+  admin_email         String?
+  admin_name          String?
+  action              String
+  action_description  String
+  entity_type         String
+  entity_id           String?   @db.Uuid
+  previous_value      Json?
+  new_value           Json?
+  ip_address          String?
+  user_agent          String?
+  created_at          DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([admin_id])
+  @@index([action])
+  @@index([entity_type])
+  @@index([created_at])
+  @@map("referral_admin_logs")
+}
+
+// --- Model: referral_campaigns.prisma ---
+model referral_campaigns {
+  id                          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                        String
+  description                 String?
+  code                        String    @unique
+  type                        String
+  start_date                  DateTime  @db.Timestamptz(6)
+  end_date                    DateTime  @db.Timestamptz(6)
+  is_active                   Boolean?  @default(true)
+  referrer_reward_amount      Decimal?  @db.Decimal
+  referee_reward_amount       Decimal?  @db.Decimal
+  bonus_reward_amount         Decimal?  @db.Decimal
+  reward_validity_days        Int?
+  min_order_value             Decimal?  @db.Decimal
+  max_usage_count             Int?
+  max_usage_per_user          Int?      @default(1)
+  applicable_categories       String[]
+  applicable_products         String[]
+  total_usage_count           Int       @default(0)
+  total_rewards_distributed   Decimal   @default(0) @db.Decimal
+  created_at                  DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime? @default(now()) @db.Timestamptz(6)
+  created_by                  String?   @db.Uuid
+
+  @@index([code])
+  @@index([is_active])
+  @@map("referral_campaigns")
+}
