@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import UserDAO from "../dao/user.dao.js";
 import {
   hashPassword,
@@ -129,8 +130,8 @@ class AuthService {
 
     if (!user) {
       // Create new user if not exists
-      // Generate a random password since they are using OTP
-      const randomPassword = Math.random().toString(36).slice(-8);
+      // Generate a cryptographically secure random password since they are using OTP
+      const randomPassword = randomBytes(12).toString("base64url").slice(0, 16);
       const hashedPassword = await hashPassword(randomPassword);
 
       // Generate unique email based on phone if not provided

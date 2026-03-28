@@ -14,17 +14,14 @@ const authenticate = (req, res, next) => {
   }
 
   if (!token) {
-    console.log("No cookie or Bearer token found");
     return next(new Error("No authentication token found"));
   }
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded;
-    console.log("Cookie auth successful");
     next();
   } catch (err) {
-    console.log("Cookie token verification failed:", err.message);
     next(new Error("Invalid cookie token"));
   }
 };
@@ -35,7 +32,6 @@ export const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers.authorization;
 
     if (!authHeader) {
-      console.log("No authorization header found");
       return res
         .status(401)
         .json({ success: false, error: "Access token required" });
@@ -45,7 +41,6 @@ export const authenticateToken = async (req, res, next) => {
     const token = extractTokenFromHeader(authHeader);
 
     if (!token) {
-      console.log("Invalid authorization header format");
       return res.status(401).json({
         success: false,
         error: "Invalid authorization header format. Expected: Bearer <token>",
@@ -55,9 +50,6 @@ export const authenticateToken = async (req, res, next) => {
     // Basic JWT format validation (should have 3 parts separated by dots)
     const tokenParts = token.split(".");
     if (tokenParts.length !== 3) {
-      console.log(
-        `Invalid JWT format: token has ${tokenParts.length} segments, expected 3`,
-      );
       return res.status(401).json({
         success: false,
         error: "Invalid token format",
@@ -68,18 +60,11 @@ export const authenticateToken = async (req, res, next) => {
     // Decode JWT token to extract user info
     const decoded = decodeToken(token);
 
-    // Debug: Log the decoded token structure
-    console.log("Decoded token:", JSON.stringify(decoded, null, 2));
-
     if (!decoded || !decoded.id) {
-      console.log("Failed to decode token or missing user ID");
-      console.log("Available fields in token:", decoded ? Object.keys(decoded) : "null");
-
-      // Try alternative field names
+      // Try alternative field names (e.g. Supabase tokens use 'sub')
       const userId = decoded?.id || decoded?.user_id || decoded?.sub || decoded?.userId;
 
       if (userId) {
-        console.log(`Found user ID in alternative field: ${userId}`);
         req.user = {
           id: userId,
           email: decoded.email,
@@ -107,12 +92,6 @@ export const authenticateToken = async (req, res, next) => {
       name: decoded.name,
     };
 
-    console.log(
-      "Token decoded successfully for user:",
-      decoded.email,
-      "with role:",
-      decoded.role,
-    );
     next();
   } catch (error) {
     console.log("Token authentication error:", error.message);
@@ -144,7 +123,6 @@ export const authenticateAdmin = async (req, res, next) => {
     const decoded = decodeToken(token);
 
     if (!decoded || !decoded.id) {
-      console.log("Failed to decode admin token");
       return res.status(401).json({ success: false, error: "Invalid token" });
     }
 
@@ -154,13 +132,6 @@ export const authenticateAdmin = async (req, res, next) => {
       role: decoded.role,
       name: decoded.name,
     };
-
-    console.log(
-      "Admin auth successful for user:",
-      decoded.email,
-      "Role:",
-      decoded.role,
-    );
 
     // Check if user has admin role
     if (decoded.role !== "ADMIN") {
@@ -202,13 +173,10 @@ export const authenticateTokenOptional = async (req, res, next) => {
         role: decoded.role,
         name: decoded.name,
       };
-
-      console.log("Optional auth successful for user:", decoded.email);
     }
 
     next();
   } catch (error) {
-    console.log("Optional auth error (proceeding as guest):", error.message);
     next();
   }
 };
