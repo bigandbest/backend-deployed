@@ -1,0 +1,25 @@
+model customer_addresses {
+  id                    Int       @id @default(autoincrement())
+  user_id               String    @db.Uuid
+  label                 String?   @db.VarChar(50)   // 'Home' | 'Work' | 'Other'
+  address_line1         String    @db.VarChar(255)
+  address_line2         String?   @db.VarChar(255)
+  city                  String?   @db.VarChar(100)
+  state                 String?   @db.VarChar(100)
+  pincode               String?   @db.VarChar(20)
+  latitude              Decimal?  @db.Decimal(10, 7)
+  longitude             Decimal?  @db.Decimal(10, 7)
+  geocode_source        String?   @db.VarChar(20)   // 'nominatim' | 'photon'
+  geocode_status        String?   @default("PENDING") @db.VarChar(20)
+  // PENDING | SUCCESS | FAILED
+  geocoded_at           DateTime? @db.Timestamptz
+  geocoded_display_name String?   @db.Text
+  is_default            Boolean   @default(false)
+  created_at            DateTime  @default(now()) @db.Timestamptz
+  updated_at            DateTime  @default(now()) @db.Timestamptz
+
+  users                 users     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([is_default])
+}

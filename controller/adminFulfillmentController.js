@@ -1,0 +1,251 @@
+import prisma from '../config/prisma.js';
+
+// Used only for the detail endpoint — includes events
+const SUB_ORDER_DETAIL_INCLUDE = {
+    sub_order_items: {
+        include: {
+            product: {
+                select: {
+                    id: true, name: true,
+                    media: { where: { is_primary: true }, orderBy: { sort_order: 'asc' }, take: 1, select: { url: true } },
+                },
+            },
+            variant: { select: { id: true, title: true, sku: true, price: true } },
+        },
+    },
+    warehouse: { select: { id: true, name: true, type: true, location: true } },
+    parent_order: {
+        select: {
+            id: true, receiver_name: true, mobile: true, address: true,
+            delivery_pincode: true, total: true, payment_method: true, status: true, created_at: true,
+            users: { select: { id: true, name: true, email: true, phone: true } },
+        },
+    },
+    fulfillment_events: { orderBy: { created_at: 'desc' }, take: 20 },
+};
+
+// Used for list — no events (saves N×20 rows per page)
+const SUB_ORDER_LIST_INCLUDE = {
+    sub_order_items: {
+        include: {
+            product: {
+                select: {
+                    id: true, name: true,
+                    media: { where: { is_primary: true }, take: 1, select: { url: true } },
+                },
+            },
+            variant: { select: { id: true, title: true, sku: true, price: true } },
+        },
+    },
+    warehouse: { select: { id: true, name: true, type: true, location: true } },
+    parent_order: {
+        select: {
+            id: true, receiver_name: true, mobile: true, address: true,
+            delivery_pincode: true, total: true, payment_method: true, status: true, created_at: true,
+            users: { select: { id: true, name: true, email: true, phone: true } },
+        },
+    },
+};
+
+/**
+ * GET /api/admin/fulfillment/sub-orders
+ */
+export const listAdminSubOrders = async (req, res) => {
+    try {
+        const { source_type, status, warehouse_id, pincode, page = 1, limit = 20, search } = req.query;
+
+        const allowedSources = ['division', 'zonal'];
+        const where = {
+            source_type: { in: (source_type && source_type !== 'all' && allowedSources.includes(source_type)) ? [source_type] : allowedSources },
+        };
+        if (status) where.fulfillment_status = status;
+        if (warehouse_id) where.source_id = parseInt(warehouse_id);
+        if (pincode) where.parent_order = { delivery_pincode: pincode };
+        if (search) {
+            where.OR = [
+                { id: { contains: search, mode: 'insensitive' } },
+                { parent_order_id: { contains: search, mode: 'insensitive' } },
+                { parent_order: { receiver_name: { contains: search, mode: 'insensitive' } } },
+            ];
+        }
+
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+
+        const [subOrders, total] = await Promise.all([
+            prisma.sub_orders.findMany({
+                where,
+                include: SUB_ORDER_LIST_INCLUDE,
+                orderBy: { created_at: 'desc' },
+                skip: (pageNum - 1) * limitNum,
+                take: limitNum,
+            }),
+            prisma.sub_orders.count({ where }),
+        ]);
+
+        return res.json({
+            success: true,
+            data: subOrders.map(so => formatSubOrder(so, false)),
+            pagination: { page: pageNum, limit: limitNum, total, totalPages: Math.ceil(total / limitNum) },
+        });
+    } catch (error) {
+        console.error('listAdminSubOrders error:', error);
+        return res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * GET /api/admin/fulfillment/sub-orders/:id
+ */
+export const getAdminSubOrderDetail = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const subOrder = await prisma.sub_orders.findUnique({ where: { id }, include: SUB_ORDER_DETAIL_INCLUDE });
+        if (!subOrder) return res.status(404).json({ success: false, error: 'Sub-order not found' });
+        return res.json({ success: true, data: formatSubOrder(subOrder, true) });
+    } catch (error) {
+        console.error('getAdminSubOrderDetail error:', error);
+        return res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * PATCH /api/admin/fulfillment/sub-orders/:id/status
+ */
+export const updateAdminSubOrderStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, note } = req.body;
+
+        const VALID_STATUSES = [
+            'pending', 'confirmed', 'picked', 'in_transit', 'delivered',
+            'rider_pending', 'dispatched_to_zonal_delivery', 'cancelled', 'return_to_source',
+        ];
+        if (!status || !VALID_STATUSES.includes(status)) {
+            return res.status(400).json({ success: false, error: `Invalid status. Valid: ${VALID_STATUSES.join(', ')}` });
+        }
+
+        const result = await prisma.$transaction(async (tx) => {
+            const subOrder = await tx.sub_orders.findUnique({ where: { id }, select: { id: true, fulfillment_status: true } });
+            if (!subOrder) return null;
+
+            await Promise.all([
+                tx.sub_orders.update({ where: { id }, data: { fulfillment_status: status, updated_at: new Date() } }),
+                tx.fulfillment_events.create({
+                    data: {
+                        sub_order_id: id,
+                        event_type: `admin_status_update_${status}`,
+                        payload: { previous_status: subOrder.fulfillment_status, new_status: status, note: note || null, updated_by: 'admin', updated_at: new Date().toISOString() },
+                    },
+                }),
+            ]);
+
+            return { id, status };
+        });
+
+        if (!result) return res.status(404).json({ success: false, error: 'Sub-order not found' });
+        return res.json({ success: true, message: `Sub-order status updated to ${status}`, data: result });
+    } catch (error) {
+        console.error('updateAdminSubOrderStatus error:', error);
+        return res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * GET /api/admin/fulfillment/stats
+ * 2 parallel groupBy + 1 warehouse lookup = 3 total queries
+ */
+export const getAdminFulfillmentStats = async (req, res) => {
+    try {
+        const [statusCounts, byWarehouse] = await Promise.all([
+            prisma.sub_orders.groupBy({
+                by: ['fulfillment_status'],
+                where: { source_type: { in: ['division', 'zonal'] } },
+                _count: { id: true },
+            }),
+            prisma.sub_orders.groupBy({
+                by: ['source_id', 'source_type'],
+                where: { source_type: { in: ['division', 'zonal'] }, fulfillment_status: { notIn: ['delivered', 'cancelled'] } },
+                _count: { id: true },
+            }),
+        ]);
+
+        const warehouseIds = [...new Set(byWarehouse.map(r => r.source_id).filter(Boolean))];
+        const whMap = warehouseIds.length
+            ? Object.fromEntries(
+                (await prisma.warehouses.findMany({ where: { id: { in: warehouseIds } }, select: { id: true, name: true, type: true } }))
+                    .map(w => [w.id, w])
+            )
+            : {};
+
+        return res.json({
+            success: true,
+            stats: {
+                by_status: Object.fromEntries(statusCounts.map(c => [c.fulfillment_status, c._count.id])),
+                by_warehouse: byWarehouse.map(r => ({
+                    warehouse_id: r.source_id,
+                    warehouse_name: whMap[r.source_id]?.name ?? `Warehouse #${r.source_id}`,
+                    source_type: r.source_type,
+                    active_orders: r._count.id,
+                })),
+            },
+        });
+    } catch (error) {
+        console.error('getAdminFulfillmentStats error:', error);
+        return res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+function formatSubOrder(so, includeEvents = false) {
+    const items = (so.sub_order_items || []).map(item => ({
+        product_id: item.product_id,
+        variant_id: item.variant_id,
+        product_name: item.product?.name || '—',
+        product_image: item.product?.media?.[0]?.url || null,
+        variant_name: item.variant?.title || '—',
+        sku: item.variant?.sku || '—',
+        quantity: item.quantity,
+        unit_price: Number(item.unit_price || 0),
+        line_total: Number(item.unit_price || 0) * item.quantity,
+    }));
+
+    const order = so.parent_order || {};
+
+    return {
+        id: so.id,
+        parent_order_id: so.parent_order_id,
+        source_type: so.source_type,
+        source_id: so.source_id,
+        seller_id: so.seller_id || null,
+        fulfillment_status: so.fulfillment_status,
+        rider_id: so.rider_id || null,
+        estimated_delivery_at: so.estimated_delivery_at,
+        created_at: so.created_at,
+        updated_at: so.updated_at,
+        warehouse: so.warehouse || null,
+        customer: {
+            name: order.receiver_name || order.users?.name || '—',
+            phone: order.mobile || order.users?.phone || '—',
+            email: order.users?.email || '—',
+            address: order.address || '—',
+            pincode: order.delivery_pincode || '—',
+        },
+        order_summary: {
+            total: Number(order.total || 0),
+            payment_method: order.payment_method || '—',
+            master_status: order.status || '—',
+            placed_at: order.created_at,
+        },
+        items,
+        order_total: items.reduce((s, i) => s + i.line_total, 0),
+        ...(includeEvents && {
+            events: (so.fulfillment_events || []).map(e => ({
+                event_type: e.event_type,
+                payload: e.payload,
+                created_at: e.created_at,
+            })),
+        }),
+    };
+}
