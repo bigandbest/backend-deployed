@@ -1,4 +1,3 @@
-import subOrderDao from '../dao/sub-order.dao.js';
 import fulfillmentEventDao from '../dao/fulfillment-event.dao.js';
 
 /**
@@ -69,9 +68,6 @@ export const getSLAInfo = (subOrder) => {
 export const notifyAtRiskOrders = async () => {
     const activeStatuses = ['pending', 'confirmed', 'picked', 'in_transit', 'dispatched_to_zonal_delivery'];
 
-    const activeSubOrders = await subOrderDao.listPendingRiderAssignment();
-
-    // Also get all sub-orders in active fulfillment statuses
     const allActive = await (await import('../config/prisma.js')).default.sub_orders.findMany({
         where: {
             fulfillment_status: { in: activeStatuses },

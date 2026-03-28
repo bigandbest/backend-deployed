@@ -33,6 +33,7 @@ model orders {
   delivery_latitude      Decimal?         @db.Decimal(10, 7)
   delivery_longitude     Decimal?         @db.Decimal(10, 7)
   customer_address_id    Int?
+  idempotency_key        String?          @unique @db.VarChar
 
   // Relations — matching backup schema exactly
   coupon_usage         coupon_usage?

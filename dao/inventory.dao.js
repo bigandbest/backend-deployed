@@ -358,13 +358,29 @@ class InventoryDAO {
     }
 
     /**
-     * Release all expired soft reserves (called by cron every 1 min)
-     * NOTE: soft_reserved_qty column not yet in DB — this is a no-op until migrated.
+     * Release all expired soft reserves (called by cron every 1 min).
+     * Resets soft_reserved_qty = 0 for any row whose soft_reserve_expires_at has passed.
      */
     async releaseExpiredSoftReserves() {
-        // soft_reserved_qty / soft_reserve_expires_at not yet in DB schema
-        // Returns 0 until columns are added via db push
-        return 0;
+        try {
+            const result = await prisma.$executeRaw`
+                UPDATE inventory
+                SET    soft_reserved_qty       = 0,
+                       soft_reserve_expires_at = NULL,
+                       updated_at              = NOW()
+                WHERE  soft_reserve_expires_at IS NOT NULL
+                  AND  soft_reserve_expires_at <= NOW()
+                  AND  soft_reserved_qty > 0
+            `;
+            return result; // rows affected
+        } catch (err) {
+            // Columns not yet added to DB — run the ALTER TABLE statements below
+            // to add them without data loss, then restart the server:
+            //   ALTER TABLE inventory ADD COLUMN IF NOT EXISTS soft_reserved_qty INT NOT NULL DEFAULT 0;
+            //   ALTER TABLE inventory ADD COLUMN IF NOT EXISTS soft_reserve_expires_at TIMESTAMPTZ;
+            if (err.message?.includes('soft_reserve')) return 0;
+            throw err;
+        }
     }
 
     // ================================================================

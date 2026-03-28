@@ -465,8 +465,10 @@ model inventory {
   warehouse_id         Int
   updated_at           DateTime         @db.Timestamptz(6)
   created_at           DateTime         @default(now()) @db.Timestamptz(6)
-  admin_stock          Int              @default(0)
-  seller_stock         Int              @default(0)
+  admin_stock              Int              @default(0)
+  seller_stock             Int              @default(0)
+  soft_reserved_qty        Int              @default(0)
+  soft_reserve_expires_at  DateTime?        @db.Timestamptz(6)
 
   // Relations — plural names matching production schema
   product_variants     product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
@@ -571,6 +573,7 @@ model orders {
   receiver_name        String?          @db.VarChar
   delivery_distance_km Decimal?         @default(0) @db.Decimal
   rider_payout_amount  Decimal?         @default(0) @db.Decimal
+  idempotency_key      String?          @unique @db.VarChar
 
   // Relations — matching backup schema exactly
   coupon_usage         coupon_usage?

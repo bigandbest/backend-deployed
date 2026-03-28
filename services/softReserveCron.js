@@ -2,6 +2,7 @@ import inventoryDao from '../dao/inventory.dao.js';
 import { routeSubOrders } from './fulfillmentRouter.js';
 import subOrderDao from '../dao/sub-order.dao.js';
 import { notifyAtRiskOrders } from './slaTrackingService.js';
+import { releaseExpiredSessions } from './stockReservationService.js';
 
 /**
  * Soft Reserve & Fulfillment Cron
@@ -23,11 +24,15 @@ let lastSLACheck = 0;
 const runCronTasks = async () => {
     const now = Date.now();
 
-    // 1. Always release expired soft reserves
+    // 1. Release expired soft reserves (DB-level) + expired in-memory sessions
     try {
-        const released = await inventoryDao.releaseExpiredSoftReserves();
-        if (released > 0) {
-            console.log(`[SoftReserveCron] Released ${released} expired soft reserves`);
+        const [dbReleased, sessionReleased] = await Promise.all([
+            inventoryDao.releaseExpiredSoftReserves(),
+            releaseExpiredSessions(),
+        ]);
+        const total = dbReleased + sessionReleased;
+        if (total > 0) {
+            console.log(`[SoftReserveCron] Released ${dbReleased} DB soft reserves, ${sessionReleased} sessions`);
         }
     } catch (err) {
         console.error('[SoftReserveCron] Error releasing soft reserves:', err.message);

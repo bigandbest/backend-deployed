@@ -1,4 +1,5 @@
 import prisma from '../config/prisma.js';
+import { handleStockMismatch } from '../services/subOrderService.js';
 
 // Used only for the detail endpoint — includes events
 const SUB_ORDER_DETAIL_INCLUDE = {
@@ -192,6 +193,51 @@ export const getAdminFulfillmentStats = async (req, res) => {
         });
     } catch (error) {
         console.error('getAdminFulfillmentStats error:', error);
+        return res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * POST /api/admin/fulfillment/sub-orders/:id/stock-mismatch
+ * Warehouse staff reports that physical stock is missing at pickup.
+ * Cancels the sub-order and re-routes affected items to the next available source.
+ */
+export const reportStockMismatch = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const subOrder = await prisma.sub_orders.findUnique({
+            where: { id },
+            select: { id: true, fulfillment_status: true, source_type: true },
+        });
+
+        if (!subOrder) {
+            return res.status(404).json({ success: false, error: 'Sub-order not found' });
+        }
+
+        const REPORTABLE_STATUSES = ['pending', 'confirmed', 'picked'];
+        if (!REPORTABLE_STATUSES.includes(subOrder.fulfillment_status)) {
+            return res.status(400).json({
+                success: false,
+                error: `Cannot report stock mismatch for sub-order in '${subOrder.fulfillment_status}' status`,
+            });
+        }
+
+        const result = await handleStockMismatch(id);
+
+        return res.json({
+            success: true,
+            message: result.rerouted
+                ? `Stock mismatch recorded. ${result.new_sub_orders?.length ?? 0} new sub-order(s) created.`
+                : 'Stock mismatch recorded. No alternative source found — items cancelled.',
+            data: {
+                rerouted: result.rerouted,
+                new_sub_order_ids: result.new_sub_orders?.map((so) => so.id) ?? [],
+                cancelled_items: result.cancelled_items ?? [],
+            },
+        });
+    } catch (error) {
+        console.error('reportStockMismatch error:', error);
         return res.status(500).json({ success: false, error: error.message });
     }
 };
