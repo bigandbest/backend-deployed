@@ -1,47 +1,45 @@
 model orders {
-  id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id             String?          @db.Uuid
-  subtotal            Decimal          @db.Decimal
-  shipping            Decimal          @db.Decimal
-  total               Decimal          @db.Decimal
-  address             String?
-  payment_method      String?          @default("prepaid")
-  status              String?          @default("Pending")
-  created_at          DateTime?        @default(now()) @db.Timestamp
-  updated_at          DateTime?        @db.Timestamptz
-  razorpay_order_id   String?          @db.VarChar
-  razorpay_payment_id String?          @db.VarChar
-  tracking_number     String?          @db.VarChar
-  estimated_delivery  DateTime?        @db.Timestamp
-  is_bulk_order       Boolean?         @default(false)
-  company_name        String?          @db.VarChar
-  gst_number          String?          @db.VarChar
-  is_deleted          Boolean?         @default(false)
+  id                   String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id              String?          @db.Uuid
+  subtotal             Decimal          @db.Decimal
+  shipping             Decimal          @db.Decimal
+  total                Decimal          @db.Decimal
+  address              String?
+  payment_method       String?          @default("prepaid")
+  status               String?          @default("Pending")
+  created_at           DateTime?        @default(now()) @db.Timestamp(6)
+  updated_at           DateTime?        @db.Timestamptz(6)
+  razorpay_order_id    String?          @db.VarChar
+  razorpay_payment_id  String?          @db.VarChar
+  tracking_number      String?          @db.VarChar
+  estimated_delivery   DateTime?        @db.Timestamp(6)
+  is_bulk_order        Boolean?         @default(false)
+  company_name         String?          @db.VarChar
+  gst_number           String?          @db.VarChar
+  is_deleted           Boolean?         @default(false)
+  handling_charge      Decimal?         @default(0) @db.Decimal
+  surge_charge         Decimal?         @default(0) @db.Decimal
+  platform_charge      Decimal?         @default(0) @db.Decimal
+  delivery_pincode     String?          @db.VarChar
+  rider_id             String?          @db.Uuid
+  coupon_code          String?          @db.VarChar
+  coupon_discount      Decimal?         @default(0) @db.Decimal
+  discount_charge      Decimal?         @default(0) @db.Decimal
+  mobile               String?          @db.VarChar
+  razorpay_signature   String?          @db.VarChar
+  receiver_name        String?          @db.VarChar
+  delivery_distance_km Decimal?         @default(0) @db.Decimal
+  rider_payout_amount  Decimal?         @default(0) @db.Decimal
 
-  // Customer & Coupon Fields
-  mobile              String?          @db.VarChar
-  receiver_name       String?          @db.VarChar
-  coupon_code         String?          @db.VarChar
-  coupon_discount     Decimal?         @default(0) @db.Decimal
-  discount_charge     Decimal?         @default(0) @db.Decimal
-  razorpay_signature  String?          @db.VarChar
+  // Relations — matching backup schema exactly
+  coupon_usage         coupon_usage?
+  order_items          order_items[]
+  order_tracking       order_tracking[]
+  users                users?           @relation(fields: [user_id], references: [id])
+  return_orders        return_orders[]
+  sub_orders           sub_orders[]
+  rider_assignments    rider_assignments[]
 
-  // Rider Delivery Assignment
-  rider_id            String?          @db.Uuid
-  delivery_pincode    String?          @db.VarChar
-
-  // Charge Breakdown (Snapshotted at order creation)
-  handling_charge     Decimal?         @default(0) @db.Decimal
-  surge_charge        Decimal?         @default(0) @db.Decimal
-  platform_charge     Decimal?         @default(0) @db.Decimal
-
-  // Relations
-  user                users?           @relation(fields: [user_id], references: [id])
-  order_items         order_items[]
-  tracking            order_tracking[]
-  coupon_usage        coupon_usage?
-  return_orders       return_orders[]
-
-  @@index([rider_id])
   @@index([delivery_pincode])
+  @@index([rider_id])
 }

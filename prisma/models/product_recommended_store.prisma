@@ -3,7 +3,7 @@ model product_recommended_store {
   recommended_store_id  String            @db.Uuid
 
   // Relations
-  product               products          @relation(fields: [product_id], references: [id])
+  products              products          @relation(fields: [product_id], references: [id])
   recommended_store     recommended_store @relation(fields: [recommended_store_id], references: [id])
 
   @@id([product_id, recommended_store_id])

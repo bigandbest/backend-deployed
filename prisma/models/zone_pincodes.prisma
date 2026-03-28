@@ -12,5 +12,5 @@ model zone_pincodes {
   others        String?
 
   // Relations
-  zone          delivery_zones  @relation(fields: [zone_id], references: [id], onDelete: Cascade)
+  delivery_zones delivery_zones  @relation(fields: [zone_id], references: [id], onDelete: Cascade)
 }

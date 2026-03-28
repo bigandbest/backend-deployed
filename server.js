@@ -105,6 +105,8 @@ import attendanceRoutes from "./routes/attendanceRoutes.js";
 import riderOrderRoutes from "./routes/riderOrderRoutes.js";
 import platformFeeRoutes from "./routes/platformFeeRoutes.js";
 import { startAutoCheckoutCron } from "./services/autoCheckoutCron.js";
+import fulfillmentRoutes from "./routes/fulfillmentRoutes.js";
+import { startSoftReserveCron } from "./services/softReserveCron.js";
 
 // Configuration
 const PORT = process.env.PORT || 8000;
@@ -280,6 +282,9 @@ const createApp = () => {
   app.use("/api/admin/rider-payouts", riderPayoutRoutes);
   app.use("/api/attendance", attendanceRoutes);
   app.use("/api/rider/orders", riderOrderRoutes);
+
+  // Fulfillment routing
+  app.use("/api", fulfillmentRoutes);
 
   app.use("/api/enquiries", enquiriesRoutes);
   app.use("/api/wallet", walletRoutes);
@@ -504,7 +509,7 @@ if (IS_CLUSTERED && cluster.isPrimary) {
 
   process.on("SIGINT", () => {
     console.log("\n🛑 SIGINT received in master process");
-    console.log("📢 Shutting down all workers...");
+    consoleß.log("📢 Shutting down all workers...");
 
     for (const id in cluster.workers) {
       cluster.workers[id].kill();
@@ -623,6 +628,9 @@ const startServer = async () => {
 
     // Start rider auto-checkout cron job
     startAutoCheckoutCron();
+
+    // Start soft reserve & fulfillment cron job
+    startSoftReserveCron();
   });
 
   // Graceful shutdown for workers

@@ -3,6 +3,6 @@ model Post {
   title     String
   content   String?
   published Boolean @default(false)
-  author    users?  @relation(fields: [authorId], references: [id])
   authorId  String? @db.Uuid
+  users     users?  @relation(fields: [authorId], references: [id])
 }

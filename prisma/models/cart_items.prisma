@@ -9,8 +9,8 @@ model cart_items {
   bid_unit_price Decimal?          @db.Decimal
 
   // Relations
-  user           users             @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  variant        product_variants  @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+  users            users             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  product_variants product_variants  @relation(fields: [variant_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
   @@index([variant_id])

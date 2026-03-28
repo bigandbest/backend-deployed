@@ -7,7 +7,7 @@ model variant_attributes {
   price           Decimal? @db.Decimal
   old_price       Decimal? @db.Decimal
 
-  variant product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+  product_variants product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
 
   @@index([variant_id])
   @@index([attribute_name])

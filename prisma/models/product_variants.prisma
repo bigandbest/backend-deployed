@@ -35,7 +35,7 @@ cess_rate_override   Decimal? @db.Decimal
   updated_at          DateTime @updatedAt @db.Timestamptz
 
   // Relations
-  product             products          @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  products             products          @relation(fields: [product_id], references: [id], onDelete: Cascade)
   media               product_media[]
   attributes          variant_attributes[]
   inventory           inventory[]
@@ -44,6 +44,7 @@ cess_rate_override   Decimal? @db.Decimal
   service_bookings    service_bookings[]
   warehouse_stock     product_warehouse_stock[]
   seller_products     seller_products[]
+  sub_order_items     sub_order_items[]
 
   @@index([product_id])
   @@index([sku])

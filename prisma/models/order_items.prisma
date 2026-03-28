@@ -1,21 +1,21 @@
 model order_items {
-  id                    String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  order_id              String                 @db.Uuid
-  variant_id            String                 @db.Uuid
+  id                    String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  order_id              String               @db.Uuid
+  variant_id            String               @db.Uuid
   quantity              Int
-  price                 Decimal                @db.Decimal
-  is_bulk_order         Boolean?               @default(false)
-  bulk_range            String?                @db.VarChar
-  original_price        Decimal?               @db.Decimal
+  price                 Decimal              @db.Decimal
+  is_bulk_order         Boolean?             @default(false)
+  bulk_range            String?              @db.VarChar
+  original_price        Decimal?             @db.Decimal
   assigned_warehouse_id Int?
-  warehouse_name        String?                @db.VarChar
+  warehouse_name        String?              @db.VarChar
 
-  // Relations
-  order                 orders                 @relation(fields: [order_id], references: [id], onDelete: Cascade)
-  variant               product_variants       @relation(fields: [variant_id], references: [id])
-  warehouse             warehouses?            @relation(fields: [assigned_warehouse_id], references: [id])
-  service_booking       service_bookings?
+  // Relations — plural names matching production schema
+  warehouses            warehouses?          @relation(fields: [assigned_warehouse_id], references: [id])
+  orders                orders               @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  product_variants      product_variants     @relation(fields: [variant_id], references: [id])
   return_order_items    return_order_items[]
+  service_bookings      service_bookings?
 
   @@index([order_id])
   @@index([variant_id])

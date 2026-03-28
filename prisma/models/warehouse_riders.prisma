@@ -6,8 +6,8 @@ model warehouse_riders {
   assigned_at   DateTime  @default(now()) @db.Timestamptz
 
   // Relations
-  warehouse     warehouses @relation(fields: [warehouse_id], references: [id], onDelete: Cascade)
-  rider         riders     @relation(fields: [rider_id], references: [id], onDelete: Cascade)
+  riders        riders     @relation(fields: [rider_id], references: [id], onDelete: Cascade)
+  warehouses    warehouses @relation(fields: [warehouse_id], references: [id], onDelete: Cascade)
 
   @@unique([warehouse_id, rider_id])
   @@index([warehouse_id])

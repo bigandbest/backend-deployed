@@ -2,6 +2,8 @@ model user_addresses {
   id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id          String               @db.Uuid
   address_name     String               @db.VarChar
+  full_name        String?              @db.VarChar
+  mobile           String?              @db.VarChar
   is_default       Boolean?             @default(false)
   street_address   String               @db.VarChar
   suite_unit_floor String?              @db.VarChar
@@ -17,6 +19,6 @@ model user_addresses {
   updated_at       DateTime?            @default(now()) @db.Timestamptz
 
   // Relations
-  user             users                @relation(fields: [user_id], references: [id])
+  users            users                @relation(fields: [user_id], references: [id])
   service_bookings service_bookings[]
 }

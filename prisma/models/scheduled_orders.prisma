@@ -25,8 +25,8 @@ model scheduled_orders {
   scheduled_date         DateTime?               @db.Date
 
   // Relations
-  warehouse              warehouses?             @relation(fields: [warehouse_id], references: [id])
-  slot                   scheduling_time_slots?  @relation(fields: [slot_id], references: [id])
-  execution_logs         order_execution_logs[]
+  warehouses             warehouses?             @relation(fields: [warehouse_id], references: [id])
+  scheduling_time_slots  scheduling_time_slots?  @relation(fields: [slot_id], references: [id])
+  order_execution_logs   order_execution_logs[]
   payment_retry_logs     payment_retry_logs[]
 }

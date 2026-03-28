@@ -1,21 +1,21 @@
 model inventory {
-  id           Int               @id @default(autoincrement())
-  variant_id   String            @db.Uuid
-  stock_qty    Int               @default(0)
-  reserved_qty Int               @default(0)
-  seller_stock Int               @default(0)   // Stock from all sellers combined
-  admin_stock  Int               @default(0)   // Stock added by admin
-  bulk_stock_threshold Int?      @default(0) // Minimum stock required to allow bulk orders
-  bulk_reserved_qty    Int?      @default(0)
-  warehouse_id Int
-  updated_at   DateTime          @updatedAt @db.Timestamptz
-  created_at   DateTime          @default(now()) @db.Timestamptz
+  id                   Int              @id @default(autoincrement())
+  variant_id           String           @db.Uuid
+  stock_qty            Int              @default(0)
+  reserved_qty         Int              @default(0)
+  bulk_stock_threshold Int?             @default(0)
+  bulk_reserved_qty    Int?             @default(0)
+  warehouse_id         Int
+  updated_at           DateTime         @db.Timestamptz(6)
+  created_at           DateTime         @default(now()) @db.Timestamptz(6)
+  admin_stock          Int              @default(0)
+  seller_stock         Int              @default(0)
 
-  // Relations
-  variant      product_variants  @relation(fields: [variant_id], references: [id], onDelete: Cascade)
-  warehouse    warehouses        @relation(fields: [warehouse_id], references: [id])
+  // Relations — plural names matching production schema
+  product_variants     product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+  warehouses           warehouses       @relation(fields: [warehouse_id], references: [id])
 
-  @@index([warehouse_id])
-  @@index([stock_qty])
   @@unique([variant_id, warehouse_id])
+  @@index([stock_qty])
+  @@index([warehouse_id])
 }

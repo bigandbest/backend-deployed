@@ -3,8 +3,8 @@ model product_brand {
   brand_id   String @db.Uuid
 
   // Relations
-  product    products @relation(fields: [product_id], references: [id])
   brand      brand    @relation(fields: [brand_id], references: [id])
+  products   products @relation(fields: [product_id], references: [id])
 
   @@id([product_id, brand_id])
 }

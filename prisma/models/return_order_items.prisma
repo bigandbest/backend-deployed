@@ -7,8 +7,8 @@ model return_order_items {
   created_at      DateTime?   @default(now()) @db.Timestamp
 
   // Relations
-  return_order    return_orders @relation(fields: [return_order_id], references: [id], onDelete: Cascade)
-  order_item      order_items   @relation(fields: [order_item_id], references: [id])
+  order_items     order_items   @relation(fields: [order_item_id], references: [id])
+  return_orders   return_orders @relation(fields: [return_order_id], references: [id], onDelete: Cascade)
 
   @@index([return_order_id])
   @@index([order_item_id])

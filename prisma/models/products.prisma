@@ -1,11 +1,7 @@
 enum Vertical {
-  // zepto like
   qwik
-  // zomato
   eato
-  // india mart / meesho / flipkart
-  bazar 
-  // urban clap
+  bazar
   star
 }
 
@@ -14,63 +10,61 @@ enum MediaType {
   video
 }
 
+enum ProductSourceType {
+  WAREHOUSE
+  DROP_SHIP
+}
+
 model products {
-  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name               String
-  description        String?
+  id                        String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                      String
+  description               String?
+  hsn_or_sac_code           String?                     @db.VarChar
+  gst_rate                  Decimal?                    @default(0) @db.Decimal
+  cess_rate                 Decimal?                    @default(0) @db.Decimal
+  vertical                  Vertical                    @default(qwik)
+  category_id               String?                     @db.Uuid
+  subcategory_id            String?                     @db.Uuid
+  group_id                  String?                     @db.Uuid
+  store_id                  String?                     @db.Uuid
+  rating                    Decimal?                    @default(0) @db.Decimal
+  review_count              Int?                        @default(0)
+  return_applicable         Boolean?                    @default(false)
+  return_days               Int?                        @default(0)
+  active                    Boolean?                    @default(true)
+  has_variants              Boolean?                    @default(false)
+  faq                       Json?
+  created_at                DateTime?                   @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime?                   @db.Timestamptz(6)
+  created_by                String?                     @default("admin")
+  seller_id                 String?                     @db.Uuid
+  source_type               ProductSourceType           @default(WAREHOUSE)
 
-  // Tax & Compliance
-  hsn_or_sac_code           String?            @db.VarChar
-  gst_rate           Decimal?           @default(0) @db.Decimal
-cess_rate          Decimal?           @default(0) @db.Decimal
-  vertical           Vertical           @default(qwik)
-
-  category_id        String?            @db.Uuid
-  subcategory_id     String?            @db.Uuid
-  group_id           String?            @db.Uuid
-  store_id           String?            @db.Uuid
-
-  rating             Decimal?           @default(0) @db.Decimal
-  review_count       Int?               @default(0)
-
-  return_applicable  Boolean?           @default(false)
-  return_days        Int?               @default(0)
-
-  active             Boolean?           @default(true)
-  has_variants       Boolean?           @default(false)
-  faq                Json?
-
-  // Seller Tracking
-  created_by         String?            @default("admin") // "admin" or "seller"
-  seller_id          String?            @db.Uuid          // Link to future seller table
-  
-  created_at         DateTime?          @default(now()) @db.Timestamptz
-  updated_at         DateTime?          @updatedAt @db.Timestamptz
-
-  // Relations
-  category           categories?        @relation(fields: [category_id], references: [id])
-  subcategory        subcategories?     @relation(fields: [subcategory_id], references: [id])
-  group              groups?            @relation(fields: [group_id], references: [id])
-  store              stores?            @relation(fields: [store_id], references: [id])
-
-  media              product_media[]
-  variants           product_variants[]
-  brands             product_brand[]
-  reviews            product_reviews[]
-  product_enquiries  product_enquiries[]
+  // Relations — matching backup schema exactly
+  daily_deals_product       daily_deals_product[]
+  brands                    product_brand[]
+  product_enquiries         product_enquiries[]
+  media                     product_media[]
   product_recommended_store product_recommended_store[]
-  product_section_products  product_section_products[]
+  product_reviews           product_reviews[]
+  section_products          product_section_products[]
+  variants                  product_variants[]
+  product_warehouse_stock   product_warehouse_stock[]
+  category                  categories?                 @relation(fields: [category_id], references: [id])
+  group                     groups?                     @relation(fields: [group_id], references: [id])
+  store                     stores?                     @relation(fields: [store_id], references: [id])
+  subcategory               subcategories?              @relation(fields: [subcategory_id], references: [id])
   quickpick_group_product   quickpick_group_product[]
+  seller_negotiations       seller_negotiations[]
+  seller_products           seller_products[]
+  stock_movements           stock_movements[]
+  stock_notify_requests     stock_notify_requests[]
+  store_section_mappings    store_section_mappings[]
   wishlist_items            wishlist_items[]
   you_may_like              you_may_like[]
+  sub_order_items           sub_order_items[]
 
-  store_section_mappings    store_section_mappings[]
-  daily_deals_products      daily_deals_product[]
-  warehouse_stock           product_warehouse_stock[]
-  seller_products           seller_products[]
-  seller_negotiations       seller_negotiations[]
-
-  @@index([vertical])
-  @@index([category_id])
   @@index([active])
+  @@index([category_id])
+  @@index([vertical])
 }

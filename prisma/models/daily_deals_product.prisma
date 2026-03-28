@@ -3,8 +3,8 @@ model daily_deals_product {
   product_id    String @db.Uuid
 
   // Relations
-  daily_deal    daily_deals @relation(fields: [daily_deal_id], references: [id], onDelete: Cascade)
-  product       products    @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  daily_deals   daily_deals @relation(fields: [daily_deal_id], references: [id], onDelete: Cascade)
+  products      products    @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   @@id([daily_deal_id, product_id])
 }

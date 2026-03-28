@@ -1,32 +1,30 @@
 model seller_products {
-  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  seller_id           String    @db.Uuid
-  product_id          String    @db.Uuid
-  variant_id          String?   @db.Uuid
-  warehouse_id        Int       // Divisional warehouse
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  seller_id           String            @db.Uuid
+  product_id          String            @db.Uuid
+  variant_id          String?           @db.Uuid
+  warehouse_id        Int
 
   // Stock
-  stock_quantity      Int       @default(0)
-  reserved_quantity   Int       @default(0)
+  stock_quantity      Int               @default(0)
+  reserved_quantity   Int               @default(0)
 
   // Pricing
-  seller_offer_price  Decimal?  @db.Decimal  // Price the seller wants
-  admin_selling_price Decimal?  @db.Decimal  // Final price set by admin
-  mrp                 Decimal?  @db.Decimal  // MRP for reference
+  seller_offer_price  Decimal?          @db.Decimal
+  admin_selling_price Decimal?          @db.Decimal
+  mrp                 Decimal?          @db.Decimal
 
   // Status
-  status              String    @default("PENDING_APPROVAL") @db.VarChar 
-  // PENDING_APPROVAL, APPROVED, REJECTED, NEGOTIATING, SUSPENDED
+  status              String            @default("PENDING_APPROVAL") @db.VarChar
+  is_active           Boolean           @default(true)
+  created_at          DateTime          @default(now()) @db.Timestamptz
+  updated_at          DateTime          @default(now()) @db.Timestamptz
 
-  is_active           Boolean   @default(true)
-  created_at          DateTime  @default(now()) @db.Timestamptz
-  updated_at          DateTime  @default(now()) @db.Timestamptz
-
-  // Relations
-  seller              sellers   @relation(fields: [seller_id], references: [id], onDelete: Cascade)
-  product             products  @relation(fields: [product_id], references: [id])
-  variant             product_variants? @relation(fields: [variant_id], references: [id])
-  warehouse           warehouses? @relation(fields: [warehouse_id], references: [id])
+  // Relations — plural names matching production schema
+  products            products          @relation(fields: [product_id], references: [id])
+  sellers             sellers           @relation(fields: [seller_id], references: [id], onDelete: Cascade)
+  product_variants    product_variants? @relation(fields: [variant_id], references: [id])
+  warehouses          warehouses        @relation(fields: [warehouse_id], references: [id])
 
   @@index([seller_id])
   @@index([product_id])

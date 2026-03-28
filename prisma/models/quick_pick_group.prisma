@@ -6,5 +6,5 @@ model quick_pick_group {
 
   // Relations
   quick_pick     quick_pick?               @relation(fields: [quick_pick_id], references: [id])
-  products       quickpick_group_product[]
+  quickpick_group_product quickpick_group_product[]
 }

@@ -4,5 +4,5 @@ model brand {
   image_url String?
 
   // Relations
-  products  product_brand[]
+  product_brand product_brand[]
 }

@@ -3,5 +3,5 @@ model you_may_like {
   product_id String?   @db.Uuid
 
   // Relations
-  product    products? @relation(fields: [product_id], references: [id])
+  products   products? @relation(fields: [product_id], references: [id])
 }

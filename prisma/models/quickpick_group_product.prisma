@@ -4,6 +4,6 @@ model quickpick_group_product {
   product_id          String           @db.Uuid
 
   // Relations
-  group               quick_pick_group @relation(fields: [quick_pick_group_id], references: [id])
-  product             products         @relation(fields: [product_id], references: [id])
+  products            products         @relation(fields: [product_id], references: [id])
+  quick_pick_group    quick_pick_group @relation(fields: [quick_pick_group_id], references: [id])
 }

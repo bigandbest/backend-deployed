@@ -12,6 +12,6 @@ model payment_retry_logs {
   next_retry_at      DateTime?             @db.Timestamptz
 
   // Relations
-  scheduled_order    scheduled_orders      @relation(fields: [scheduled_order_id], references: [id])
-  execution_log      order_execution_logs? @relation(fields: [execution_log_id], references: [id])
+  order_execution_logs order_execution_logs? @relation(fields: [execution_log_id], references: [id])
+  scheduled_orders     scheduled_orders      @relation(fields: [scheduled_order_id], references: [id])
 }

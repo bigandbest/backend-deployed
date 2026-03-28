@@ -99,9 +99,9 @@ export const getSellerProducts = async (req, res) => {
 
         const mappedProducts = await Promise.all(products.map(async (sp) => {
             const fee = await resolveApplicablePlatformFee({
-                categoryId: sp.products?.category_id,
-                subcategoryId: sp.products?.subcategory_id,
-                groupId: sp.products?.group_id,
+                categoryId: sp.products?.category?.id,
+                subcategoryId: sp.products?.subcategory?.id,
+                groupId: sp.products?.group?.id,
             });
             const basePrice = Number(sp.admin_selling_price ?? sp.seller_offer_price ?? 0);
             const platformFeeAmount = (basePrice * fee.fee_percentage) / 100;
@@ -273,7 +273,7 @@ export const requestNewProduct = async (req, res) => {
 export const requestNewProductFull = async (req, res) => {
     try {
         console.log("\n=== BACKEND SELLER: Received Request Body ===");
-        
+
         // Get seller profile
         const seller = await prisma.sellers.findUnique({ where: { user_id: req.user.id } });
         if (!seller) return res.status(404).json({ success: false, error: 'Seller profile not found' });
@@ -812,15 +812,15 @@ export const declineCounterOffer = async (req, res) => {
  */
 export const getSellerOrders = async (req, res) => {
     try {
+        console.log("\n=== BACKEND SELLER: getSellerOrders called with query ===", req.query);
         const seller = await prisma.sellers.findUnique({ where: { user_id: req.user.id } });
         if (!seller) return res.status(404).json({ success: false, error: 'Seller profile not found' });
 
-        // Status mapping for Seller/Rider App
         const statusMap = {
             'PENDING': 'pending',
             'ACCEPTED': 'confirmed',
             'SHIPPED': 'shipped',
-            'NEW': 'pending' // For compatibility with other app versions if any
+            'NEW': 'pending'
         };
 
         const reverseStatusMap = {
@@ -829,7 +829,7 @@ export const getSellerOrders = async (req, res) => {
             'shipped': 'SHIPPED',
             'shipped_out': 'SHIPPED',
             'out_for_delivery': 'SHIPPED',
-            'delivered': 'DELIVERED', // For lists that might show delivered
+            'delivered': 'DELIVERED',
         };
 
         const queryFilters = { ...req.query };
@@ -839,71 +839,70 @@ export const getSellerOrders = async (req, res) => {
 
         const orders = await SellerDAO.getSellerOrders(seller.id, queryFilters);
 
-        // Get current platform charge settings
-        const chargeSettings = await prisma.charge_settings.findFirst({
-            orderBy: { id: 'desc' }
-        });
-        const platformChargePercent = parseFloat(chargeSettings?.platform_charge || 0);
+        const processedOrders = await Promise.all(orders.map(async (o) => {
+            let totalProductValue = 0;
+            let totalPlatformCharge = 0;
+            let totalSellerAmount = 0;
+console.log(`Processing Order ${o.id} with ${o.order_items?.length || 0} items`,o)
+            const orderItems = await Promise.all((o.order_items || []).map(async (oi) => {
+                const productPrice = parseFloat(oi.price || 0);
+                const quantity = oi.quantity || 1;
+                const itemTotal = productPrice * quantity;
+
+                // Resolve fee dynamically
+                const feeResolution = await resolveApplicablePlatformFee({
+                categoryId: oi.product_variants?.products?.category?.id,
+                    subcategoryId: oi.product_variants?.products?.subcategory?.id,
+                    groupId: oi.product_variants?.products?.group?.id,
+                });
+console.log(`Fee resolution for Order ${o.id} - Item ${oi.id}:`, feeResolution);
+                const feePercent = Number(feeResolution.fee_percentage || 0);
+                const platformCharge = (itemTotal * feePercent) / 100;
+                const earnings = itemTotal - platformCharge;
+// console.log(`Order ${o.id} - Item ${oi.id}: price=${productPrice}, quantity=${quantity}, itemTotal=${itemTotal.toFixed(2)}, fee%=${feePercent}, platformCharge=${platformCharge.toFixed(2)}, earnings=${earnings.toFixed(2)}`);
+                totalProductValue += itemTotal;
+                totalPlatformCharge += platformCharge;
+                totalSellerAmount += earnings;
+
+                return {
+                    product_id: oi.product_variants?.products?.id,
+                    variant_id: oi.variant_id,
+                    product_name: oi.product_variants?.products?.name,
+                    variant_name: oi.product_variants?.title,
+                    quantity: quantity,
+                    price: productPrice,
+                    platform_fee_percentage: feePercent,
+                    platformCharge: parseFloat((platformCharge / quantity).toFixed(2)),
+                    sellerRate: parseFloat((earnings / quantity).toFixed(2)),
+                };
+            }));
+
+            return {
+                id: o.id,
+                order_number: o.tracking_number || o.id.slice(0, 8).toUpperCase(),
+                status: reverseStatusMap[o.status] || o.status,
+                total_amount: o.total,
+                totalAmount: o.total, // For compatibility
+                created_at: o.created_at,
+                createdAt: o.created_at, // For compatibility
+                customer: {
+                    name: o.user?.name || o.receiver_name,
+                    phone: o.user?.phone || o.mobile,
+                    address: o.address
+                },
+                userAddress: o.address, // For compatibility
+                items: orderItems,
+                totals: {
+                    total_value: Number(totalProductValue.toFixed(2)),
+                    total_platform_fee: Number(totalPlatformCharge.toFixed(2)),
+                    total_seller_earnings: Number(totalSellerAmount.toFixed(2)),
+                }
+            };
+        }));
 
         res.status(200).json({
             success: true,
-            data: orders.map(o => {
-                // Calculate seller rate for each order item
-                const orderItems = o.order_items?.map(oi => {
-                    const productPrice = parseFloat(oi.price || 0);
-                    const sellerRate = productPrice - (productPrice * platformChargePercent / 100);
-                    
-                    return {
-                        product_id: oi.product_variants?.products?.id,
-                        variant_id: oi.variant_id,
-                        product_name: oi.product_variants?.products?.name,
-                        productName: oi.product_variants?.products?.name,
-                        variant_name: oi.product_variants?.title,
-                        quantity: oi.quantity,
-                        price: productPrice, // Product value (customer paid)
-                        sellerRate: parseFloat(sellerRate.toFixed(2)), // Seller's net rate after platform charge
-                        platformCharge: parseFloat((productPrice * platformChargePercent / 100).toFixed(2)), // Platform charge amount
-                        variant: oi.product_variants
-                    };
-                });
-
-                // Calculate totals
-                const totalProductValue = orderItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-                const totalPlatformCharge = orderItems.reduce((sum, item) => sum + (item.platformCharge * item.quantity), 0);
-                const totalSellerAmount = orderItems.reduce((sum, item) => sum + (item.sellerRate * item.quantity), 0);
-
-                return {
-                    id: o.id,
-                    order_number: o.tracking_number || o.id.slice(0, 8).toUpperCase(),
-                    status: reverseStatusMap[o.status] || o.status,
-                    total: o.total, // For frontend totalAmount
-                    total_amount: o.total,
-                    totalAmount: o.total, // Added Explicitly for Rider App
-                    customer_name: o.users?.name,
-                    userAddress: o.address,
-                    address: o.address,
-                    userPincode: o.address?.split(',').pop()?.trim() || '',
-                    createdAt: o.created_at,
-                    created_at: o.created_at,
-                    fulfillmentType: o.is_bulk_order ? 'WHOLESALE' : 'DROPSHIP',
-                    is_bulk_order: o.is_bulk_order,
-                    order_items: orderItems,
-                    items: orderItems.map(oi => ({
-                        product_name: oi.product_name,
-                        productName: oi.productName,
-                        variant_name: oi.variant_name,
-                        quantity: oi.quantity,
-                        price: oi.price,
-                        sellerRate: oi.sellerRate,
-                        platformCharge: oi.platformCharge,
-                    })),
-                    // Order-level totals for seller
-                    totalProductValue: parseFloat(totalProductValue.toFixed(2)),
-                    totalPlatformCharge: parseFloat(totalPlatformCharge.toFixed(2)),
-                    totalSellerAmount: parseFloat(totalSellerAmount.toFixed(2)),
-                    platformChargePercent: platformChargePercent,
-                };
-            }),
+            data: processedOrders
         });
     } catch (error) {
         console.error('getSellerOrders error:', error);
@@ -943,7 +942,51 @@ export const getOrderDetails = async (req, res) => {
             return res.status(404).json({ success: false, error: 'Order not found' });
         }
 
-        res.status(200).json({ success: true, data: order });
+        // Resolve fees for each item
+        let totalProductValue = 0;
+        let totalPlatformCharge = 0;
+        let totalSellerAmount = 0;
+
+        const processedItems = await Promise.all((order.order_items || []).map(async (oi) => {
+            const productPrice = parseFloat(oi.price || 0);
+            const quantity = oi.quantity || 1;
+            const itemTotal = productPrice * quantity;
+
+            // Resolve fee dynamically
+            const feeResolution = await resolveApplicablePlatformFee({
+                categoryId: oi.product_variants?.products?.category?.id,
+                subcategoryId: oi.product_variants?.products?.subcategory?.id,
+                groupId: oi.product_variants?.products?.group?.id,
+            });
+
+            const feePercent = Number(feeResolution.fee_percentage || 0);
+            const platformCharge = (itemTotal * feePercent) / 100;
+            const earnings = itemTotal - platformCharge;
+
+            totalProductValue += itemTotal;
+            totalPlatformCharge += platformCharge;
+            totalSellerAmount += earnings;
+
+            return {
+                ...oi,
+                platform_fee_percentage: feePercent,
+                platformCharge: parseFloat((platformCharge / quantity).toFixed(2)),
+                sellerRate: parseFloat((earnings / quantity).toFixed(2)),
+            };
+        }));
+
+        res.status(200).json({
+            success: true,
+            data: {
+                ...order,
+                order_items: processedItems,
+                totals: {
+                    total_value: Number(totalProductValue.toFixed(2)),
+                    total_platform_fee: Number(totalPlatformCharge.toFixed(2)),
+                    total_seller_earnings: Number(totalSellerAmount.toFixed(2)),
+                }
+            }
+        });
     } catch (error) {
         console.error('getOrderDetails error:', error);
         res.status(500).json({ success: false, error: error.message });
@@ -957,7 +1000,7 @@ export const updateSellerOrderStatus = async (req, res) => {
     try {
         const { orderId } = req.params;
         const { status } = req.body; // 'CONFIRMED', 'SHIPPED', 'CANCELLED'
-        
+
         const seller = await prisma.sellers.findUnique({ where: { user_id: req.user.id } });
         if (!seller) return res.status(404).json({ success: false, error: 'Seller profile not found' });
 
@@ -990,7 +1033,7 @@ export const updateSellerOrderStatus = async (req, res) => {
         const hasMatchingItem = order.order_items.some(item => {
             const productId = item.product_variants?.products?.id || item.product_id;
             const variantId = item.variant_id;
-            return sellerProductIds.some(sp => 
+            return sellerProductIds.some(sp =>
                 sp.product_id === productId && (!sp.variant_id || sp.variant_id === variantId)
             );
         });
@@ -1017,10 +1060,10 @@ export const updateSellerOrderStatus = async (req, res) => {
             data: { status: dbStatus }
         });
 
-        res.status(200).json({ 
-            success: true, 
+        res.status(200).json({
+            success: true,
             message: `Order ${dbStatus.toLowerCase()} successfully`,
-            data: updatedOrder 
+            data: updatedOrder
         });
     } catch (error) {
         console.error('updateSellerOrderStatus error:', error);
@@ -1316,3 +1359,213 @@ export const toggleStoreStatus = async (req, res) => {
         res.status(500).json({ success: false, error: 'Internal server error' });
     }
 };
+
+// ================================================================
+// SUB-ORDER FULFILLMENT ENDPOINTS
+// ================================================================
+
+import subOrderDao from '../dao/sub-order.dao.js';
+import fulfillmentEventDao from '../dao/fulfillment-event.dao.js';
+import { handleSellerCancellation } from '../services/subOrderService.js';
+import { routeSubOrders } from '../services/fulfillmentRouter.js';
+
+/**
+ * Get sub-orders assigned to this seller
+ * GET /api/seller/sub-orders
+ */
+export const getSellerSubOrders = async (req, res) => {
+    try {
+        const seller = await prisma.sellers.findUnique({
+            where: { user_id: req.user.id },
+            include: {
+                warehouse_sellers: {
+                    where: { is_active: true },
+                    include: {
+                        warehouses: {
+                            include: { warehouse_pincodes: { where: { is_active: true } } }
+                        }
+                    }
+                }
+            }
+        });
+
+        if (!seller) return res.status(404).json({ success: false, error: 'Seller profile not found' });
+
+        // Get all pincodes this seller serves
+        const sellerPincodes = seller.warehouse_sellers
+            .flatMap(ws => ws.warehouses?.warehouse_pincodes?.map(wp => wp.pincode) || []);
+
+        const subOrders = await subOrderDao.listBySellerPincodes(seller.id, sellerPincodes);
+
+        // Filter by status if provided
+        const { status } = req.query;
+        const filtered = status
+            ? subOrders.filter(so => so.fulfillment_status === status)
+            : subOrders;
+
+        const processedSubOrders = await Promise.all(filtered.map(async (so) => {
+            let totalValue = 0;
+            let totalPlatformFee = 0;
+            let totalSellerEarnings = 0;
+
+            const items = await Promise.all((so.sub_order_items || []).map(async (item) => {
+                const unitPrice = Number(item.unit_price || 0);
+                const quantity = Number(item.quantity || 0);
+                const itemTotal = unitPrice * quantity;
+
+                // Resolve fee dynamically based on category/subcategory/group
+                const feeResolution = await resolveApplicablePlatformFee({
+                    categoryId: item.product?.category_id,
+                    subcategoryId: item.product?.subcategory_id,
+                    groupId: item.product?.group_id,
+                });
+
+                const feePercent = Number(feeResolution.fee_percentage || 0);
+                const feeAmount = (itemTotal * feePercent) / 100;
+                const earnings = itemTotal - feeAmount;
+
+                totalValue += itemTotal;
+                totalPlatformFee += feeAmount;
+                totalSellerEarnings += earnings;
+
+                return {
+                    product_id: item.product_id,
+                    variant_id: item.variant_id,
+                    product_name: item.product?.name,
+                    product_image: item.product?.media?.[0]?.url || null,
+                    variant_name: item.variant?.title,
+                    quantity: quantity,
+                    unit_price: unitPrice,
+                    platform_fee_percentage: feePercent,
+                    platform_fee_amount: Number(feeAmount.toFixed(2)),
+                    seller_earnings: Number(earnings.toFixed(2)),
+                };
+            }));
+
+            return {
+                id: so.id,
+                parent_order_id: so.parent_order_id,
+                fulfillment_status: so.fulfillment_status,
+                estimated_delivery_at: so.estimated_delivery_at,
+                created_at: so.created_at,
+                customer: {
+                    address: so.parent_order?.address,
+                    pincode: so.parent_order?.delivery_pincode,
+                    name: so.parent_order?.receiver_name,
+                    phone: so.parent_order?.mobile,
+                },
+                items,
+                totals: {
+                    total_value: Number(totalValue.toFixed(2)),
+                    total_platform_fee: Number(totalPlatformFee.toFixed(2)),
+                    total_seller_earnings: Number(totalSellerEarnings.toFixed(2)),
+                }
+            };
+        }));
+
+        res.status(200).json({
+            success: true,
+            data: processedSubOrders,
+        });
+    } catch (error) {
+        console.error('getSellerSubOrders error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Seller accepts a sub-order
+ * POST /api/seller/sub-orders/:sub_order_id/accept
+ */
+export const acceptSubOrder = async (req, res) => {
+    try {
+        const { sub_order_id } = req.params;
+        const seller = await prisma.sellers.findUnique({ where: { user_id: req.user.id } });
+        if (!seller) return res.status(404).json({ success: false, error: 'Seller profile not found' });
+
+        const subOrder = await subOrderDao.getById(sub_order_id);
+        if (!subOrder) return res.status(404).json({ success: false, error: 'Sub-order not found' });
+
+        if (subOrder.source_type !== 'seller' || subOrder.seller_id !== seller.id) {
+            return res.status(403).json({ success: false, error: 'This sub-order is not assigned to you' });
+        }
+
+        if (subOrder.fulfillment_status !== 'pending') {
+            return res.status(400).json({
+                success: false,
+                error: `Cannot accept sub-order in ${subOrder.fulfillment_status} status`,
+            });
+        }
+
+        // Accept + log
+        await subOrderDao.updateStatus(sub_order_id, 'confirmed');
+        await fulfillmentEventDao.log(sub_order_id, 'confirmed', {
+            seller_id: seller.id,
+            accepted_at: new Date().toISOString(),
+        });
+
+        // Trigger rider assignment for this sub-order's parent order
+        try {
+            await routeSubOrders(subOrder.parent_order_id);
+        } catch (routeErr) {
+            console.error('Rider routing after accept failed:', routeErr.message);
+            // Non-fatal: the cron will retry
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'Sub-order accepted successfully',
+            data: { sub_order_id, status: 'confirmed' },
+        });
+    } catch (error) {
+        console.error('acceptSubOrder error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Seller rejects a sub-order (triggers re-routing)
+ * POST /api/seller/sub-orders/:sub_order_id/reject
+ */
+export const rejectSubOrder = async (req, res) => {
+    try {
+        const { sub_order_id } = req.params;
+        const { reason } = req.body;
+
+        const seller = await prisma.sellers.findUnique({ where: { user_id: req.user.id } });
+        if (!seller) return res.status(404).json({ success: false, error: 'Seller profile not found' });
+
+        const subOrder = await subOrderDao.getById(sub_order_id);
+        if (!subOrder) return res.status(404).json({ success: false, error: 'Sub-order not found' });
+
+        if (subOrder.source_type !== 'seller' || subOrder.seller_id !== seller.id) {
+            return res.status(403).json({ success: false, error: 'This sub-order is not assigned to you' });
+        }
+
+        if (!['pending', 'confirmed'].includes(subOrder.fulfillment_status)) {
+            return res.status(400).json({
+                success: false,
+                error: `Cannot reject sub-order in ${subOrder.fulfillment_status} status`,
+            });
+        }
+
+        // Trigger cancellation + re-routing
+        const result = await handleSellerCancellation(sub_order_id, seller.id);
+
+        res.status(200).json({
+            success: true,
+            message: result.rerouted
+                ? 'Sub-order rejected. Items re-routed to alternative source.'
+                : 'Sub-order rejected. Some items could not be re-routed.',
+            data: {
+                rerouted: result.rerouted,
+                new_sub_orders: result.new_sub_orders?.map(so => so.id) || [],
+                cancelled_items: result.cancelled_items || [],
+            },
+        });
+    } catch (error) {
+        console.error('rejectSubOrder error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+

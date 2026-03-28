@@ -5,9 +5,9 @@ model warehouse_sellers {
   is_active     Boolean   @default(true)
   assigned_at   DateTime  @default(now()) @db.Timestamptz
 
-  // Relations
-  warehouse     warehouses @relation(fields: [warehouse_id], references: [id], onDelete: Cascade)
-  seller        sellers    @relation(fields: [seller_id], references: [id], onDelete: Cascade)
+  // Relations — using plural names to match production schema
+  warehouses    warehouses @relation(fields: [warehouse_id], references: [id], onDelete: Cascade)
+  sellers       sellers    @relation(fields: [seller_id], references: [id], onDelete: Cascade)
 
   @@unique([warehouse_id, seller_id])
   @@index([warehouse_id])

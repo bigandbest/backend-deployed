@@ -13,7 +13,7 @@ model groups {
   updated_at     DateTime?     @default(now()) @db.Timestamptz
 
   // Relations
-  subcategory    subcategories @relation(fields: [subcategory_id], references: [id])
+  subcategories  subcategories @relation(fields: [subcategory_id], references: [id])
   products       products[]
   product_section_groups product_section_groups[]
 }
