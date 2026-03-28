@@ -2455,3 +2455,333 @@ model referral_campaigns {
   @@index([is_active])
   @@map("referral_campaigns")
 }
+
+
+// ============================================================================
+// AFFILIATE MARKETING SYSTEM
+// ============================================================================
+
+// --- Model: affiliate_configs ---
+model affiliate_configs {
+  id                          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  is_enabled                  Boolean   @default(true)
+  program_name                String    @default("Affiliate Program")
+  program_description         String?
+  auto_approve                Boolean   @default(false)
+  cookie_duration_hours       Int       @default(24)
+  cookie_name                 String    @default("_aff_ref")
+  default_commission_rate     Decimal   @default(5) @db.Decimal(5, 2)
+  enable_tier_bonuses         Boolean   @default(true)
+  minimum_payout_amount       Decimal   @default(500) @db.Decimal(10, 2)
+  payout_frequency            String    @default("MONTHLY")
+  payout_day_of_month         Int       @default(7)
+  commission_hold_days        Int       @default(7)
+  enable_tds                  Boolean   @default(true)
+  tds_threshold               Decimal   @default(15000) @db.Decimal(10, 2)
+  tds_rate_with_pan           Decimal   @default(5) @db.Decimal(5, 2)
+  tds_rate_without_pan        Decimal   @default(20) @db.Decimal(5, 2)
+  block_self_referral         Boolean   @default(true)
+  terms_and_conditions        String?
+  created_at                  DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime? @default(now()) @db.Timestamptz(6)
+  updated_by                  String?   @db.Uuid
+
+  @@map("affiliate_configs")
+}
+
+// --- Model: affiliate_category_commissions ---
+model affiliate_category_commissions {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  category_id           String    @unique @db.Uuid
+  category_name         String?
+  category_level        String?   // 'category', 'subcategory', 'group'
+  base_commission_rate  Decimal   @db.Decimal(5, 2)
+  is_active             Boolean   @default(true)
+  created_at            DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
+  updated_by            String?   @db.Uuid
+
+  @@index([category_id])
+  @@index([is_active])
+  @@map("affiliate_category_commissions")
+}
+
+// --- Model: affiliate_applications ---
+model affiliate_applications {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id               String    @db.Uuid
+  email                 String
+  full_name             String
+  phone                 String
+  pan_number            String?
+  website_url           String?
+  youtube_channel       String?
+  instagram_handle      String?
+  twitter_handle        String?
+  facebook_page         String?
+  primary_platform      String
+  estimated_audience    Int?
+  niche_categories      String[]
+  promotion_strategy    String
+  previous_experience   String?
+  payment_method        String    @default("BANK_TRANSFER")
+  bank_name             String?
+  bank_account_number   String?
+  bank_ifsc_code        String?
+  account_holder_name   String?
+  upi_id                String?
+  status                String    @default("PENDING")
+  reviewed_by           String?   @db.Uuid
+  reviewed_at           DateTime? @db.Timestamptz(6)
+  review_notes          String?
+  rejection_reason      String?
+  agreed_to_terms       Boolean   @default(false)
+  agreed_at             DateTime? @db.Timestamptz(6)
+  ip_address            String?
+  submitted_at          DateTime? @default(now()) @db.Timestamptz(6)
+  created_at            DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
+
+  affiliate_profile     affiliate_profiles?
+
+  @@index([user_id])
+  @@index([email])
+  @@index([status])
+  @@map("affiliate_applications")
+}
+
+// --- Model: affiliate_profiles ---
+model affiliate_profiles {
+  id                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                   String    @unique @db.Uuid
+  application_id            String    @unique @db.Uuid
+  affiliate_code            String    @unique
+  display_name              String
+  email                     String
+  phone                     String?
+  pan_number                String?
+  tier_name                 String    @default("Bronze")
+  tier_bonus                Decimal   @default(0) @db.Decimal(5, 2)
+  primary_platform          String?
+  website_url               String?
+  social_links              Json?
+  total_clicks              Int       @default(0)
+  total_orders              Int       @default(0)
+  total_sales               Decimal   @default(0) @db.Decimal(14, 2)
+  total_commission_earned   Decimal   @default(0) @db.Decimal(14, 2)
+  total_commission_paid     Decimal   @default(0) @db.Decimal(14, 2)
+  available_balance         Decimal   @default(0) @db.Decimal(12, 2)
+  pending_balance           Decimal   @default(0) @db.Decimal(12, 2)
+  processing_balance        Decimal   @default(0) @db.Decimal(12, 2)
+  payment_method            String    @default("BANK_TRANSFER")
+  bank_name                 String?
+  bank_account_number       String?
+  bank_ifsc_code            String?
+  account_holder_name       String?
+  upi_id                    String?
+  status                    String    @default("ACTIVE")
+  is_blocked                Boolean   @default(false)
+  block_reason              String?
+  approved_at               DateTime? @default(now()) @db.Timestamptz(6)
+  last_active_at            DateTime? @db.Timestamptz(6)
+  created_at                DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime? @default(now()) @db.Timestamptz(6)
+
+  application               affiliate_applications @relation(fields: [application_id], references: [id])
+  links                     affiliate_links[]
+  clicks                    affiliate_clicks[]
+  orders                    affiliate_orders[]
+  commissions               affiliate_commissions[]
+  payouts                   affiliate_payouts[]
+
+  @@index([user_id])
+  @@index([affiliate_code])
+  @@index([status])
+  @@map("affiliate_profiles")
+}
+
+// --- Model: affiliate_links ---
+model affiliate_links {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  affiliate_id        String    @db.Uuid
+  affiliate_code      String
+  link_code           String    @unique
+  full_url            String
+  destination_type    String    // PRODUCT, CATEGORY, SEARCH, HOMEPAGE, CUSTOM
+  destination_url     String
+  product_id          String?   @db.Uuid
+  product_name        String?
+  category_id         String?   @db.Uuid
+  category_name       String?
+  search_query        String?
+  campaign_name       String?
+  sub_id              String?
+  is_active           Boolean   @default(true)
+  total_clicks        Int       @default(0)
+  total_orders        Int       @default(0)
+  total_revenue       Decimal   @default(0) @db.Decimal(12, 2)
+  total_commission    Decimal   @default(0) @db.Decimal(10, 2)
+  last_clicked_at     DateTime? @db.Timestamptz(6)
+  created_at          DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime? @default(now()) @db.Timestamptz(6)
+
+  affiliate_profile   affiliate_profiles @relation(fields: [affiliate_id], references: [id])
+  clicks              affiliate_clicks[]
+
+  @@index([affiliate_id])
+  @@index([link_code])
+  @@index([product_id])
+  @@index([category_id])
+  @@map("affiliate_links")
+}
+
+// --- Model: affiliate_clicks ---
+model affiliate_clicks {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  affiliate_id        String    @db.Uuid
+  link_id             String?   @db.Uuid
+  link_code           String?
+  affiliate_code      String
+  visitor_id          String?
+  user_id             String?   @db.Uuid
+  ip_address          String?
+  user_agent          String?
+  device_type         String?
+  country             String?
+  referrer_url        String?
+  destination_url     String
+  cookie_expires_at   DateTime? @db.Timestamptz(6)
+  is_converted        Boolean   @default(false)
+  converted_at        DateTime? @db.Timestamptz(6)
+  order_id            String?   @db.Uuid
+  is_suspicious       Boolean   @default(false)
+  clicked_at          DateTime? @default(now()) @db.Timestamptz(6)
+
+  affiliate_profile   affiliate_profiles @relation(fields: [affiliate_id], references: [id])
+  link                affiliate_links?   @relation(fields: [link_id], references: [id])
+
+  @@index([affiliate_id])
+  @@index([link_id])
+  @@index([affiliate_code])
+  @@index([visitor_id])
+  @@index([is_converted])
+  @@index([clicked_at])
+  @@map("affiliate_clicks")
+}
+
+// --- Model: affiliate_orders ---
+model affiliate_orders {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  affiliate_id          String    @db.Uuid
+  affiliate_code        String
+  click_id              String?   @db.Uuid
+  order_id              String    @unique @db.Uuid
+  order_number          String?
+  customer_id           String    @db.Uuid
+  customer_email        String?
+  order_date            DateTime  @db.Timestamptz(6)
+  order_status          String
+  gross_order_value     Decimal   @db.Decimal(12, 2)
+  discount_amount       Decimal   @default(0) @db.Decimal(12, 2)
+  net_order_value       Decimal   @db.Decimal(12, 2)
+  is_returned           Boolean   @default(false)
+  return_amount         Decimal   @default(0) @db.Decimal(12, 2)
+  final_order_value     Decimal   @db.Decimal(12, 2)
+  delivered_at          DateTime? @db.Timestamptz(6)
+  return_window_ends_at DateTime? @db.Timestamptz(6)
+  commission_status     String    @default("PENDING")
+  commission_rate       Decimal?  @db.Decimal(5, 2)
+  commission_amount     Decimal?  @db.Decimal(10, 2)
+  tier_bonus            Decimal   @default(0) @db.Decimal(5, 2)
+  final_commission      Decimal?  @db.Decimal(10, 2)
+  is_fraud_suspected    Boolean   @default(false)
+  created_at            DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
+  processed_at          DateTime? @db.Timestamptz(6)
+
+  affiliate_profile     affiliate_profiles  @relation(fields: [affiliate_id], references: [id])
+  commission            affiliate_commissions?
+
+  @@index([affiliate_id])
+  @@index([order_id])
+  @@index([customer_id])
+  @@index([commission_status])
+  @@map("affiliate_orders")
+}
+
+// --- Model: affiliate_commissions ---
+model affiliate_commissions {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  affiliate_id          String    @db.Uuid
+  affiliate_order_id    String    @unique @db.Uuid
+  order_id              String    @db.Uuid
+  order_value           Decimal   @db.Decimal(12, 2)
+  base_commission_rate  Decimal   @db.Decimal(5, 2)
+  tier_bonus            Decimal   @default(0) @db.Decimal(5, 2)
+  effective_rate        Decimal   @db.Decimal(5, 2)
+  gross_commission      Decimal   @db.Decimal(10, 2)
+  net_commission        Decimal   @db.Decimal(10, 2)
+  tds_applicable        Boolean   @default(false)
+  tds_rate              Decimal   @default(0) @db.Decimal(5, 2)
+  tds_amount            Decimal   @default(0) @db.Decimal(10, 2)
+  final_amount          Decimal   @db.Decimal(10, 2)
+  status                String    @default("PENDING")
+  payout_id             String?   @db.Uuid
+  order_date            DateTime  @db.Timestamptz(6)
+  qualified_at          DateTime? @db.Timestamptz(6)
+  approved_at           DateTime? @db.Timestamptz(6)
+  paid_at               DateTime? @db.Timestamptz(6)
+  cancelled_at          DateTime? @db.Timestamptz(6)
+  cancellation_reason   String?
+  created_at            DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
+
+  affiliate_profile     affiliate_profiles @relation(fields: [affiliate_id], references: [id])
+  affiliate_order       affiliate_orders   @relation(fields: [affiliate_order_id], references: [id])
+  payout                affiliate_payouts? @relation(fields: [payout_id], references: [id])
+
+  @@index([affiliate_id])
+  @@index([order_id])
+  @@index([status])
+  @@index([payout_id])
+  @@map("affiliate_commissions")
+}
+
+// --- Model: affiliate_payouts ---
+model affiliate_payouts {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  affiliate_id          String    @db.Uuid
+  payout_number         String    @unique
+  payout_period         String?
+  gross_amount          Decimal   @db.Decimal(12, 2)
+  tds_amount            Decimal   @default(0) @db.Decimal(10, 2)
+  net_amount            Decimal   @db.Decimal(12, 2)
+  commission_count      Int       @default(0)
+  payment_method        String    @default("BANK_TRANSFER")
+  bank_name             String?
+  bank_account_number   String?
+  bank_ifsc_code        String?
+  account_holder_name   String?
+  upi_id                String?
+  status                String    @default("PENDING")
+  processed_by          String?   @db.Uuid
+  processed_at          DateTime? @db.Timestamptz(6)
+  transaction_id        String?
+  payment_proof         String?
+  failure_reason        String?
+  admin_notes           String?
+  period_start_date     DateTime? @db.Timestamptz(6)
+  period_end_date       DateTime? @db.Timestamptz(6)
+  requested_at          DateTime? @default(now()) @db.Timestamptz(6)
+  completed_at          DateTime? @db.Timestamptz(6)
+  created_at            DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
+
+  affiliate_profile     affiliate_profiles    @relation(fields: [affiliate_id], references: [id])
+  commissions           affiliate_commissions[]
+
+  @@index([affiliate_id])
+  @@index([payout_number])
+  @@index([status])
+  @@map("affiliate_payouts")
+}
