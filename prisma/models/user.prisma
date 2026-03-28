@@ -59,4 +59,5 @@ model users {
   wallets_wallets_frozen_byTousers                          wallets[]               @relation("wallets_frozen_byTousers")
   wallets_wallets_user_idTousers                            wallets?                @relation("wallets_user_idTousers")
   wishlist_items                                            wishlist_items[]
+  customer_addresses                                        customer_addresses[]
 }

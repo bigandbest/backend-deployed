@@ -583,6 +583,7 @@ export const getOrderDetails = async (req, res) => {
 import subOrderDao from '../dao/sub-order.dao.js';
 import riderAssignmentDao from '../dao/rider-assignment.dao.js';
 import fulfillmentEventDao from '../dao/fulfillment-event.dao.js';
+import { calculateAndCreatePayout } from '../services/payoutService.js';
 
 /**
  * Get rider's sub-orders (active ones assigned to this rider)
@@ -708,6 +709,13 @@ export const markSubOrderDelivered = async (req, res) => {
         await fulfillmentEventDao.log(sub_order_id, 'delivered', {
             rider_id: rider.id,
             delivered_at: new Date().toISOString(),
+        });
+
+        // Trigger distance-slab payout calculation (non-blocking)
+        setImmediate(() => {
+            calculateAndCreatePayout(sub_order_id, rider.id).catch((err) =>
+                console.error('[payout] calculateAndCreatePayout failed:', err.message)
+            );
         });
 
         // Check if all sub-orders for this order are delivered

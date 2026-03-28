@@ -1,7 +1,7 @@
 import SellerDAO from '../dao/seller.dao.js';
 import ProductDAO from '../dao/product.dao.js';
 import prisma from '../config/prisma.js';
-import { resolveApplicablePlatformFee } from '../services/platformFeeService.js';
+import { resolveApplicablePlatformFee, batchResolvePlatformFees } from '../services/platformFeeService.js';
 
 const ensureSellerOwnedProductsInInventory = async (sellerId) => {
     // Seller products can be approved (active=true) but still miss seller_products rows.
@@ -816,6 +816,16 @@ export const getSellerOrders = async (req, res) => {
         const seller = await prisma.sellers.findUnique({ where: { user_id: req.user.id } });
         if (!seller) return res.status(404).json({ success: false, error: 'Seller profile not found' });
 
+        if (!seller.is_active) {
+            return res.status(403).json({ success: false, error: 'Your store is deactivated.' });
+        }
+        if (!seller.is_verified || seller.verification_status !== 'VERIFIED') {
+            return res.status(403).json({
+                success: false,
+                error: 'Orders are only visible after your documents are verified and store is approved.',
+            });
+        }
+
         const statusMap = {
             'PENDING': 'pending',
             'ACCEPTED': 'confirmed',
@@ -1494,7 +1504,7 @@ export const acceptSubOrder = async (req, res) => {
         const subOrder = await subOrderDao.getById(sub_order_id);
         if (!subOrder) return res.status(404).json({ success: false, error: 'Sub-order not found' });
 
-        if (subOrder.source_type !== 'seller' || subOrder.seller_id !== seller.id) {
+        if (subOrder.seller_id !== seller.id) {
             return res.status(403).json({ success: false, error: 'This sub-order is not assigned to you' });
         }
 
@@ -1546,7 +1556,7 @@ export const rejectSubOrder = async (req, res) => {
         const subOrder = await subOrderDao.getById(sub_order_id);
         if (!subOrder) return res.status(404).json({ success: false, error: 'Sub-order not found' });
 
-        if (subOrder.source_type !== 'seller' || subOrder.seller_id !== seller.id) {
+        if (subOrder.seller_id !== seller.id) {
             return res.status(403).json({ success: false, error: 'This sub-order is not assigned to you' });
         }
 

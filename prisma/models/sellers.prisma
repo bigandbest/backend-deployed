@@ -25,6 +25,14 @@ model sellers {
   state             String?   @db.VarChar
   pincode           String?   @db.VarChar
 
+  // Location (geocoded from address)
+  latitude              Decimal?  @db.Decimal(10, 7)
+  longitude             Decimal?  @db.Decimal(10, 7)
+  geocode_source        String?   @db.VarChar(20)
+  geocode_status        String?   @default("PENDING") @db.VarChar(20)
+  geocoded_at           DateTime? @db.Timestamptz
+  geocoded_display_name String?   @db.Text
+
   // Status
   is_active         Boolean   @default(true)
   is_verified       Boolean   @default(false)

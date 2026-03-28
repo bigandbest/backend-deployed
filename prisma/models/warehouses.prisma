@@ -17,6 +17,9 @@ model warehouses {
   created_by                  Int?
   parent_warehouse_id         Int?
   hierarchy_level             Int?                          @default(0)
+  latitude                    Decimal?                      @db.Decimal(10, 7)
+  longitude                   Decimal?                      @db.Decimal(10, 7)
+  geocode_status              String?                       @default("PENDING") @db.VarChar(20)
 
   // Relations — matching backup schema exactly
   inventory                   inventory[]

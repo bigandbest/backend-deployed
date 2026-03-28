@@ -147,11 +147,8 @@ class SubOrderDAO {
     async listBySellerPincodes(sellerId, pincodes) {
         return await prisma.sub_orders.findMany({
             where: {
-                source_type: 'seller',
                 seller_id: sellerId,
-                parent_order: {
-                    delivery_pincode: { in: pincodes },
-                },
+                ...(pincodes.length > 0 ? { parent_order: { delivery_pincode: { in: pincodes } } } : {}),
             },
             include: {
                 sub_order_items: {

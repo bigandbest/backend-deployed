@@ -103,15 +103,21 @@ import riderAdminRoutes from "./routes/riderAdminRoutes.js";
 import riderPayoutRoutes from "./routes/riderPayoutRoutes.js";
 import attendanceRoutes from "./routes/attendanceRoutes.js";
 import riderOrderRoutes from "./routes/riderOrderRoutes.js";
+import riderLocationRoutes from "./routes/riderLocationRoutes.js";
+import payoutSlabRoutes from "./routes/payoutSlabRoutes.js";
+import riderPayoutViewRoutes from "./routes/riderPayoutViewRoutes.js";
+import customerAddressRoutes from "./routes/customerAddressRoutes.js";
 import platformFeeRoutes from "./routes/platformFeeRoutes.js";
 import { startAutoCheckoutCron } from "./services/autoCheckoutCron.js";
 import fulfillmentRoutes from "./routes/fulfillmentRoutes.js";
+import adminFulfillmentRoutes from "./routes/adminFulfillmentRoutes.js";
 import { startSoftReserveCron } from "./services/softReserveCron.js";
 import referralRoutes from "./routes/referralRoutes.js";
 import adminReferralRoutes from "./routes/adminReferralRoutes.js";
 import internalReferralRoutes from "./routes/internalReferralRoutes.js";
 import affiliateRoutes from "./routes/affiliateRoutes.js";
 import affiliateAdminRoutes from "./routes/affiliateAdminRoutes.js";
+import { startGeocodeRetryWorker } from "./workers/geocodeRetryWorker.js";
 
 // Configuration
 const PORT = process.env.PORT || 8000;
@@ -287,9 +293,14 @@ const createApp = () => {
   app.use("/api/admin/rider-payouts", riderPayoutRoutes);
   app.use("/api/attendance", attendanceRoutes);
   app.use("/api/rider/orders", riderOrderRoutes);
+  app.use("/api/rider/location", riderLocationRoutes);
+  app.use("/api/rider/payouts", riderPayoutViewRoutes);
+  app.use("/api/admin/payout", payoutSlabRoutes);
+  app.use("/api/customer/addresses", customerAddressRoutes);
 
   // Fulfillment routing
   app.use("/api", fulfillmentRoutes);
+  app.use("/api/admin/fulfillment", adminFulfillmentRoutes);
 
   app.use("/api/enquiries", enquiriesRoutes);
   app.use("/api/wallet", walletRoutes);
@@ -641,6 +652,9 @@ const startServer = async () => {
 
     // Start soft reserve & fulfillment cron job
     startSoftReserveCron();
+
+    // Start geocode retry worker (retries failed address→GPS jobs every hour)
+    startGeocodeRetryWorker();
   });
 
   // Graceful shutdown for workers
