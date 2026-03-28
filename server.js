@@ -7,6 +7,8 @@ import cookieParser from "cookie-parser";
 import compression from "compression";
 
 import prisma, { connectPrisma, disconnectPrisma } from "./config/prisma.js";
+import { getRedisClient, closeRedis } from "./config/redis.js";
+import { getFirebaseMessaging } from "./config/firebase.js";
 import faqTemplateRoutes from "./routes/faqTemplateRoutes.js";
 
 import {
@@ -439,6 +441,13 @@ const gracefulShutdown = async (server, signal) => {
     console.error("⚠️  Error disconnecting Prisma:", error);
   }
 
+  // Disconnect Redis
+  try {
+    await closeRedis();
+  } catch (error) {
+    console.error("⚠️  Error disconnecting Redis:", error);
+  }
+
   // Give ongoing requests time to complete
   setTimeout(() => {
     console.log("⏱️  Forcing shutdown after timeout");
@@ -592,6 +601,12 @@ const startServer = async () => {
   } else {
     console.log("⚠️ Skipping database connection (SKIP_DB=true)");
   }
+
+  // Initialize Redis (eager connect so OTP/rate-limit is ready from first request)
+  getRedisClient();
+
+  // Initialize Firebase FCM (optional — logs warning if env vars not set)
+  getFirebaseMessaging();
 
   const server = app.listen(PORT, '0.0.0.0', () => {
     const workerId = "standalone";

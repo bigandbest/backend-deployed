@@ -9,7 +9,11 @@ import AuthService from "../services/authService.js";
 import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
-import { twilioClient } from "../utils/twilio.js";
+import { sendOTP as sendOTPService, verifyOTP as verifyOTPService } from "../services/otpService.js";
+import { registerFCMToken, sendToUser } from "../services/fcmService.js";
+import { NotificationTemplates } from "../notifications/templates.js";
+import { RedisKeys, RedisTTL } from "../config/redis-keys.js";
+import { checkRateLimit } from "../utils/redisHelpers.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -205,80 +209,117 @@ export const removeUserAvatar = async (req, res) => {
   }
 };
 
-// Twilio OTP Functions
+/** Normalize phone to 91XXXXXXXXXX (no + prefix) */
+function normalizePhone(phone) {
+  let p = phone.toString().replace(/[\s\-\+]/g, '');
+  if (p.startsWith('91') && p.length === 12) return p;
+  if (p.length === 10 && /^[6-9]/.test(p)) return '91' + p;
+  return null;
+}
+
+// MessageBot OTP Functions
 export const sendOTP = async (req, res) => {
   try {
     const { phone } = req.body;
-
     if (!phone) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Phone number is required" });
+      return res.status(400).json({ success: false, message: "Phone number is required" });
     }
 
-    // Format phone number: Add +91 if not present
-    const formattedPhone = phone.toString().startsWith("+")
-      ? phone
-      : `+91${phone}`;
+    const normalized = normalizePhone(phone);
+    if (!normalized) {
+      return res.status(400).json({ success: false, message: "Invalid Indian mobile number" });
+    }
 
-    const response = await twilioClient.verify.v2
-      .services(process.env.TWILIO_VERIFY_SID)
-      .verifications.create({
-        to: formattedPhone,
-        channel: "sms",
-      });
+    // IP rate limit: 10 req/min
+    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+    const ipLimit = await checkRateLimit(RedisKeys.rateLimitIp(ip), 10, RedisTTL.RATE_LIMIT_IP);
+    if (!ipLimit.allowed) {
+      return res.status(429).json({ success: false, message: "Too many requests", retry_after: ipLimit.retryAfter });
+    }
 
-    res.json({
+    const { referenceId } = await sendOTPService(normalized);
+
+    return res.json({
       success: true,
       message: "OTP sent successfully",
-      status: response.status,
+      expires_in: parseInt(process.env.OTP_EXPIRY_SECONDS || '600'),
+      reference_id: referenceId,
     });
   } catch (err) {
-    console.error("Twilio Send OTP Error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    console.error("Send OTP Error:", err);
+    const status = err.statusCode || 500;
+    return res.status(status).json({
+      success: false,
+      message: err.message,
+      code: err.code,
+      ...(err.retryAfter ? { retry_after: err.retryAfter } : {}),
+    });
   }
 };
 
 export const verifyOTP = async (req, res) => {
   try {
-    const { phone, otp } = req.body;
+    const { phone, otp, fcm_token, device } = req.body;
 
     if (!phone || !otp) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Phone number and OTP are required" });
+      return res.status(400).json({ success: false, message: "Phone number and OTP are required" });
     }
 
-    // Format phone number: Add +91 if not present
-    const formattedPhone = phone.toString().startsWith("+")
-      ? phone
-      : `+91${phone}`;
-
-    const response = await twilioClient.verify.v2
-      .services(process.env.TWILIO_VERIFY_SID)
-      .verificationChecks.create({
-        to: formattedPhone,
-        code: otp,
-      });
-
-    // Verify OTP logic...
-    if (response.status === "approved") {
-      // User is verified, now login or signup
-      const result = await AuthService.loginOrSignupWithOTP(formattedPhone);
-
-      return res.json({
-        success: true,
-        message: "OTP verified",
-        user: result.user,
-        token: result.token,
-        refreshToken: result.refreshToken,
-      });
+    const normalized = normalizePhone(phone);
+    if (!normalized) {
+      return res.status(400).json({ success: false, message: "Invalid Indian mobile number" });
     }
 
-    res.status(400).json({ success: false, message: "Invalid OTP" });
+    const result = await verifyOTPService(normalized, otp.toString());
+
+    if (result === 'expired') {
+      return res.status(400).json({ success: false, message: "OTP expired", code: "OTP_EXPIRED" });
+    }
+    if (result === 'locked') {
+      return res.status(429).json({ success: false, message: "Too many attempts. Locked for 30 minutes.", code: "TOO_MANY_ATTEMPTS", retry_after: 1800 });
+    }
+    if (result === 'invalid') {
+      return res.status(400).json({ success: false, message: "Invalid OTP", code: "INVALID_OTP" });
+    }
+
+    // OTP valid — upsert user
+    const authResult = await AuthService.loginOrSignupWithOTP('+' + normalized);
+
+    // Register FCM token if provided
+    if (fcm_token && authResult.user?.id) {
+      await registerFCMToken(authResult.user.id, fcm_token, device || 'unknown').catch(() => {});
+      // Notify other devices about new login
+      await sendToUser(
+        authResult.user.id,
+        NotificationTemplates.NEW_LOGIN(device || 'new device')
+      ).catch(() => {});
+    }
+
+    return res.json({
+      success: true,
+      message: "OTP verified",
+      is_new_user: authResult.isNewUser ?? false,
+      user: authResult.user,
+      token: authResult.token,
+      refreshToken: authResult.refreshToken,
+    });
   } catch (err) {
-    console.error("Twilio Verify OTP Error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    console.error("Verify OTP Error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const registerFCMTokenHandler = async (req, res) => {
+  try {
+    const { token, device } = req.body;
+    if (!token) {
+      return res.status(400).json({ success: false, message: "FCM token is required" });
+    }
+    await registerFCMToken(req.user.id, token, device || 'unknown');
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("Register FCM Token Error:", err);
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 

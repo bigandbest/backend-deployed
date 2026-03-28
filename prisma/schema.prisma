@@ -411,6 +411,18 @@ model faq_templates {
 }
 
 
+// --- Model: fcm_tokens.prisma ---
+model fcm_tokens {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String   @db.Uuid
+  user       users    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token      String   @unique
+  device     String?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @updatedAt @db.Timestamptz(6)
+}
+
+
 // --- Model: fulfillment_events.prisma ---
 model fulfillment_events {
   id              Int          @id @default(autoincrement())
@@ -1782,6 +1794,7 @@ model users {
 
   // Relations — exact production schema names and aliases
   Post                                                      Post[]
+  fcm_tokens                                                fcm_tokens[]
   cart_items                                                cart_items[]
   coupon_usage                                              coupon_usage[]
   enquiries                                                 enquiries[]

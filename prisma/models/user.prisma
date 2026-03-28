@@ -41,6 +41,7 @@ model users {
 
   // Relations — exact production schema names and aliases
   Post                                                      Post[]
+  fcm_tokens                                                fcm_tokens[]
   cart_items                                                cart_items[]
   coupon_usage                                              coupon_usage[]
   enquiries                                                 enquiries[]
