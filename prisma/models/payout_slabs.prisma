@@ -1,0 +1,17 @@
+model payout_slabs {
+  id             Int       @id @default(autoincrement())
+  min_km         Decimal   @db.Decimal(5, 2)
+  max_km         Decimal?  @db.Decimal(5, 2)       // NULL = open-ended (last slab)
+  payout_amount  Decimal   @db.Decimal(10, 2)      // fixed amount in rupees
+  is_active      Boolean   @default(true)
+  effective_from DateTime  @default(now()) @db.Timestamptz
+  effective_to   DateTime? @db.Timestamptz
+  created_by     String?   @db.Uuid                // references users.id (no formal relation)
+  created_at     DateTime  @default(now()) @db.Timestamptz
+  updated_at     DateTime  @default(now()) @db.Timestamptz
+
+  rider_payouts  rider_payouts[]
+
+  @@index([is_active])
+  @@index([min_km])
+}

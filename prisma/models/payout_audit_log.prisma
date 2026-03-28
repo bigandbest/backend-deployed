@@ -1,0 +1,12 @@
+model payout_audit_log {
+  id          Int      @id @default(autoincrement())
+  changed_by  String?  @db.Uuid
+  entity_type String   @db.VarChar(50)
+  entity_id   Int
+  old_value   Json?
+  new_value   Json?
+  changed_at  DateTime @default(now()) @db.Timestamptz
+
+  @@index([entity_type, entity_id])
+  @@index([changed_at])
+}
