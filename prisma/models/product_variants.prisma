@@ -1,52 +1,40 @@
 model product_variants {
-  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  product_id          String   @db.Uuid
+  id                       String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id               String                    @db.Uuid
+  sku                      String                    @unique @db.VarChar
+  title                    String                    @db.VarChar
+  price                    Decimal                   @db.Decimal
+  old_price                Decimal?                  @db.Decimal
+  discount_percentage      Int?                      @default(0)
+  packaging_details        String?
+  photo_url                String?                   @db.VarChar
+  net_quantity             String?
+  gst_rate_override        Decimal?                  @db.Decimal
+  cess_rate_override       Decimal?                  @db.Decimal
+  features                 String?
+  is_default               Boolean?                  @default(false)
+  active                   Boolean?                  @default(true)
+  shipping_amount          Decimal?                  @default(0) @db.Decimal
+  is_bulk_enabled          Boolean?                  @default(false)
+  bulk_price               Decimal?                  @db.Decimal
+  bulk_min_quantity        Int?
+  bulk_discount_percentage Int?                      @default(0)
+  created_at               DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                  @db.Timestamptz(6)
 
-  sku                 String   @unique @db.VarChar
-  title               String   @db.VarChar // "1kg Pack", "60min Service", "Half Plate"
-  price               Decimal  @db.Decimal
-  old_price           Decimal? @db.Decimal
-  discount_percentage Int?     @default(0)
+  // Relations — matching backup schema exactly
+  cart_items               cart_items[]
+  inventory                inventory[]
+  order_items              order_items[]
+  product_media            product_media[]
+  products                 products                  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  warehouse_stock          product_warehouse_stock[]
+  seller_products          seller_products[]
+  service_bookings         service_bookings[]
+  variant_attributes       variant_attributes[]
+  sub_order_items          sub_order_items[]
 
-  // Short human-readable packaging info
-  packaging_details   String?  // e.g. "Sealed plastic pouch", "Glass bottle with outer box"
-  
-  // Variant-specific photo (Cloudinary URL)
-  photo_url           String?  @db.VarChar
-  
-  // Net quantity description  
-  net_quantity        String?  // e.g. "Net Qty: 1kg", "Contains 10 pieces"
-
-  // Optional GST override per variant
-  gst_rate_override   Decimal? @db.Decimal
-cess_rate_override   Decimal? @db.Decimal
-  features            String?
-  is_default          Boolean? @default(false)
-  active              Boolean? @default(true)
-  shipping_amount     Decimal? @default(0) @db.Decimal
-
-  // Bulk Order Settings (Per Variant)
-  is_bulk_enabled     Boolean? @default(false)
-  bulk_price          Decimal? @db.Decimal
-  bulk_min_quantity   Int?
-  bulk_discount_percentage Int? @default(0)
-
-  created_at          DateTime @default(now()) @db.Timestamptz
-  updated_at          DateTime @updatedAt @db.Timestamptz
-
-  // Relations
-  products             products          @relation(fields: [product_id], references: [id], onDelete: Cascade)
-  media               product_media[]
-  attributes          variant_attributes[]
-  inventory           inventory[]
-  cart_items          cart_items[]
-  order_items         order_items[]
-  service_bookings    service_bookings[]
-  warehouse_stock     product_warehouse_stock[]
-  seller_products     seller_products[]
-  sub_order_items     sub_order_items[]
-
+  @@index([active])
   @@index([product_id])
   @@index([sku])
-  @@index([active])
 }

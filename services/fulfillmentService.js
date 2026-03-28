@@ -35,7 +35,7 @@ const getZonalWarehousesForPincode = async (pincode) => {
                     warehouse_zones: {
                         where: { is_active: true },
                         include: {
-                            warehouse: {
+                            warehouses: {
                                 select: {
                                     id: true, name: true, type: true, location: true,
                                     is_active: true,
@@ -53,7 +53,7 @@ const getZonalWarehousesForPincode = async (pincode) => {
 
     for (const zm of zoneMappings) {
         for (const wz of zm.delivery_zones?.warehouse_zones || []) {
-            const wh = wz.warehouse;
+            const wh = wz.warehouses;
             if (wh && wh.is_active && wh.type === 'zonal' && !seen.has(wh.id)) {
                 seen.add(wh.id);
                 warehouses.push(wh);
@@ -65,26 +65,43 @@ const getZonalWarehousesForPincode = async (pincode) => {
 };
 
 /**
- * Get seller stores registered for a specific pincode
+ * Get seller stores registered for a specific pincode.
+ * Approved delivery pincodes are stored in seller_pincode_requests with status='APPROVED'.
  */
 const getSellerStoresForPincode = async (pincode, excludeSellerIds = []) => {
-    const sellerPincodes = await prisma.seller_pincodes.findMany({
+    const approvedRequests = await prisma.seller_pincode_requests.findMany({
         where: {
             pincode,
+            status: 'APPROVED',
             ...(excludeSellerIds.length > 0
                 ? { seller_id: { notIn: excludeSellerIds } }
                 : {}),
         },
         include: {
-            seller: {
-                select: { id: true, is_active: true, business_name: true },
+            sellers: {
+                select: {
+                    id: true,
+                    business_name: true,
+                    is_active: true,
+                    is_open: true,
+                    is_verified: true,
+                    verification_status: true,
+                },
             },
         },
     });
 
-    return sellerPincodes
-        .filter((sp) => sp.seller?.is_active)
-        .map((sp) => sp.seller);
+    return approvedRequests
+        .filter((r) => {
+            const s = r.sellers;
+            return (
+                s?.is_active &&
+                s?.is_open &&
+                s?.is_verified &&
+                s?.verification_status === 'VERIFIED'
+            );
+        })
+        .map((r) => r.sellers);
 };
 
 
@@ -175,7 +192,7 @@ export const checkProductAvailability = async (
                         stock_quantity: { gte: quantity },
                     },
                     include: {
-                        warehouse: {
+                        warehouses: {
                             select: { id: true, name: true, delivery_sla_minutes: true },
                         },
                     },
@@ -193,8 +210,8 @@ export const checkProductAvailability = async (
                 source_id: sellerProduct.warehouse_id,
                 seller_id: seller.id,
                 available_qty: sellerProduct.stock_quantity - (sellerProduct.reserved_quantity || 0),
-                estimated_delivery_minutes: sellerProduct.warehouse?.delivery_sla_minutes || 120,
-                warehouse_name: sellerProduct.warehouse?.name || `Seller: ${seller.business_name}`,
+                estimated_delivery_minutes: sellerProduct.warehouses?.delivery_sla_minutes || 120,
+                warehouse_name: sellerProduct.warehouses?.name || `Seller: ${seller.business_name}`,
             };
         }
     }

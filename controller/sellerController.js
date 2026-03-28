@@ -1377,23 +1377,31 @@ export const getSellerSubOrders = async (req, res) => {
     try {
         const seller = await prisma.sellers.findUnique({
             where: { user_id: req.user.id },
-            include: {
-                warehouse_sellers: {
-                    where: { is_active: true },
-                    include: {
-                        warehouses: {
-                            include: { warehouse_pincodes: { where: { is_active: true } } }
-                        }
-                    }
-                }
-            }
         });
 
         if (!seller) return res.status(404).json({ success: false, error: 'Seller profile not found' });
 
-        // Get all pincodes this seller serves
-        const sellerPincodes = seller.warehouse_sellers
-            .flatMap(ws => ws.warehouses?.warehouse_pincodes?.map(wp => wp.pincode) || []);
+        // Gate: seller must be active, verified, and documents approved
+        if (!seller.is_active) {
+            return res.status(403).json({ success: false, error: 'Your store is deactivated.' });
+        }
+        if (!seller.is_verified || seller.verification_status !== 'VERIFIED') {
+            return res.status(403).json({
+                success: false,
+                error: 'Orders are only visible after your documents are verified and store is approved.',
+            });
+        }
+
+        // Get approved delivery pincodes from seller_pincode_requests
+        const approvedPincodeRows = await prisma.seller_pincode_requests.findMany({
+            where: { seller_id: seller.id, status: 'APPROVED' },
+            select: { pincode: true },
+        });
+        const sellerPincodes = approvedPincodeRows.map(r => r.pincode);
+
+        if (sellerPincodes.length === 0) {
+            return res.status(200).json({ success: true, data: [] });
+        }
 
         const subOrders = await subOrderDao.listBySellerPincodes(seller.id, sellerPincodes);
 

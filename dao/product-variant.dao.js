@@ -9,7 +9,7 @@ class ProductVariantDAO {
         return await prisma.product_variants.findUnique({
             where: { id },
             include: {
-                product: true,
+                products: true,
                 variant_attributes: true,
                 inventory: true
             }
@@ -19,7 +19,7 @@ class ProductVariantDAO {
     async getBySku(sku) {
         return await prisma.product_variants.findUnique({
             where: { sku },
-            include: { product: true }
+            include: { products: true }
         });
     }
 
