@@ -16,18 +16,25 @@ class WalletDAO {
         });
     }
 
+    // Transaction types that deduct from the wallet balance
+    static #DEBIT_TYPES = new Set(['SPEND', 'ADMIN_DEBIT', 'DEBIT']);
+
     async updateBalance(walletId, amount, type, referenceType, referenceId, description, metadata = {}) {
         return await prisma.$transaction(async (tx) => {
             const wallet = await tx.wallets.findUnique({
                 where: { id: walletId },
-                select: { balance: true, user_id: true }
+                select: { balance: true, user_id: true, is_frozen: true }
             });
 
             if (!wallet) throw new Error('Wallet not found');
             if (wallet.is_frozen) throw new Error('Wallet is frozen');
 
             const balanceBefore = wallet.balance;
-            const balanceAfter = balanceBefore.add(amount);
+            // Debit types reduce balance; credit types increase it
+            const balanceChange = WalletDAO.#DEBIT_TYPES.has(type)
+                ? -Math.abs(parseFloat(amount))
+                : Math.abs(parseFloat(amount));
+            const balanceAfter = balanceBefore.add(balanceChange);
 
             if (balanceAfter.lt(0)) throw new Error('Insufficient wallet balance');
 

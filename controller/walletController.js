@@ -109,9 +109,6 @@ export const getUserWallet = async (req, res) => {
     });
 
     if (!wallet) {
-      // Wallet doesn't exist, create one
-      console.log(`Creating wallet for user: ${user.id}`);
-
       // First, ensure the user exists in the users table
       try {
         const existingUser = await prisma.users.findUnique({
@@ -120,7 +117,6 @@ export const getUserWallet = async (req, res) => {
         });
 
         if (!existingUser) {
-          console.log(`Creating user record in users table for: ${user.id}`);
           const userData = {
             id: user.id,
             email: user.email,
@@ -137,7 +133,6 @@ export const getUserWallet = async (req, res) => {
             update: userData,
             create: userData,
           });
-          console.log(`User record created successfully for: ${user.id}`);
         }
       } catch (userSyncError) {
         console.error("Error syncing user to users table:", userSyncError);
@@ -157,7 +152,6 @@ export const getUserWallet = async (req, res) => {
             updated_at: true,
           },
         });
-        console.log(`Wallet created successfully for user: ${user.id}`);
       } catch (createError) {
         console.error("Error creating wallet:", createError);
         return res.status(500).json({
@@ -292,8 +286,6 @@ export const createWalletTopupOrder = async (req, res) => {
     });
 
     if (!wallet) {
-      // Wallet doesn't exist, try to create it
-      console.log(`Wallet not found for topup, creating one: ${user.id}`);
       try {
         // Ensure user exists in users table first (idempotent)
         const userData = {
@@ -343,12 +335,6 @@ export const createWalletTopupOrder = async (req, res) => {
       receipt: receipt, // Format: wlt_12ab34cd_1234567890 (max 28 chars)
       payment_capture: 1,
     };
-
-    console.log("Creating Razorpay order with options:", {
-      amount: razorpayOrderOptions.amount,
-      currency: razorpayOrderOptions.currency,
-      receipt: razorpayOrderOptions.receipt,
-    });
 
     const razorpayOrder = await razorpay.orders.create(razorpayOrderOptions);
 
@@ -671,16 +657,6 @@ export const spendFromWallet = async (req, res) => {
         idempotencyKey,
       );
 
-      // Create notification
-      await createNotificationHelper(
-        user.id,
-        "Wallet Payment Successful",
-        `₹${spendAmount} debited from wallet for order #${order_id}. Remaining balance: ₹${wallet.balance}`,
-        "wallet_spend",
-        transaction.id,
-        "user",
-      );
-
       res.json({
         success: true,
         transaction,
@@ -755,16 +731,6 @@ export const processRefundToWallet = async (req, res) => {
         idempotencyKey,
       );
 
-      // Create notification
-      await createNotificationHelper(
-        user_id,
-        "Refund Credited to Wallet",
-        `₹${refundAmount} has been credited to your wallet as refund. Current balance: ₹${wallet.balance}`,
-        "wallet_refund",
-        transaction.id,
-        "user",
-      );
-
       res.json({
         success: true,
         transaction,
@@ -789,7 +755,6 @@ export const processRefundToWallet = async (req, res) => {
  */
 export const createWalletOrder = async (req, res) => {
   try {
-    console.log('Wallet Order Creation Request:', req.body);
 
     const {
       user_id,
@@ -808,7 +773,6 @@ export const createWalletOrder = async (req, res) => {
 
     // Validate required fields
     if (!user_id || !product_name || !product_total_price || !user_address) {
-      console.log('Validation Error: Missing required fields');
       return res.status(400).json({
         success: false,
         error: "Missing required fields: user_id, product_name, product_total_price, user_address"
@@ -886,8 +850,6 @@ export const createWalletOrder = async (req, res) => {
       }
     };
 
-    console.log('Inserting wallet order into orders table via Prisma:', orderCreateData);
-
     const order = await OrderDAO.create(orderCreateData);
 
     if (!order) {
@@ -896,7 +858,7 @@ export const createWalletOrder = async (req, res) => {
 
     // Deduct from wallet using execute WalletTransaction
     try {
-      const idempotencyKey = `wallet_order_${order.id}_${Date.now()}`;
+      const idempotencyKey = `wallet_order_${order.id}`;
 
       const { wallet: updatedWallet, transaction } = await executeWalletTransaction(
         user_id,
@@ -912,7 +874,6 @@ export const createWalletOrder = async (req, res) => {
         idempotencyKey
       );
 
-      console.log('Wallet Order Created Successfully:', order);
       return res.status(201).json({
         success: true,
         message: "Wallet order created successfully",
