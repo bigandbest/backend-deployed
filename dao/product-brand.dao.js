@@ -39,7 +39,7 @@ class ProductBrandDAO {
         return await prisma.product_brand.findMany({
             where: { brand_id: brandId },
             include: {
-                product: {
+                products: {
                     include: {
                         variants: {
                             include: {
