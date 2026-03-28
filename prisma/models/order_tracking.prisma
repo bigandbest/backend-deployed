@@ -7,5 +7,5 @@ model order_tracking {
   timestamp   DateTime? @default(now()) @db.Timestamp
 
   // Relations
-  order       orders?   @relation(fields: [order_id], references: [id])
+  orders      orders?   @relation(fields: [order_id], references: [id])
 }

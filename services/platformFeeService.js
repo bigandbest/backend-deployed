@@ -531,6 +531,7 @@ export async function resolveApplicablePlatformFee({
   subcategoryId = null,
   groupId = null,
 }) {
+  console.log(`Resolving platform fee for categoryId=${categoryId}, subcategoryId=${subcategoryId}, groupId=${groupId}`);
   if (groupId) {
     const [groupFee, groupedGroupFee] = await Promise.all([
       feeConfig(prisma).findUnique({
@@ -552,6 +553,7 @@ export async function resolveApplicablePlatformFee({
       }),
     ]);
     if (groupFee) {
+      console.log(`Resolved platform fee at GROUP level (ID: ${groupId}): ${groupFee.fee_percentage}%`);
       return {
         fee_percentage: Number(groupFee.fee_percentage),
         source_level: ENTITY_TYPES.GROUP,
@@ -560,6 +562,7 @@ export async function resolveApplicablePlatformFee({
       };
     }
     if (groupedGroupFee?.fee_group) {
+      console.log(`Resolved platform fee from GROUP FEE GROUP "${groupedGroupFee.fee_group.name}" (ID: ${groupId}): ${groupedGroupFee.fee_group.fee_percentage}%`);
       return {
         fee_percentage: Number(groupedGroupFee.fee_group.fee_percentage),
         source_level: ENTITY_TYPES.GROUP,
@@ -573,6 +576,7 @@ export async function resolveApplicablePlatformFee({
 
   if (subcategoryId) {
     const [subcategoryFee, groupedSubcategoryFee] = await Promise.all([
+    
       feeConfig(prisma).findUnique({
         where: {
           entity_type_entity_id: {
@@ -600,6 +604,7 @@ export async function resolveApplicablePlatformFee({
       };
     }
     if (groupedSubcategoryFee?.fee_group) {
+      console.log(`Resolved platform fee from SUBCATEGORY FEE GROUP "${groupedSubcategoryFee.fee_group.name}" (ID: ${subcategoryId}): ${groupedSubcategoryFee.fee_group.fee_percentage}%`);
       return {
         fee_percentage: Number(groupedSubcategoryFee.fee_group.fee_percentage),
         source_level: ENTITY_TYPES.SUBCATEGORY,

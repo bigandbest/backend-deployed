@@ -1,0 +1,17 @@
+model sub_order_items {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sub_order_id    String           @db.Uuid
+  product_id      String           @db.Uuid
+  variant_id      String           @db.Uuid
+  quantity        Int
+  unit_price      Decimal          @db.Decimal
+
+  // Relations
+  sub_order       sub_orders       @relation(fields: [sub_order_id], references: [id], onDelete: Cascade)
+  product         products         @relation(fields: [product_id], references: [id])
+  variant         product_variants @relation(fields: [variant_id], references: [id])
+
+  @@index([sub_order_id])
+  @@index([product_id])
+  @@index([variant_id])
+}

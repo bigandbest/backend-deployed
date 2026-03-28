@@ -1,18 +1,18 @@
 model wallets {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id       String    @unique @db.Uuid
-  balance       Decimal   @default(0.00) @db.Decimal
-  is_frozen     Boolean?  @default(false)
-  frozen_reason String?
-  frozen_by     String?   @db.Uuid
-  frozen_at     DateTime? @db.Timestamptz
-  created_at    DateTime? @default(now()) @db.Timestamptz
-  updated_at    DateTime? @default(now()) @db.Timestamptz
-  version       Int?      @default(1)
+  id                             String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                        String                @unique @db.Uuid
+  balance                        Decimal               @default(0.00) @db.Decimal
+  is_frozen                      Boolean?              @default(false)
+  frozen_reason                  String?
+  frozen_by                      String?               @db.Uuid
+  frozen_at                      DateTime?             @db.Timestamptz(6)
+  created_at                     DateTime?             @default(now()) @db.Timestamptz(6)
+  updated_at                     DateTime?             @default(now()) @db.Timestamptz(6)
+  version                        Int?                  @default(1)
 
-  // Relations
-  user          users     @relation("UserWallet", fields: [user_id], references: [id])
-  transactions  wallet_transactions[]
-  admin_frozen_by users?  @relation("WalletFreezer", fields: [frozen_by], references: [id])
-  audit_logs    wallet_audit_logs[]
+  // Relations — exact production schema names and aliases
+  wallet_audit_logs              wallet_audit_logs[]
+  wallet_transactions            wallet_transactions[]
+  users_wallets_frozen_byTousers users?                @relation("wallets_frozen_byTousers", fields: [frozen_by], references: [id])
+  users_wallets_user_idTousers   users                 @relation("wallets_user_idTousers", fields: [user_id], references: [id])
 }

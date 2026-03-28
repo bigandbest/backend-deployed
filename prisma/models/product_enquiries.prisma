@@ -19,7 +19,7 @@ model product_enquiries {
   delivery_timeline String?   @db.VarChar
 
   // Relations
-  product        products  @relation(fields: [product_id], references: [id])
-  bids           enquiry_bids[]
-  messages       enquiry_messages[]
+  enquiry_bids      enquiry_bids[]
+  enquiry_messages  enquiry_messages[]
+  products          products          @relation(fields: [product_id], references: [id])
 }

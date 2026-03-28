@@ -8,6 +8,6 @@ model scheduled_order_slots {
   updated_at     DateTime?             @default(now()) @db.Timestamptz
 
   // Relations
-  warehouse      warehouses            @relation(fields: [warehouse_id], references: [id])
-  slot           scheduling_time_slots @relation(fields: [slot_id], references: [id])
+  warehouses            warehouses            @relation(fields: [warehouse_id], references: [id])
+  scheduling_time_slots scheduling_time_slots @relation(fields: [slot_id], references: [id])
 }

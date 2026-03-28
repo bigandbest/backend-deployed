@@ -1,19 +1,20 @@
 model stock_movements {
-  id             Int       @id @default(autoincrement())
-  product_id     String    @db.Uuid
+  id             Int        @id @default(autoincrement())
+  product_id     String     @db.Uuid
   warehouse_id   Int
-  movement_type  String    @db.VarChar
+  movement_type  String     @db.VarChar
   quantity       Int
   previous_stock Int
   new_stock      Int
-  reference_type String?   @db.VarChar
+  reference_type String?    @db.VarChar
   reference_id   Int?
-  reason         String?   @db.VarChar
+  reason         String?    @db.VarChar
   performed_by   Int?
-  performed_at   DateTime? @default(now()) @db.Timestamptz
+  performed_at   DateTime?  @default(now()) @db.Timestamptz(6)
   notes          String?
-  created_at     DateTime? @default(now()) @db.Timestamptz
+  created_at     DateTime?  @default(now()) @db.Timestamptz(6)
 
-  // Relations
-  warehouse      warehouses @relation(fields: [warehouse_id], references: [id])
+  // Relations — matching production schema
+  product        products   @relation(fields: [product_id], references: [id])
+  warehouses     warehouses @relation(fields: [warehouse_id], references: [id])
 }

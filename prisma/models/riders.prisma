@@ -31,11 +31,12 @@ model riders {
   updated_at            DateTime                 @default(now()) @db.Timestamptz
 
   // Relations
-  user                  users                    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  users                 users                    @relation(fields: [user_id], references: [id], onDelete: Cascade)
   warehouse_riders      warehouse_riders[]
   rider_documents       rider_documents[]
   attendance_logs       attendance_logs[]
   rider_wage_logs       rider_wage_logs[]
+  rider_assignments     rider_assignments[]
 
   @@index([user_id])
   @@index([is_available])

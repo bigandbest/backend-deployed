@@ -7,6 +7,6 @@ model product_section_products {
   updated_at    DateTime? @default(now()) @db.Timestamptz
 
   // Relations
-  product       products         @relation(fields: [product_id], references: [id])
-  section       product_sections @relation(fields: [section_id], references: [id])
+  product              products         @relation(fields: [product_id], references: [id])
+  product_sections     product_sections @relation(fields: [section_id], references: [id])
 }

@@ -24,8 +24,8 @@ model seller_negotiations {
   updated_at            DateTime  @default(now()) @db.Timestamptz
 
   // Relations
-  seller                sellers   @relation(fields: [seller_id], references: [id], onDelete: Cascade)
-  product               products  @relation(fields: [product_id], references: [id])
+  products              products  @relation(fields: [product_id], references: [id])
+  sellers               sellers   @relation(fields: [seller_id], references: [id], onDelete: Cascade)
 
   @@index([seller_id])
   @@index([status])

@@ -11,5 +11,5 @@ model user_notifications {
   read_at      DateTime? @db.Timestamp
 
   // Relations
-  user         users?    @relation(fields: [user_id], references: [id])
+  users        users?    @relation(fields: [user_id], references: [id])
 }

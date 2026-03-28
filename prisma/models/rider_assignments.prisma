@@ -1,0 +1,21 @@
+model rider_assignments {
+  id                Int       @id @default(autoincrement())
+  rider_id          String    @db.Uuid
+  order_id          String    @db.Uuid
+  pickup_sequence   Json?     @default("[]")
+  // Array of { source_type, source_id, warehouse_name, address, picked_up: bool }
+  pickup_status     Json?     @default("{}")
+  // Tracks which stops are done, so new rider can resume mid-trip
+  status            String    @default("assigned") @db.VarChar
+  // assigned → in_progress → completed | cancelled | reassigned
+  assigned_at       DateTime  @default(now()) @db.Timestamptz
+  completed_at      DateTime? @db.Timestamptz
+
+  // Relations
+  order             orders    @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  rider             riders    @relation(fields: [rider_id], references: [id])
+
+  @@index([rider_id])
+  @@index([order_id])
+  @@index([status])
+}

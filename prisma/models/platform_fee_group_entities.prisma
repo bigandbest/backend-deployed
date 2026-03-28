@@ -1,0 +1,12 @@
+model platform_fee_group_entities {
+  id           Int                 @id @default(autoincrement())
+  fee_group_id String              @db.Uuid
+  entity_type  String              @db.VarChar
+  entity_id    String              @db.Uuid
+  created_at   DateTime?           @default(now()) @db.Timestamptz(6)
+  fee_group    platform_fee_groups @relation(fields: [fee_group_id], references: [id], onDelete: Cascade)
+
+  @@unique([fee_group_id, entity_id])
+  @@unique([entity_type, entity_id])
+  @@index([entity_type, entity_id])
+}

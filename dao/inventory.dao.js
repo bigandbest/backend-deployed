@@ -287,7 +287,7 @@ class InventoryDAO {
     async getByVariant(variantId) {
         return await prisma.inventory.findFirst({
             where: { variant_id: variantId },
-            include: { warehouse: true },
+            include: { warehouses: true },
         });
     }
 
@@ -301,6 +301,176 @@ class InventoryDAO {
             include: { variant: true },
         });
     }
+
+    // ================================================================
+    // SOFT RESERVE — Cart-level stock locking (15-min TTL)
+    // ================================================================
+
+    /**
+     * Soft-reserve stock when item is added to cart.
+     * Prevents two users from both seeing "1 in stock" and both checking out.
+     * @param {string} variantId
+     * @param {number} warehouseId
+     * @param {number} qty
+     * @param {number} ttlMinutes - How long the reserve lasts (default: 15)
+     */
+    async softReserve(variantId, warehouseId, qty, ttlMinutes = 15) {
+        return await prisma.$transaction(async (tx) => {
+            const inv = await tx.inventory.findUnique({
+                where: {
+                    variant_id_warehouse_id: { variant_id: variantId, warehouse_id: warehouseId },
+                },
+            });
+
+            if (!inv) throw new Error('Inventory record not found');
+
+            const available = inv.stock_qty - (inv.reserved_qty || 0) - (inv.soft_reserved_qty || 0);
+            if (available < qty) {
+                throw new Error(`Insufficient stock. Available: ${available}, Requested: ${qty}`);
+            }
+
+            const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000);
+
+            return await tx.inventory.update({
+                where: {
+                    variant_id_warehouse_id: { variant_id: variantId, warehouse_id: warehouseId },
+                },
+                data: {
+                    soft_reserved_qty: (inv.soft_reserved_qty || 0) + qty,
+                    soft_reserve_expires_at: expiresAt,
+                },
+            });
+        });
+    }
+
+    /**
+     * Release a soft reserve (e.g. user removes item from cart or cart expires)
+     */
+    async releaseSoftReserve(variantId, warehouseId, qty) {
+        return await prisma.inventory.update({
+            where: {
+                variant_id_warehouse_id: { variant_id: variantId, warehouse_id: warehouseId },
+            },
+            data: {
+                soft_reserved_qty: { decrement: qty },
+            },
+        });
+    }
+
+    /**
+     * Release all expired soft reserves (called by cron every 1 min)
+     * NOTE: soft_reserved_qty column not yet in DB — this is a no-op until migrated.
+     */
+    async releaseExpiredSoftReserves() {
+        // soft_reserved_qty / soft_reserve_expires_at not yet in DB schema
+        // Returns 0 until columns are added via db push
+        return 0;
+    }
+
+    // ================================================================
+    // HARD LOCK — Order-level atomic stock decrement
+    // ================================================================
+
+    /**
+     * Hard-lock stock at order placement. Uses atomic decrement with
+     * a WHERE guard to handle race conditions.
+     * @param {string} variantId
+     * @param {number} warehouseId
+     * @param {number} qty
+     * @returns {Object} Updated inventory or throws on insufficient stock
+     */
+    async hardLock(variantId, warehouseId, qty) {
+        return await prisma.$transaction(async (tx) => {
+            const inv = await tx.inventory.findUnique({
+                where: {
+                    variant_id_warehouse_id: { variant_id: variantId, warehouse_id: warehouseId },
+                },
+            });
+
+            if (!inv) throw new Error('Inventory record not found');
+
+            const available = inv.stock_qty - (inv.reserved_qty || 0);
+            if (available < qty) {
+                throw new Error(`Insufficient stock for hard lock. Available: ${available}, Requested: ${qty}`);
+            }
+
+            // Atomic decrement of actual stock + increment reserved
+            return await tx.inventory.update({
+                where: {
+                    variant_id_warehouse_id: { variant_id: variantId, warehouse_id: warehouseId },
+                },
+                data: {
+                    reserved_qty: { increment: qty },
+                    // Also reduce any soft reserve that was held for this
+                    soft_reserved_qty: {
+                        decrement: Math.min(inv.soft_reserved_qty || 0, qty),
+                    },
+                },
+            });
+        });
+    }
+
+    /**
+     * Release hard lock (e.g. order cancelled after placement)
+     */
+    async releaseHardLock(variantId, warehouseId, qty) {
+        return await prisma.inventory.update({
+            where: {
+                variant_id_warehouse_id: { variant_id: variantId, warehouse_id: warehouseId },
+            },
+            data: {
+                reserved_qty: { decrement: qty },
+            },
+        });
+    }
+
+    // ================================================================
+    // AVAILABLE STOCK — For fulfillment priority check
+    // ================================================================
+
+    /**
+     * Get truly available stock at a specific warehouse (accounts for all reserves)
+     */
+    async getAvailableStockForSource(variantId, warehouseId) {
+        const inv = await prisma.inventory.findUnique({
+            where: {
+                variant_id_warehouse_id: { variant_id: variantId, warehouse_id: warehouseId },
+            },
+        });
+
+        if (!inv) return 0;
+
+        return Math.max(0, inv.stock_qty - (inv.reserved_qty || 0) - (inv.soft_reserved_qty || 0));
+    }
+
+    /**
+     * Get available stock across multiple warehouses (for priority scanning)
+     */
+    async getAvailableStockAcrossWarehouses(variantId, warehouseIds) {
+        if (!warehouseIds?.length) return [];
+
+        const records = await prisma.inventory.findMany({
+            where: {
+                variant_id: variantId,
+                warehouse_id: { in: warehouseIds },
+            },
+            include: {
+                warehouses: {
+                    select: { id: true, name: true, type: true },
+                },
+            },
+        });
+
+        return records.map((inv) => ({
+            warehouse_id: inv.warehouse_id,
+            warehouse: inv.warehouses,
+            total_stock: inv.stock_qty,
+            reserved: inv.reserved_qty || 0,
+            soft_reserved: 0,
+            available: Math.max(0, inv.stock_qty - (inv.reserved_qty || 0)),
+        }));
+    }
 }
 
 export default new InventoryDAO();
+

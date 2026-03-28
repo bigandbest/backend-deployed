@@ -1,0 +1,13 @@
+model platform_fee_groups {
+  id             String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String                        @db.VarChar
+  entity_type    String                        @db.VarChar
+  fee_percentage Decimal                       @db.Decimal(5, 2)
+  is_active      Boolean?                      @default(true)
+  created_by     String?                       @db.Uuid
+  created_at     DateTime?                     @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime?                     @default(now()) @db.Timestamptz(6)
+  entities       platform_fee_group_entities[]
+
+  @@index([entity_type])
+}

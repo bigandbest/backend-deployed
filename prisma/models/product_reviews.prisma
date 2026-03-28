@@ -12,5 +12,5 @@ model product_reviews {
   updated_at           DateTime? @default(now()) @db.Timestamptz
 
   // Relations
-  product              products  @relation(fields: [product_id], references: [id])
+  products             products  @relation(fields: [product_id], references: [id])
 }

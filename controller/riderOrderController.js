@@ -575,3 +575,178 @@ export const getOrderDetails = async (req, res) => {
         res.status(500).json({ success: false, error: 'Failed to fetch order details' });
     }
 };
+
+// ================================================================
+// SUB-ORDER FULFILLMENT ENDPOINTS (Rider)
+// ================================================================
+
+import subOrderDao from '../dao/sub-order.dao.js';
+import riderAssignmentDao from '../dao/rider-assignment.dao.js';
+import fulfillmentEventDao from '../dao/fulfillment-event.dao.js';
+
+/**
+ * Get rider's sub-orders (active ones assigned to this rider)
+ * GET /api/rider/orders/sub-orders
+ */
+export const getMySubOrders = async (req, res) => {
+    try {
+        const rider = await prisma.riders.findUnique({ where: { user_id: req.user.id } });
+        if (!rider) return res.status(404).json({ success: false, error: 'Rider profile not found' });
+
+        const subOrders = await subOrderDao.listByRiderId(rider.id);
+
+        res.status(200).json({
+            success: true,
+            data: subOrders.map(so => ({
+                id: so.id,
+                parent_order_id: so.parent_order_id,
+                source_type: so.source_type,
+                fulfillment_status: so.fulfillment_status,
+                warehouse: so.warehouse,
+                customer: {
+                    address: so.parent_order?.address,
+                    pincode: so.parent_order?.delivery_pincode,
+                    name: so.parent_order?.receiver_name,
+                    phone: so.parent_order?.mobile,
+                },
+                items: so.sub_order_items?.map(item => ({
+                    product_name: item.product?.name,
+                    variant_name: item.variant?.title,
+                    quantity: item.quantity,
+                })),
+            })),
+        });
+    } catch (error) {
+        console.error('getMySubOrders error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Mark pickup complete for a sub-order
+ * POST /api/rider/orders/:sub_order_id/pickup-complete
+ */
+export const markPickupComplete = async (req, res) => {
+    try {
+        const { sub_order_id } = req.params;
+
+        const rider = await prisma.riders.findUnique({ where: { user_id: req.user.id } });
+        if (!rider) return res.status(404).json({ success: false, error: 'Rider profile not found' });
+
+        const subOrder = await subOrderDao.getById(sub_order_id);
+        if (!subOrder) return res.status(404).json({ success: false, error: 'Sub-order not found' });
+
+        if (subOrder.rider_id !== rider.id) {
+            return res.status(403).json({ success: false, error: 'This sub-order is not assigned to you' });
+        }
+
+        if (!['confirmed', 'rider_pending'].includes(subOrder.fulfillment_status)) {
+            return res.status(400).json({
+                success: false,
+                error: `Cannot mark pickup for sub-order in ${subOrder.fulfillment_status} status`,
+            });
+        }
+
+        // Update sub-order status
+        await subOrderDao.updateStatus(sub_order_id, 'picked');
+
+        // Log event
+        await fulfillmentEventDao.log(sub_order_id, 'picked', {
+            rider_id: rider.id,
+            picked_at: new Date().toISOString(),
+        });
+
+        // Update rider assignment stop if exists
+        const assignment = await riderAssignmentDao.getActiveByOrderId(subOrder.parent_order_id);
+        if (assignment) {
+            const sequence = assignment.pickup_sequence || [];
+            const stopIndex = sequence.findIndex(s => s.sub_order_id === sub_order_id);
+            if (stopIndex >= 0) {
+                await riderAssignmentDao.markPickupDone(assignment.id, stopIndex);
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'Pickup marked complete',
+            data: { sub_order_id, status: 'picked' },
+        });
+    } catch (error) {
+        console.error('markPickupComplete error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Mark sub-order as delivered
+ * POST /api/rider/orders/:sub_order_id/delivered
+ */
+export const markSubOrderDelivered = async (req, res) => {
+    try {
+        const { sub_order_id } = req.params;
+
+        const rider = await prisma.riders.findUnique({ where: { user_id: req.user.id } });
+        if (!rider) return res.status(404).json({ success: false, error: 'Rider profile not found' });
+
+        const subOrder = await subOrderDao.getById(sub_order_id);
+        if (!subOrder) return res.status(404).json({ success: false, error: 'Sub-order not found' });
+
+        if (subOrder.rider_id !== rider.id) {
+            return res.status(403).json({ success: false, error: 'This sub-order is not assigned to you' });
+        }
+
+        if (!['picked', 'in_transit'].includes(subOrder.fulfillment_status)) {
+            return res.status(400).json({
+                success: false,
+                error: `Cannot deliver sub-order in ${subOrder.fulfillment_status} status`,
+            });
+        }
+
+        // Mark delivered
+        await subOrderDao.updateStatus(sub_order_id, 'delivered');
+
+        await fulfillmentEventDao.log(sub_order_id, 'delivered', {
+            rider_id: rider.id,
+            delivered_at: new Date().toISOString(),
+        });
+
+        // Check if all sub-orders for this order are delivered
+        const allSubOrders = await subOrderDao.listByOrderId(subOrder.parent_order_id);
+        const allDelivered = allSubOrders.every(
+            so => so.fulfillment_status === 'delivered' || so.fulfillment_status === 'cancelled'
+        );
+
+        if (allDelivered) {
+            // Update master order status
+            await prisma.orders.update({
+                where: { id: subOrder.parent_order_id },
+                data: { status: 'Delivered', updated_at: new Date() },
+            });
+
+            // Complete rider assignment
+            const assignment = await riderAssignmentDao.getActiveByOrderId(subOrder.parent_order_id);
+            if (assignment) {
+                await riderAssignmentDao.updateStatus(assignment.id, 'completed');
+            }
+
+            // Free up the rider
+            await prisma.riders.update({
+                where: { id: rider.id },
+                data: { is_available: true },
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: allDelivered ? 'All items delivered. Order complete!' : 'Sub-order delivered.',
+            data: {
+                sub_order_id,
+                status: 'delivered',
+                all_delivered: allDelivered,
+            },
+        });
+    } catch (error) {
+        console.error('markSubOrderDelivered error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};

@@ -25,7 +25,11 @@ import {
     getSellerDashboard,
     getSellerEarnings,
     requestWalletWithdrawal,
-    toggleStoreStatus
+    toggleStoreStatus,
+    // Sub-order fulfillment
+    getSellerSubOrders,
+    acceptSubOrder,
+    rejectSubOrder,
 } from '../controller/sellerController.js';
 
 const router = express.Router();
@@ -65,12 +69,18 @@ router.get('/warehouses/division', authenticateToken, requireSeller, getDivision
 router.get('/warehouses/:warehouseId/pincodes', authenticateToken, requireSeller, getWarehousePincodes);
 router.post('/warehouse-allocation', authenticateToken, requireSeller, allocateWarehouse);
 
-// Order management
+// Order management (legacy)
 router.get('/orders', authenticateToken, requireSeller, getSellerOrders);
 router.get('/orders/:id', authenticateToken, requireSeller, getOrderDetails);
 router.put('/orders/:orderId/status', authenticateToken, requireSeller, updateSellerOrderStatus);
+
+// Sub-order fulfillment management (new)
+router.get('/sub-orders', authenticateToken, requireSeller, getSellerSubOrders);
+router.post('/sub-orders/:sub_order_id/accept', authenticateToken, requireSeller, acceptSubOrder);
+router.post('/sub-orders/:sub_order_id/reject', authenticateToken, requireSeller, rejectSubOrder);
 
 // Wallet management
 router.post('/wallet/withdraw', authenticateToken, requireSeller, requestWalletWithdrawal);
 
 export default router;
+

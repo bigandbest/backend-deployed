@@ -1,0 +1,18 @@
+model fulfillment_events {
+  id              Int          @id @default(autoincrement())
+  sub_order_id    String       @db.Uuid
+  event_type      String       @db.VarChar
+  // e.g. "created", "confirmed", "picked", "in_transit", "delivered",
+  // "dispatched_to_zonal", "rider_assigned", "rider_reassigned",
+  // "seller_rejected", "rerouted", "stock_mismatch", "cancelled",
+  // "return_to_source", "delivery_failed", "sla_at_risk"
+  payload         Json?        @default("{}")
+  created_at      DateTime     @default(now()) @db.Timestamptz
+
+  // Relations
+  sub_order       sub_orders   @relation(fields: [sub_order_id], references: [id], onDelete: Cascade)
+
+  @@index([sub_order_id])
+  @@index([event_type])
+  @@index([created_at])
+}

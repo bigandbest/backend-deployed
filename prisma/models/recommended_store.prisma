@@ -7,7 +7,7 @@ model recommended_store {
   banner_id   String?  @db.Uuid
 
   // Relations
-  banner      banners?                       @relation(fields: [banner_id], references: [id])
-  products    product_recommended_store[]
-  store_section_mappings store_section_mappings[]
+  product_recommended_store product_recommended_store[]
+  banner                     banners?                     @relation(fields: [banner_id], references: [id])
+  store_section_mappings     store_section_mappings[]
 }

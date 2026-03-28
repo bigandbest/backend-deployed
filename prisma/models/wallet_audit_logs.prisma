@@ -1,14 +1,14 @@
 model wallet_audit_logs {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  wallet_id     String    @db.Uuid
-  admin_id      String    @db.Uuid
-  action        String    @db.VarChar
-  old_data      Json?
-  new_data      Json?
-  description   String?
-  created_at    DateTime? @default(now()) @db.Timestamptz
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  wallet_id   String    @db.Uuid
+  admin_id    String    @db.Uuid
+  action      String    @db.VarChar
+  old_data    Json?
+  new_data    Json?
+  description String?
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
 
-  // Relations
-  wallet        wallets   @relation(fields: [wallet_id], references: [id])
-  admin         users     @relation("AdminAuditLogs", fields: [admin_id], references: [id])
+  // Relations — matching production (no alias for users relation)
+  users       users     @relation(fields: [admin_id], references: [id])
+  wallets     wallets   @relation(fields: [wallet_id], references: [id])
 }

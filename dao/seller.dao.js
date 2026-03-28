@@ -90,6 +90,8 @@ class SellerDAO {
                         subcategory_id: true,
                         group_id: true,
                         category: { select: { id: true, name: true } },
+                        subcategory: { select: { id: true, name: true } },
+                        group: { select: { id: true, name: true } },
                         media: { take: 1 }
                     }
                 },
@@ -115,8 +117,6 @@ class SellerDAO {
     async upsertSellerProduct(data) {
         const { seller_id, product_id, variant_id, warehouse_id, stock_quantity, seller_offer_price, mrp } = data;
 
-        // Use findFirst + create/update because Prisma upsert can't handle null
-        // in compound unique keys (variant_id is nullable UUID)
         const where = {
             seller_id,
             product_id,
@@ -140,8 +140,6 @@ class SellerDAO {
             const requestedMrp = mrp ? parseFloat(mrp) : null;
             const nextMrp = isPriceLocked ? currentMrp : requestedMrp;
 
-            // Stock changes should NOT require admin re-approval.
-            // Only price changes should move back to pending.
             const stockChanged = nextStock !== existing.stock_quantity;
             const priceChanged = !isPriceLocked && nextOfferPrice !== currentOfferPrice;
             const requiresReapproval = priceChanged;
@@ -157,8 +155,6 @@ class SellerDAO {
                 }
             });
 
-            // If it was already approved and we just changed it to pending, 
-            // we should return the stock to the admin (Zonal Warehouse) and recalculate
             if (requiresReapproval && existing.status === 'APPROVED') {
                 const sellerProduct = await prisma.seller_products.findUnique({
                     where: { id: existing.id },
@@ -178,10 +174,7 @@ class SellerDAO {
                 }
 
                 await this.recalculateSellerStock(warehouse_id, variant_id);
-            }
-            // For approved items, stock-only changes should remain approved and
-            // immediately refresh inventory availability.
-            else if (stockChanged && existing.status === 'APPROVED') {
+            } else if (stockChanged && existing.status === 'APPROVED') {
                 await this.recalculateSellerStock(warehouse_id, variant_id);
             }
 
@@ -321,7 +314,6 @@ class SellerDAO {
      * Get seller orders
      */
     async getSellerOrders(sellerId, filters = {}) {
-        // Get product IDs this seller supplies
         const sellerProducts = await prisma.seller_products.findMany({
             where: { seller_id: sellerId, status: 'APPROVED' },
             select: { product_id: true, variant_id: true }
@@ -363,8 +355,26 @@ class SellerDAO {
                     include: {
                         product_variants: {
                             select: {
-                                id: true, title: true, price: true,
-                                products: { select: { id: true, name: true } }
+                                id: true, 
+                                title: true, 
+                                price: true,
+                                products: { 
+                                    select: { 
+                                        id: true, 
+                                        name: true 
+                                    },
+                                    include: {
+                                        category: { 
+                                            select: { id: true } 
+                                        },
+                                        subcategory: { 
+                                            select: { id: true } 
+                                        },
+                                        group: { 
+                                            select: { id: true } 
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -401,7 +411,6 @@ class SellerDAO {
         let allPincodes = [];
         let idCounter = 1;
 
-        // 1. Add currently approved pincode from seller record (legacy/direct field)
         if (sellerRecord && sellerRecord.pincode) {
             const activePins = sellerRecord.pincode.split(',').map(p => p.trim()).filter(Boolean);
             activePins.forEach(pin => {
@@ -409,10 +418,8 @@ class SellerDAO {
             });
         }
 
-        // 2. Add requests from the new requests table (including non-pending if not already in list)
         if (pincodeRequests && pincodeRequests.length > 0) {
             pincodeRequests.forEach(req => {
-                // Check if this pincode is already in allPincodes (as approved)
                 const exists = allPincodes.some(p => p.pincode === req.pincode);
                 if (!exists) {
                     allPincodes.push({
@@ -435,18 +442,15 @@ class SellerDAO {
         };
     }
 
-
     /**
      * Get seller earnings
      */
     async getEarnings(sellerId, period = 'month') {
-        // Get seller's product IDs
         const sellerProducts = await prisma.seller_products.findMany({
             where: { seller_id: sellerId },
             select: { product_id: true, seller_offer_price: true }
         });
 
-        // Simple earnings calculation - in production would use order_items with seller tracking
         const totalOfferValue = sellerProducts.reduce((sum, sp) => {
             return sum + parseFloat(sp.seller_offer_price || 0);
         }, 0);
@@ -462,7 +466,6 @@ class SellerDAO {
      * Update seller stock in inventory (recalculate seller_stock)
      */
     async recalculateSellerStock(warehouseId, variantId) {
-        // seller_products are read directly by calcVariantStock — no need to write to inventory
         return 0;
     }
 
@@ -499,7 +502,7 @@ class SellerDAO {
         if (result && result.sellers) {
             return {
                 ...result.sellers,
-                name: result.sellers.business_name, // Map back for consistency if needed
+                name: result.sellers.business_name,
                 stock_quantity: result.stock_quantity
             };
         }

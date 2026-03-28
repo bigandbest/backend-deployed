@@ -1,24 +1,24 @@
 model wallet_transactions {
-  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  wallet_id           String    @db.Uuid
-  user_id             String    @db.Uuid
-  transaction_type    String    @db.VarChar
-  amount              Decimal   @db.Decimal
-  balance_before      Decimal   @db.Decimal
-  balance_after       Decimal   @db.Decimal
-  reference_type      String?   @db.VarChar
-  reference_id        String?   @db.Uuid
-  razorpay_order_id   String?   @db.VarChar
-  razorpay_payment_id String?   @db.VarChar
-  description         String?
-  metadata            Json?     @default("{}")
-  status              String?   @default("COMPLETED") @db.VarChar
-  idempotency_key     String?   @unique @db.VarChar
-  created_by          String?   @db.Uuid
-  created_at          DateTime? @default(now()) @db.Timestamptz
+  id                                          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  wallet_id                                   String    @db.Uuid
+  user_id                                     String    @db.Uuid
+  transaction_type                            String    @db.VarChar
+  amount                                      Decimal   @db.Decimal
+  balance_before                              Decimal   @db.Decimal
+  balance_after                               Decimal   @db.Decimal
+  reference_type                              String?   @db.VarChar
+  reference_id                                String?   @db.Uuid
+  razorpay_order_id                           String?   @db.VarChar
+  razorpay_payment_id                         String?   @db.VarChar
+  description                                 String?
+  metadata                                    Json?     @default("{}")
+  status                                      String?   @default("COMPLETED") @db.VarChar
+  idempotency_key                             String?   @unique @db.VarChar
+  created_by                                  String?   @db.Uuid
+  created_at                                  DateTime? @default(now()) @db.Timestamptz(6)
 
-  // Relations
-  wallet              wallets   @relation(fields: [wallet_id], references: [id])
-  user                users     @relation("UserTransactions", fields: [user_id], references: [id])
-  creator             users?    @relation("TransactionCreator", fields: [created_by], references: [id])
+  // Relations — exact production schema names and aliases
+  users_wallet_transactions_created_byTousers users?    @relation("wallet_transactions_created_byTousers", fields: [created_by], references: [id])
+  users_wallet_transactions_user_idTousers    users     @relation("wallet_transactions_user_idTousers", fields: [user_id], references: [id])
+  wallets                                     wallets   @relation(fields: [wallet_id], references: [id])
 }

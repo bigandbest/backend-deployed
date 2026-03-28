@@ -13,6 +13,6 @@ model order_execution_logs {
   metadata               Json?             @default("{}")
 
   // Relations
-  scheduled_order        scheduled_orders  @relation(fields: [scheduled_order_id], references: [id])
+  scheduled_orders       scheduled_orders     @relation(fields: [scheduled_order_id], references: [id])
   payment_retry_logs     payment_retry_logs[]
 }

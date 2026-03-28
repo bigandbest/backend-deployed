@@ -8,6 +8,6 @@ model section_subcategory_mappings {
   updated_at     DateTime?        @default(now()) @db.Timestamptz
 
   // Relations
-  section        product_sections @relation(fields: [section_id], references: [id])
-  subcategory    subcategories    @relation(fields: [subcategory_id], references: [id])
+  product_sections product_sections @relation(fields: [section_id], references: [id])
+  subcategory      subcategories    @relation(fields: [subcategory_id], references: [id])
 }

@@ -16,8 +16,7 @@ model coupon_usage {
   updated_at       DateTime? @default(now()) @db.Timestamptz
 
   // Relations
-  coupon           coupons   @relation(fields: [coupon_id], references: [id])
-  user             users     @relation(fields: [user_id], references: [id])
-  // order relation defined in orders via back-relation or here if order exists
-  order            orders    @relation(fields: [order_id], references: [id])
+  coupons          coupons   @relation(fields: [coupon_id], references: [id])
+  orders           orders    @relation(fields: [order_id], references: [id])
+  users            users     @relation(fields: [user_id], references: [id])
 }

@@ -11,5 +11,5 @@ model enquiry_messages {
   attachment_type String?           @db.VarChar
 
   // Relations
-  enquiry         product_enquiries @relation(fields: [enquiry_id], references: [id])
+  product_enquiries product_enquiries @relation(fields: [enquiry_id], references: [id])
 }
