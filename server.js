@@ -1,4 +1,4 @@
-// import "./config/loadEnv.js";
+// import "./config/loadEnv.js"; // nodemon restart trigger
 import cluster from "cluster";
 import os from "os";
 import express from "express";
@@ -110,6 +110,8 @@ import { startSoftReserveCron } from "./services/softReserveCron.js";
 import referralRoutes from "./routes/referralRoutes.js";
 import adminReferralRoutes from "./routes/adminReferralRoutes.js";
 import internalReferralRoutes from "./routes/internalReferralRoutes.js";
+import affiliateRoutes from "./routes/affiliateRoutes.js";
+import affiliateAdminRoutes from "./routes/affiliateAdminRoutes.js";
 
 // Configuration
 const PORT = process.env.PORT || 8000;
@@ -295,6 +297,8 @@ const createApp = () => {
   app.use("/api/referral", referralRoutes);
   app.use("/api/admin/referral", adminReferralRoutes);
   app.use("/api/internal/referral", internalReferralRoutes);
+  app.use("/api/affiliate", affiliateRoutes);
+  app.use("/api/admin/affiliate", affiliateAdminRoutes);
   app.use("/api/user/addresses", userAddressRoutes);
   app.use("/api/reviews", reviewRoutes);
   app.use("/api/customer-testimonials", customerTestimonialRoutes);
