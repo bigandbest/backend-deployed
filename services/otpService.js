@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { sendOTPViaSMS } from '../utils/messageBotProvider.js';
+import { sendOTPViaSMS } from '../utils/smsProvider.js';
 import {
   storeOTP, getOTP, incrementOTPAttempts, deleteOTP,
   lockAccount, getAccountLockTTL, checkRateLimit,
