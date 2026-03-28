@@ -355,24 +355,19 @@ class SellerDAO {
                     include: {
                         product_variants: {
                             select: {
-                                id: true, 
-                                title: true, 
+                                id: true,
+                                title: true,
                                 price: true,
-                                products: { 
-                                    select: { 
-                                        id: true, 
-                                        name: true 
-                                    },
-                                    include: {
-                                        category: { 
-                                            select: { id: true } 
-                                        },
-                                        subcategory: { 
-                                            select: { id: true } 
-                                        },
-                                        group: { 
-                                            select: { id: true } 
-                                        }
+                                products: {
+                                    select: {
+                                        id: true,
+                                        name: true,
+                                        category_id: true,
+                                        subcategory_id: true,
+                                        group_id: true,
+                                        category: { select: { id: true } },
+                                        subcategory: { select: { id: true } },
+                                        group: { select: { id: true } }
                                     }
                                 }
                             }
