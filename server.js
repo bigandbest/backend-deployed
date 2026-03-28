@@ -107,6 +107,9 @@ import platformFeeRoutes from "./routes/platformFeeRoutes.js";
 import { startAutoCheckoutCron } from "./services/autoCheckoutCron.js";
 import fulfillmentRoutes from "./routes/fulfillmentRoutes.js";
 import { startSoftReserveCron } from "./services/softReserveCron.js";
+import referralRoutes from "./routes/referralRoutes.js";
+import adminReferralRoutes from "./routes/adminReferralRoutes.js";
+import internalReferralRoutes from "./routes/internalReferralRoutes.js";
 
 // Configuration
 const PORT = process.env.PORT || 8000;
@@ -289,6 +292,9 @@ const createApp = () => {
   app.use("/api/enquiries", enquiriesRoutes);
   app.use("/api/wallet", walletRoutes);
   app.use("/api/admin/wallets", adminWalletRoutes);
+  app.use("/api/referral", referralRoutes);
+  app.use("/api/admin/referral", adminReferralRoutes);
+  app.use("/api/internal/referral", internalReferralRoutes);
   app.use("/api/user/addresses", userAddressRoutes);
   app.use("/api/reviews", reviewRoutes);
   app.use("/api/customer-testimonials", customerTestimonialRoutes);
