@@ -47,6 +47,8 @@ model users {
   orders                                                    orders[]
   return_orders_return_orders_admin_idTousers               return_orders[]         @relation("return_orders_admin_idTousers")
   return_orders_return_orders_user_idTousers                return_orders[]         @relation("return_orders_user_idTousers")
+  refund_requests_refund_requests_user_idTousers            refund_requests[]       @relation("refund_requests_user_idTousers")
+  refund_requests_refund_requests_processed_byTousers       refund_requests[]       @relation("refund_requests_processed_byTousers")
   riders                                                    riders?
   sellers                                                   sellers?
   service_bookings                                          service_bookings[]
