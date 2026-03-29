@@ -18,6 +18,7 @@ import chargeSettingDao from "../dao/charge-setting.dao.js";
 import prisma from "../config/prisma.js";
 import subOrderDao from "../dao/sub-order.dao.js";
 import { routeSubOrders } from "../services/fulfillmentRouter.js";
+import { geocodeAddress, buildAddressString } from '../utils/geocode.js';
 import walletDao from "../dao/wallet.dao.js";
 import { findWarehouseForProduct, findWarehouseForProducts } from "../services/warehouseService.js";
 import cache from "../utils/cache.js";
@@ -523,6 +524,30 @@ export const placeOrder = async (req, res) => {
       console.error('Sub-order creation error:', subOrderErr.message, subOrderErr.stack);
     }
     // ─────────────────────────────────────────────────────────────────────────
+
+    // Geocode delivery address in background (non-blocking)
+    setImmediate(async () => {
+      try {
+        const addressString = buildAddressString({
+          addressLine1: address,
+          city: '',
+          state: '',
+          pincode: deliverabilityValidation.pincode,
+        });
+        const geo = await geocodeAddress(addressString);
+        if (geo?.latitude && geo?.longitude) {
+          await prisma.orders.update({
+            where: { id: order.id },
+            data: {
+              delivery_latitude: geo.latitude,
+              delivery_longitude: geo.longitude,
+            },
+          });
+        }
+      } catch (geoErr) {
+        console.error('[orderController] geocode failed for order', order.id, geoErr.message);
+      }
+    });
 
     return res.json({
       success: true,
