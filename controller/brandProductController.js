@@ -3,6 +3,7 @@ import ProductBrandDAO from "../dao/product-brand.dao.js";
 import BrandDAO from "../dao/brand.dao.js";
 import ProductDAO from "../dao/product.dao.js";
 import prisma from "../config/prisma.js";
+import cartAvailabilityDAO from "../dao/cart-availability.dao.js";
 
 // 1️⃣ Map a single product to a Brand using IDs
 export const mapProductToBrand = async (req, res) => {
@@ -95,6 +96,28 @@ export const getProductsForBrand = async (req, res) => {
         products: mappedProduct
       };
     }).filter(item => item !== null);
+
+    // Enrich with availability
+    const pincode = req.headers['x-user-pincode'];
+    if (pincode && /^\d{6}$/.test(pincode)) {
+      try {
+        const items = formattedData.filter(d => d.products?.id).map(d => ({
+          product_id: d.products.id,
+          variant_id: d.products.variants?.[0]?.id || null,
+          quantity: 1,
+        }));
+        if (items.length > 0) {
+          const availability = await cartAvailabilityDAO.checkBulkAvailability(items, pincode);
+          formattedData.forEach(d => {
+            if (d.products?.id) {
+              d.products.availability = availability[d.products.id] ?? { available: true };
+            }
+          });
+        }
+      } catch (err2) {
+        console.warn('[Availability] Brand enrichment failed:', err2.message);
+      }
+    }
 
     res.status(200).json(formattedData);
   } catch (err) {

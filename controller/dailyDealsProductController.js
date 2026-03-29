@@ -1,6 +1,7 @@
 import dailyDealsProductDao from "../dao/daily-deals-product.dao.js";
 import dailyDealsDao from "../dao/daily-deals.dao.js";
 import productDao from "../dao/product.dao.js";
+import cartAvailabilityDAO from "../dao/cart-availability.dao.js";
 
 // Map a single product to a Daily Deal
 export const mapProductToDailyDeal = async (req, res) => {
@@ -79,7 +80,7 @@ export const getProductsForDailyDeal = async (req, res) => {
     );
 
     // Transform/Format for frontend (UnifiedProductCard expectations)
-    const formattedProducts = enrichedProducts.map((p) => {
+    let formattedProducts = enrichedProducts.map((p) => {
       const defaultVariant =
         p.variants?.find((v) => v.is_default) || p.variants?.[0] || {};
 
@@ -101,6 +102,27 @@ export const getProductsForDailyDeal = async (req, res) => {
         category: p.category?.name || p.category_id,
       };
     });
+
+    // Enrich with availability
+    const pincode = req.headers['x-user-pincode'];
+    if (pincode && /^\d{6}$/.test(pincode) && formattedProducts.length > 0) {
+      try {
+        const items = formattedProducts.filter(p => p.id).map(p => ({
+          product_id: p.id,
+          variant_id: p.variants?.[0]?.id || null,
+          quantity: 1,
+        }));
+        if (items.length > 0) {
+          const availability = await cartAvailabilityDAO.checkBulkAvailability(items, pincode);
+          formattedProducts = formattedProducts.map(p => ({
+            ...p,
+            availability: availability[p.id] ?? { available: true },
+          }));
+        }
+      } catch (err2) {
+        console.warn('[Availability] Daily deals enrichment failed:', err2.message);
+      }
+    }
 
     res.status(200).json({
       success: true,
