@@ -117,9 +117,12 @@ export const checkReturnEligibility = async (req, res) => {
 export const createReturnRequest = async (req, res) => {
   const {
     order_id, user_id, return_type, reason, additional_details,
+    refund_mode = "bank_transfer",
     bank_account_holder_name, bank_account_number, bank_ifsc_code, bank_name,
     items = [],
   } = req.body;
+
+  const isWallet = refund_mode === "wallet";
 
   try {
     if (!order_id || !user_id || !return_type || !reason) {
@@ -136,9 +139,9 @@ export const createReturnRequest = async (req, res) => {
       return res.status(400).json({ success: false, error: "COD orders cannot be cancelled or returned as per policy." });
     }
 
-    // Bank details required for prepaid refund
-    if (!bank_account_holder_name || !bank_account_number || !bank_ifsc_code || !bank_name) {
-      return res.status(400).json({ success: false, error: "Bank details are required for processing refunds" });
+    // Bank details required only for bank_transfer refund mode
+    if (!isWallet && (!bank_account_holder_name || !bank_account_number || !bank_ifsc_code || !bank_name)) {
+      return res.status(400).json({ success: false, error: "Bank details are required for bank transfer refunds" });
     }
 
     const orderStatus = order.status?.toLowerCase();
@@ -189,7 +192,7 @@ export const createReturnRequest = async (req, res) => {
     if (return_type === "cancellation") {
       // Use order.subtotal (product-only amount) — excludes shipping, handling, platform, surge charges
       const productSubtotal = Number(order.subtotal);
-      refund_amount = parseFloat((productSubtotal * (1 + refundPct / 100)).toFixed(2));
+      refund_amount = parseFloat((productSubtotal * (1 - refundPct / 100)).toFixed(2));
     } else {
       const orderItemIds = items.map((i) => i.order_item_id);
       const orderItems = await prisma.order_items.findMany({ where: { id: { in: orderItemIds } } });
@@ -197,13 +200,14 @@ export const createReturnRequest = async (req, res) => {
         const qty = items.find((i) => i.order_item_id === oi.id)?.quantity || 0;
         return sum + Number(oi.price) * qty;
       }, 0);
-      refund_amount = parseFloat((itemSubtotal * (1 + refundPct / 100)).toFixed(2));
+      refund_amount = parseFloat((itemSubtotal * (1 - refundPct / 100)).toFixed(2));
     }
 
     const returnOrder = await returnOrderDao.create(
       {
         order_id, user_id, return_type, reason, additional_details,
-        bank_account_holder_name, bank_account_number, bank_ifsc_code, bank_name,
+        refund_mode,
+        ...(!isWallet && { bank_account_holder_name, bank_account_number, bank_ifsc_code, bank_name }),
         refund_amount,
         status: "pending",
       },
@@ -306,7 +310,7 @@ export const getReturnRequestDetails = async (req, res) => {
 
     const return_items = data.return_order_items?.map((item) => ({
       ...item,
-      order_items: { ...item.order_item, products: item.order_item?.product_variants?.product },
+      order_items: { ...item.order_items, products: item.order_items?.product_variants?.product },
     })) || [];
 
     return res.json({ success: true, return_request: { ...data, return_items } });

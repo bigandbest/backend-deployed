@@ -33,7 +33,7 @@ class ReturnOrderDAO {
       include: {
         return_order_items: {
           include: {
-            order_item: {
+            order_items: {
               include: {
                 product_variants: true,
               },
