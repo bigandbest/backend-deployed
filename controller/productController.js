@@ -12,6 +12,7 @@ import warehousePincodeDao from "../dao/warehouse-pincode.dao.js";
 import zonePincodeDao from "../dao/zone-pincode.dao.js";
 import warehouseDao from "../dao/warehouse.dao.js";
 import prisma from "../config/prisma.js";
+import cartAvailabilityDAO from "../dao/cart-availability.dao.js";
 
 const VARIANT_JOIN = "product_variants(*)";
 const MEDIA_JOIN = "product_media(url, media_type, is_primary, sort_order)";
@@ -94,6 +95,28 @@ const transformProduct = (product, assignments = []) => {
   };
 };
 
+/**
+ * Shared availability enrichment — attaches `product.availability` when x-user-pincode header is present.
+ * Safe: swallows errors so product response is never blocked.
+ */
+const enrichWithAvailability = async (req, products) => {
+  const pincode = req.headers['x-user-pincode'];
+  if (!pincode || !/^\d{6}$/.test(pincode) || !products || products.length === 0) return products;
+  try {
+    const items = products.filter(p => p.id).map(p => ({
+      product_id: p.id,
+      variant_id: p.variants?.[0]?.id || p.defaultVariant?.id || null,
+      quantity: 1,
+    }));
+    if (items.length === 0) return products;
+    const availability = await cartAvailabilityDAO.checkBulkAvailability(items, pincode);
+    return products.map(p => ({ ...p, availability: availability[p.id] ?? { available: true } }));
+  } catch (err) {
+    console.warn('[Availability] Enrichment failed:', err.message);
+    return products;
+  }
+};
+
 export const getAllProducts = async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
@@ -104,7 +127,8 @@ export const getAllProducts = async (req, res) => {
       { limit, page },
     );
 
-    const transformedProducts = (result.items || []).map((product) => transformProduct(product));
+    let transformedProducts = (result.items || []).map((product) => transformProduct(product));
+    transformedProducts = await enrichWithAvailability(req, transformedProducts);
 
     res.status(200).json({
       success: true,
@@ -128,7 +152,8 @@ export const getProductsByCategory = async (req, res) => {
     const { category } = req.params;
     const products = await productDao.getProductsByCategoryName(category);
 
-    const transformedProducts = products.map(product => transformProduct(product));
+    let transformedProducts = products.map(product => transformProduct(product));
+    transformedProducts = await enrichWithAvailability(req, transformedProducts);
 
     res.status(200).json({
       success: true,
@@ -176,7 +201,8 @@ export const getProductsCartData = async (req, res) => {
     }
 
     const products = await productDao.getProductsByIds(product_ids);
-    const transformed = products.map(product => transformProduct(product));
+    let transformed = products.map(product => transformProduct(product));
+    transformed = await enrichWithAvailability(req, transformed);
 
     return res.status(200).json({ success: true, products: transformed });
   } catch (error) {
@@ -189,7 +215,8 @@ export const getProductsCartData = async (req, res) => {
 export const getFeaturedProducts = async (req, res) => {
   try {
     const products = await productDao.getFeaturedProducts(20);
-    const transformedProducts = products.map(product => transformProduct(product));
+    let transformedProducts = products.map(product => transformProduct(product));
+    transformedProducts = await enrichWithAvailability(req, transformedProducts);
 
     res.status(200).json({
       success: true,
@@ -205,7 +232,8 @@ export const getFeaturedProducts = async (req, res) => {
 export const getEverydayEssentials = async (req, res) => {
   try {
     const products = await productDao.getEverydayEssentials(20);
-    const transformedProducts = products.map(product => transformProduct(product));
+    let transformedProducts = products.map(product => transformProduct(product));
+    transformedProducts = await enrichWithAvailability(req, transformedProducts);
 
     res.status(200).json({
       success: true,
@@ -221,7 +249,8 @@ export const getEverydayEssentials = async (req, res) => {
 export const getTopProducts = async (req, res) => {
   try {
     const products = await productDao.getTopProducts(20);
-    const transformedProducts = products.map(product => transformProduct(product));
+    let transformedProducts = products.map(product => transformProduct(product));
+    transformedProducts = await enrichWithAvailability(req, transformedProducts);
 
     res.status(200).json({
       success: true,
@@ -265,7 +294,8 @@ export const getProductsWithFilters = async (req, res) => {
       { page: parseInt(page), limit: parseInt(limit) }
     );
 
-    const transformedProducts = products.map(product => transformProduct(product));
+    let transformedProducts = products.map(product => transformProduct(product));
+    transformedProducts = await enrichWithAvailability(req, transformedProducts);
 
     res.status(200).json({
       success: true,
@@ -320,7 +350,9 @@ export const getProductById = async (req, res) => {
       deliveryInfo.checked_pincode = pincode;
     }
 
-    const transformedProduct = transformProduct(product);
+    let transformedProduct = transformProduct(product);
+    const [enriched] = await enrichWithAvailability(req, [transformedProduct]);
+    transformedProduct = enriched;
 
     res.status(200).json({
       success: true,
@@ -536,12 +568,14 @@ export const getProductsByDeliveryZone = async (req, res) => {
       };
     });
 
+    const enrichedProducts = await enrichWithAvailability(req, transformedProducts);
+
     res.status(200).json({
       success: true,
-      products: transformedProducts,
+      products: enrichedProducts,
       pincode,
       zones: zones,
-      total: transformedProducts.length,
+      total: enrichedProducts.length,
       category: category || "all",
     });
   } catch (error) {
@@ -869,10 +903,12 @@ export const getQuickPicks = async (req, res) => {
       };
     });
 
+    const enrichedProducts = await enrichWithAvailability(req, transformedProducts);
+
     res.status(200).json({
       success: true,
-      products: transformedProducts.slice(0, parseInt(limit)),
-      total: transformedProducts.length,
+      products: enrichedProducts.slice(0, parseInt(limit)),
+      total: enrichedProducts.length,
     });
   } catch (error) {
     console.error("Server error:", error);
@@ -886,7 +922,8 @@ export const getProductsBySubcategory = async (req, res) => {
     const { subcategoryId } = req.params;
 
     const products = await productDao.getProductsByFilter({ subcategoryId });
-    const transformedProducts = products.map(product => transformProduct(product));
+    let transformedProducts = products.map(product => transformProduct(product));
+    transformedProducts = await enrichWithAvailability(req, transformedProducts);
 
     res.status(200).json({
       success: true,
@@ -906,7 +943,8 @@ export const getProductsByGroup = async (req, res) => {
     const { groupId } = req.params;
 
     const products = await productDao.getProductsByFilter({ groupId });
-    const transformedProducts = products.map(product => transformProduct(product));
+    let transformedProducts = products.map(product => transformProduct(product));
+    transformedProducts = await enrichWithAvailability(req, transformedProducts);
 
     res.status(200).json({
       success: true,
@@ -998,7 +1036,8 @@ export const getProductsByCategoryWithDiscount = async (req, res) => {
       maxDiscount: parseFloat(maxDiscount)
     });
 
-    const transformedProducts = products.slice(0, parseInt(limit)).map(product => transformProduct(product));
+    let transformedProducts = products.slice(0, parseInt(limit)).map(product => transformProduct(product));
+    transformedProducts = await enrichWithAvailability(req, transformedProducts);
 
     res.status(200).json({
       success: true,
@@ -1023,7 +1062,8 @@ export const getProductsBySubcategoryWithDiscount = async (req, res) => {
       maxDiscount: parseFloat(maxDiscount)
     });
 
-    const transformedProducts = products.slice(0, parseInt(limit)).map(product => transformProduct(product));
+    let transformedProducts = products.slice(0, parseInt(limit)).map(product => transformProduct(product));
+    transformedProducts = await enrichWithAvailability(req, transformedProducts);
 
     res.status(200).json({
       success: true,
@@ -1043,7 +1083,8 @@ export const getProductsByBrand = async (req, res) => {
 
     // Ensure brandId filters products correctly by using brandIds array
     const products = await productDao.getProductsByFilter({ brandIds: [brandId] });
-    const transformedProducts = products.map((product) => transformProduct(product));
+    let transformedProducts = products.map((product) => transformProduct(product));
+    transformedProducts = await enrichWithAvailability(req, transformedProducts);
 
     res.status(200).json({
       success: true,
@@ -1067,7 +1108,8 @@ export const getRelatedProducts = async (req, res) => {
     }
 
     const products = await productDao.getRelatedProducts(product_ids);
-    const transformedProducts = products.map(product => transformProduct(product));
+    let transformedProducts = products.map(product => transformProduct(product));
+    transformedProducts = await enrichWithAvailability(req, transformedProducts);
 
     res.status(200).json({
       success: true,
@@ -1084,7 +1126,8 @@ export const getNewArrivals = async (req, res) => {
   try {
     const { limit = 100 } = req.query;
     const products = await productDao.getNewArrivals(parseInt(limit));
-    const transformedProducts = products.map(product => transformProduct(product));
+    let transformedProducts = products.map(product => transformProduct(product));
+    transformedProducts = await enrichWithAvailability(req, transformedProducts);
 
     res.status(200).json({
       success: true,
@@ -1102,7 +1145,8 @@ export const getSuperSaver = async (req, res) => {
   try {
     const { limit = 50 } = req.query;
     const products = await productDao.getSuperSaver(parseInt(limit));
-    const transformedProducts = products.map(product => transformProduct(product));
+    let transformedProducts = products.map(product => transformProduct(product));
+    transformedProducts = await enrichWithAvailability(req, transformedProducts);
 
     res.status(200).json({
       success: true,
@@ -1126,7 +1170,8 @@ export const getRelatedProductsBySubcategory = async (req, res) => {
     }
 
     const products = await productDao.getRelatedProductsBySubcategory(productId, parseInt(limit));
-    const transformedProducts = products.map(product => transformProduct(product));
+    let transformedProducts = products.map(product => transformProduct(product));
+    transformedProducts = await enrichWithAvailability(req, transformedProducts);
 
     res.status(200).json({
       success: true,

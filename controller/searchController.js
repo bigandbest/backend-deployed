@@ -1,4 +1,5 @@
 import prisma from "../config/prisma.js";
+import cartAvailabilityDAO from "../dao/cart-availability.dao.js";
 
 /**
  * Unified search across products, categories, subcategories, stores, and brands
@@ -145,14 +146,36 @@ export async function unifiedSearch(req, res) {
         ]);
 
         // Map and format results for the frontend
-        const formattedProducts = productsResult.map((p) => ({
+        let formattedProducts = productsResult.map((p) => ({
             id: p.id,
             name: p.name,
             image: p.media?.[0]?.url || null,
             price: p.variants?.[0]?.price || 0,
             category: p.category?.name || null,
             rating: p.rating,
+            variants: p.variants || [],
         }));
+
+        // Enrich with availability
+        const pincode = req.headers['x-user-pincode'];
+        if (pincode && /^\d{6}$/.test(pincode) && formattedProducts.length > 0) {
+            try {
+                const items = formattedProducts.filter(p => p.id).map(p => ({
+                    product_id: p.id,
+                    variant_id: p.variants?.[0]?.id || null,
+                    quantity: 1,
+                }));
+                if (items.length > 0) {
+                    const availability = await cartAvailabilityDAO.checkBulkAvailability(items, pincode);
+                    formattedProducts = formattedProducts.map(p => ({
+                        ...p,
+                        availability: availability[p.id] ?? { available: true },
+                    }));
+                }
+            } catch (err) {
+                console.warn('[Availability] Search enrichment failed:', err.message);
+            }
+        }
 
         // Prepare response
         const results = {
@@ -248,12 +271,33 @@ export async function searchProducts(req, res) {
         ]);
 
         // Map data formatting for consistency
-        const formattedProducts = products.map((p) => ({
+        let formattedProducts = products.map((p) => ({
             ...p,
             image: p.media?.[0]?.url || null,
             price: p.variants?.[0]?.price || 0,
             category: p.category?.name || p.category_id,
         }));
+
+        // Enrich with availability
+        const pincode = req.headers['x-user-pincode'];
+        if (pincode && /^\d{6}$/.test(pincode) && formattedProducts.length > 0) {
+            try {
+                const items = formattedProducts.filter(p => p.id).map(p => ({
+                    product_id: p.id,
+                    variant_id: p.variants?.[0]?.id || null,
+                    quantity: 1,
+                }));
+                if (items.length > 0) {
+                    const availability = await cartAvailabilityDAO.checkBulkAvailability(items, pincode);
+                    formattedProducts = formattedProducts.map(p => ({
+                        ...p,
+                        availability: availability[p.id] ?? { available: true },
+                    }));
+                }
+            } catch (err) {
+                console.warn('[Availability] Search enrichment failed:', err.message);
+            }
+        }
 
         return res.status(200).json({
             success: true,

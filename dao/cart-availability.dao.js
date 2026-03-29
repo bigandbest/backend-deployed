@@ -1,4 +1,7 @@
 import prisma from "../config/prisma.js";
+import redis from "../config/redis.js";
+
+const AVAILABILITY_CACHE_TTL = parseInt(process.env.AVAILABILITY_CACHE_TTL || '60', 10);
 
 class CartAvailabilityDAO {
     /**
@@ -54,10 +57,10 @@ class CartAvailabilityDAO {
                     where: {
                         zone_id: { in: zoneIds },
                         is_active: true,
-                        warehouse: { is_active: true }
+                        warehouses: { is_active: true }
                     },
                     include: {
-                        warehouse: {
+                        warehouses: {
                             select: {
                                 id: true,
                                 name: true,
@@ -75,7 +78,7 @@ class CartAvailabilityDAO {
                 zoneWarehouses = warehouseZones.map(wz => ({
                     warehouse_id: wz.warehouse_id,
                     delivery_days: 3, // Default for zonal delivery
-                    warehouse: wz.warehouse
+                    warehouse: wz.warehouses
                 }));
             }
 
@@ -131,7 +134,7 @@ class CartAvailabilityDAO {
             return data?.map(item => ({
                 ...item,
                 warehouse: item.warehouses, // Map back to 'warehouse' for compatibility
-                available_stock: Math.max(0, item.stock_quantity - (item.reserved_quantity || 0))
+                available_stock: Math.max(0, (item.stock_qty || 0) - (item.reserved_qty || 0))
             })) || [];
         } catch (error) {
             console.error('Error checking variant stock:', error);
@@ -332,9 +335,9 @@ class CartAvailabilityDAO {
             };
         }
 
-        // Check availability for each item
+        // Check availability for each item (uses Redis cache when available)
         const itemResults = await Promise.all(
-            items.map(item => this.checkItemAvailability(item, warehousePincodes))
+            items.map(item => this.checkItemAvailabilityCached(item, warehousePincodes, pincode))
         );
 
         // Calculate overall availability
@@ -353,6 +356,153 @@ class CartAvailabilityDAO {
                 : 'Some items not available',
             items: itemResults
         };
+    }
+
+    /**
+     * Get the zone ID for a given pincode (for cache key generation)
+     */
+    async getZoneForPincode(pincode) {
+        try {
+            const zoneMapping = await prisma.zone_pincodes.findFirst({
+                where: { pincode, is_active: true },
+                select: { zone_id: true }
+            });
+            if (zoneMapping) return String(zoneMapping.zone_id);
+
+            // Check nationwide zones as fallback
+            const nationwide = await prisma.delivery_zones.findFirst({
+                where: { is_nationwide: true, is_active: true },
+                select: { id: true }
+            });
+            return nationwide ? `nationwide_${nationwide.id}` : null;
+        } catch (error) {
+            console.error('Error getting zone for pincode:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Check single item availability with Redis cache-aside.
+     * On cache hit: returns sub-1ms. On miss: queries DB and writes back with TTL.
+     * On Redis failure: falls back to DB silently.
+     */
+    async checkItemAvailabilityCached(item, warehousePincodes, pincode) {
+        const variantId = item.variant_id || item.product_id;
+        let zoneId = null;
+        let cached = null;
+
+        try {
+            zoneId = await this.getZoneForPincode(pincode);
+            if (zoneId) {
+                const cacheKey = `avail:${variantId}:${zoneId}`;
+                const raw = await redis.get(cacheKey);
+                if (raw) {
+                    cached = JSON.parse(raw);
+                }
+            }
+        } catch (err) {
+            // Redis is down — log and continue to DB
+            console.warn('[Availability] Redis unavailable, using DB fallback:', err.message);
+        }
+
+        if (cached) {
+            return { ...cached, fromCache: true };
+        }
+
+        // Cache miss — query DB with existing warehouse hierarchy logic
+        const result = await this.checkItemAvailability(item, warehousePincodes);
+
+        // Write back — fire-and-forget
+        if (zoneId) {
+            const cacheKey = `avail:${variantId}:${zoneId}`;
+            redis.setex(cacheKey, AVAILABILITY_CACHE_TTL, JSON.stringify(result)).catch(() => {});
+        }
+
+        return result;
+    }
+
+    /**
+     * Batch availability check with Redis MGET pipeline.
+     * Used by productSectionController to enrich product responses.
+     * Returns { [product_id]: availabilityResult }
+     */
+    async checkBulkAvailability(items, pincode) {
+        if (!items || items.length === 0) return {};
+
+        const zoneId = await this.getZoneForPincode(pincode);
+        const warehousePincodes = await this.getWarehousesByPincode(pincode);
+
+        if (!warehousePincodes || warehousePincodes.length === 0) {
+            // Not serviceable — return unavailable for all
+            const results = {};
+            items.forEach(item => {
+                const id = item.product_id;
+                results[id] = {
+                    product_id: id,
+                    variant_id: item.variant_id || null,
+                    available: false,
+                    delivery_message: 'Not serviceable to this pincode',
+                    delivery_days: null,
+                    warehouse_type: null,
+                };
+            });
+            return results;
+        }
+
+        // Try Redis batch lookup first
+        const keys = items.map(i => `avail:${i.variant_id || i.product_id}:${zoneId}`);
+        let cached = [];
+
+        if (zoneId) {
+            try {
+                cached = await redis.mget(...keys);
+            } catch (err) {
+                console.warn('[Availability] Redis MGET failed, using DB fallback:', err.message);
+                cached = new Array(keys.length).fill(null);
+            }
+        }
+
+        const results = {};
+        const missItems = [];
+
+        items.forEach((item, idx) => {
+            const id = item.product_id;
+            if (cached[idx]) {
+                try {
+                    results[id] = { ...JSON.parse(cached[idx]), fromCache: true };
+                } catch {
+                    missItems.push({ item, key: keys[idx] });
+                }
+            } else {
+                missItems.push({ item, key: keys[idx] });
+            }
+        });
+
+        // Fetch DB misses in parallel
+        if (missItems.length > 0) {
+            const dbResults = await Promise.all(
+                missItems.map(({ item }) => this.checkItemAvailability(item, warehousePincodes))
+            );
+
+            // Write back all misses in one pipeline (fire-and-forget)
+            if (zoneId) {
+                try {
+                    const pipeline = redis.pipeline();
+                    missItems.forEach(({ key }, idx) => {
+                        pipeline.setex(key, AVAILABILITY_CACHE_TTL, JSON.stringify(dbResults[idx]));
+                    });
+                    pipeline.exec().catch(() => {});
+                } catch {
+                    // Redis down — skip cache write
+                }
+            }
+
+            missItems.forEach(({ item }, idx) => {
+                results[item.product_id] = dbResults[idx];
+            });
+        }
+
+        return results;
     }
 
     async getProductsByIds(productIds) {

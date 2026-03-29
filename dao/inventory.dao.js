@@ -1,4 +1,5 @@
 import prisma from "../config/prisma.js";
+import { invalidateAvailabilityCache } from "../services/inventoryCache.service.js";
 
 /**
  * Inventory DAO - Production-level inventory management
@@ -153,7 +154,7 @@ class InventoryDAO {
      */
     async reserveStock(variantId, quantity, warehouseId) {
         // Use transaction to ensure atomicity
-        return await prisma.$transaction(async (tx) => {
+        const result = await prisma.$transaction(async (tx) => {
             // Get current inventory with lock
             const inventory = await tx.inventory.findUnique({
                 where: {
@@ -186,6 +187,9 @@ class InventoryDAO {
                 },
             });
         });
+
+        invalidateAvailabilityCache(variantId, warehouseId).catch(() => {});
+        return result;
     }
 
     /**
@@ -196,7 +200,7 @@ class InventoryDAO {
      * @returns {Object} Updated inventory record
      */
     async releaseStock(variantId, quantity, warehouseId) {
-        return await prisma.inventory.update({
+        const result = await prisma.inventory.update({
             where: {
                 variant_id_warehouse_id: {
                     variant_id: variantId,
@@ -209,6 +213,9 @@ class InventoryDAO {
                 },
             },
         });
+
+        invalidateAvailabilityCache(variantId, warehouseId).catch(() => {});
+        return result;
     }
 
     /**
@@ -219,7 +226,7 @@ class InventoryDAO {
      * @returns {Object} Updated inventory record
      */
     async updateStock(variantId, warehouseId, newQuantity) {
-        return await prisma.inventory.upsert({
+        const result = await prisma.inventory.upsert({
             where: {
                 variant_id_warehouse_id: {
                     variant_id: variantId,
@@ -237,6 +244,11 @@ class InventoryDAO {
                 reserved_qty: 0,
             },
         });
+
+        // Bust availability cache for affected zones
+        invalidateAvailabilityCache(variantId, warehouseId).catch(() => {});
+
+        return result;
     }
 
     /**
@@ -396,7 +408,7 @@ class InventoryDAO {
      * @returns {Object} Updated inventory or throws on insufficient stock
      */
     async hardLock(variantId, warehouseId, qty) {
-        return await prisma.$transaction(async (tx) => {
+        const result = await prisma.$transaction(async (tx) => {
             const inv = await tx.inventory.findUnique({
                 where: {
                     variant_id_warehouse_id: { variant_id: variantId, warehouse_id: warehouseId },
@@ -424,6 +436,9 @@ class InventoryDAO {
                 },
             });
         });
+
+        invalidateAvailabilityCache(variantId, warehouseId).catch(() => {});
+        return result;
     }
 
     /**

@@ -7,6 +7,35 @@ import storeSectionMappingDao from "../dao/store-section-mapping.dao.js";
 import videoCardDao from "../dao/video-card.dao.js";
 import brandDao from "../dao/brand.dao.js";
 import prisma from '../config/prisma.js';
+import cartAvailabilityDAO from '../dao/cart-availability.dao.js';
+
+// Create a product section
+export const createProductSection = async (req, res) => {
+  try {
+    const { section_key, section_name, is_active = true, display_order = 0 } = req.body;
+
+    if (!section_key || !section_name) {
+      return res.status(400).json({ error: "section_key and section_name are required" });
+    }
+
+    const existing = await prisma.product_sections.findUnique({
+      where: { section_key },
+    });
+
+    if (existing) {
+      return res.status(200).json({ success: true, section: existing, message: "Section already exists" });
+    }
+
+    const section = await prisma.product_sections.create({
+      data: { section_key, section_name, is_active, display_order },
+    });
+
+    res.status(201).json({ success: true, section });
+  } catch (error) {
+    console.error("Error creating product section:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
 
 // Get all product sections
 export const getAllProductSections = async (req, res) => {
@@ -243,6 +272,27 @@ export const getProductsInSection = async (req, res) => {
         is_in_stock: stockQty > 0
       };
     });
+
+    // Enrich with pincode-based availability
+    const userPincode = req.headers['x-user-pincode'];
+    if (userPincode && /^\d{6}$/.test(userPincode) && products.length > 0) {
+      try {
+        const items = products.filter(p => p.id).map(p => ({
+          product_id: p.id,
+          variant_id: p.variants?.[0]?.id || p.default_variant_id || null,
+          quantity: 1,
+        }));
+        if (items.length > 0) {
+          const availability = await cartAvailabilityDAO.checkBulkAvailability(items, userPincode);
+          products = products.map(p => {
+            p.availability = availability[p.id] ?? { available: true };
+            return p;
+          });
+        }
+      } catch (err) {
+        console.warn('[Availability] Enrichment failed:', err.message);
+      }
+    }
 
     // Manual pagination as the list is relatively small
     const offset = (parseInt(page) - 1) * parseInt(limit);
@@ -593,6 +643,33 @@ export const getSectionWithContent = async (req, res) => {
           brand: p.brands?.[0]?.brand?.name || p.brand || "BigandBest"
         };
       });
+    }
+
+    // 5. Enrich with pincode-based availability (Phase 1)
+    const userPincode = req.headers['x-user-pincode'];
+    if (userPincode && /^\d{6}$/.test(userPincode) && products.length > 0) {
+      try {
+        const items = products
+          .filter(p => p.id) // only real products (not banners/videos)
+          .map(p => ({
+            product_id: p.id,
+            variant_id: p.variants?.[0]?.id || p.default_variant_id || null,
+            quantity: 1,
+          }));
+
+        if (items.length > 0) {
+          const availability = await cartAvailabilityDAO.checkBulkAvailability(items, userPincode);
+
+          products = products.map(p => {
+            const avail = availability[p.id];
+            p.availability = avail ?? { available: true }; // optimistic default
+            return p;
+          });
+        }
+      } catch (err) {
+        // Availability enrichment failure should never break the product response
+        console.warn('[Availability] Enrichment failed, returning products without availability:', err.message);
+      }
     }
 
     res.status(200).json({
