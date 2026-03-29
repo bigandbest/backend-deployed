@@ -574,6 +574,8 @@ model orders {
   delivery_distance_km Decimal?         @default(0) @db.Decimal
   rider_payout_amount  Decimal?         @default(0) @db.Decimal
   idempotency_key      String?          @unique @db.VarChar
+  delivery_latitude    Decimal?         @db.Decimal(10, 7)
+  delivery_longitude   Decimal?         @db.Decimal(10, 7)
 
   // Relations — matching backup schema exactly
   coupon_usage         coupon_usage?
@@ -1270,6 +1272,8 @@ model riders {
   attendance_logs       attendance_logs[]
   rider_wage_logs       rider_wage_logs[]
   rider_assignments     rider_assignments[]
+  rider_locations       rider_locations[]
+  rider_payouts         rider_payouts[]
 
   @@index([user_id])
   @@index([is_available])
@@ -1506,6 +1510,8 @@ model sellers {
   city              String?   @db.VarChar
   state             String?   @db.VarChar
   pincode           String?   @db.VarChar
+  latitude          Decimal?  @db.Decimal(10, 7)
+  longitude         Decimal?  @db.Decimal(10, 7)
 
   // Status
   is_active         Boolean   @default(true)
@@ -1695,6 +1701,7 @@ model sub_orders {
   warehouse             warehouses          @relation(fields: [source_id], references: [id])
   sub_order_items       sub_order_items[]
   fulfillment_events    fulfillment_events[]
+  rider_payouts         rider_payouts[]
 
   @@index([parent_order_id])
   @@index([source_type])
@@ -2050,6 +2057,8 @@ model warehouses {
   created_by                  Int?
   parent_warehouse_id         Int?
   hierarchy_level             Int?                          @default(0)
+  latitude                    Decimal?                      @db.Decimal(10, 7)
+  longitude                   Decimal?                      @db.Decimal(10, 7)
 
   // Relations — matching backup schema exactly
   inventory                   inventory[]
@@ -2797,4 +2806,130 @@ model affiliate_payouts {
   @@index([payout_number])
   @@index([status])
   @@map("affiliate_payouts")
+}
+
+
+// --- Model: rider_locations.prisma ---
+model rider_locations {
+  id          Int      @id @default(autoincrement())
+  rider_id    String   @db.Uuid
+  latitude    Decimal  @db.Decimal(10, 7)
+  longitude   Decimal  @db.Decimal(10, 7)
+  is_online   Boolean  @default(true)
+  recorded_at DateTime @default(now()) @db.Timestamptz
+
+  riders      riders   @relation(fields: [rider_id], references: [id], onDelete: Cascade)
+
+  @@index([rider_id])
+  @@index([recorded_at])
+}
+
+
+// --- Model: payout_slabs.prisma ---
+model payout_slabs {
+  id             Int       @id @default(autoincrement())
+  min_km         Decimal   @db.Decimal(5, 2)
+  max_km         Decimal?  @db.Decimal(5, 2)
+  payout_amount  Decimal   @db.Decimal(10, 2)
+  is_active      Boolean   @default(true)
+  effective_from DateTime  @default(now()) @db.Timestamptz
+  effective_to   DateTime? @db.Timestamptz
+  created_by     String?   @db.Uuid
+  created_at     DateTime  @default(now()) @db.Timestamptz
+  updated_at     DateTime  @default(now()) @db.Timestamptz
+
+  rider_payouts  rider_payouts[]
+
+  @@index([is_active])
+  @@index([min_km])
+}
+
+
+// --- Model: rider_payouts.prisma ---
+model rider_payouts {
+  id                  Int       @id @default(autoincrement())
+  rider_id            String    @db.Uuid
+  sub_order_id        String    @db.Uuid
+  parent_order_id     String?   @db.Uuid
+  route_type          String    @db.VarChar(10)
+
+  pickup_latitude     Decimal?  @db.Decimal(10, 7)
+  pickup_longitude    Decimal?  @db.Decimal(10, 7)
+  source_latitude     Decimal?  @db.Decimal(10, 7)
+  source_longitude    Decimal?  @db.Decimal(10, 7)
+  delivery_latitude   Decimal?  @db.Decimal(10, 7)
+  delivery_longitude  Decimal?  @db.Decimal(10, 7)
+
+  leg1_km             Decimal?  @db.Decimal(5, 2)
+  leg2_km             Decimal?  @db.Decimal(5, 2)
+  total_km            Decimal?  @db.Decimal(5, 2)
+
+  slab_id             Int?
+  payout_amount       Decimal?  @db.Decimal(10, 2)
+  status              String    @default("PENDING") @db.VarChar(20)
+
+  calculated_at       DateTime? @db.Timestamptz
+  paid_at             DateTime? @db.Timestamptz
+  created_at          DateTime  @default(now()) @db.Timestamptz
+  updated_at          DateTime  @default(now()) @db.Timestamptz
+
+  rider               riders          @relation(fields: [rider_id], references: [id])
+  sub_order           sub_orders      @relation(fields: [sub_order_id], references: [id])
+  slab                payout_slabs?   @relation(fields: [slab_id], references: [id])
+  payout_disputes     payout_disputes[]
+
+  @@unique([sub_order_id])
+  @@index([rider_id])
+  @@index([status])
+  @@index([parent_order_id])
+}
+
+
+// --- Model: payout_disputes.prisma ---
+model payout_disputes {
+  id              Int       @id @default(autoincrement())
+  payout_id       Int
+  rider_id        String    @db.Uuid
+  reason          String    @db.VarChar(50)
+  note            String?   @db.Text
+  status          String    @default("OPEN") @db.VarChar(20)
+  resolution_note String?   @db.Text
+  raised_at       DateTime  @default(now()) @db.Timestamptz
+  resolved_at     DateTime? @db.Timestamptz
+
+  payout          rider_payouts @relation(fields: [payout_id], references: [id])
+
+  @@index([payout_id])
+  @@index([rider_id])
+  @@index([status])
+}
+
+
+// --- Model: payout_audit_log.prisma ---
+model payout_audit_log {
+  id          Int      @id @default(autoincrement())
+  changed_by  String?  @db.Uuid
+  entity_type String   @db.VarChar(50)
+  entity_id   Int
+  old_value   Json?
+  new_value   Json?
+  changed_at  DateTime @default(now()) @db.Timestamptz
+
+  @@index([entity_type, entity_id])
+  @@index([changed_at])
+}
+
+
+// --- Model: geocode_retry_queue.prisma ---
+model geocode_retry_queue {
+  id             Int      @id @default(autoincrement())
+  entity_type    String   @db.VarChar(30)
+  entity_id      String   @db.VarChar(50)
+  address_string String   @db.Text
+  attempts       Int      @default(0)
+  resolved       Boolean  @default(false)
+  created_at     DateTime @default(now()) @db.Timestamptz
+
+  @@index([resolved, attempts])
+  @@index([entity_type])
 }
