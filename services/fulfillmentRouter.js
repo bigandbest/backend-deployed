@@ -273,7 +273,7 @@ const findAvailableRider = async (pincode) => {
         include: {
             riders: {
                 include: {
-                    user: {
+                    users: {
                         select: { id: true, name: true, phone: true },
                     },
                 },

@@ -10,6 +10,7 @@ import dotenv from "dotenv";
 import subOrderDao from "../dao/sub-order.dao.js";
 import { findWarehouseForProduct } from "../services/warehouseService.js";
 import { routeSubOrders } from "../services/fulfillmentRouter.js";
+import { geocodeAddress } from '../utils/geocode.js';
 
 dotenv.config();
 
@@ -994,6 +995,22 @@ export const createWalletOrder = async (req, res) => {
             routeSubOrders(order.id).catch(err =>
               console.error('Wallet order fulfillment routing error:', err.message)
             );
+
+            // Geocode delivery address for payout distance calculation
+            try {
+              const geo = await geocodeAddress(user_address);
+              if (geo?.latitude && geo?.longitude) {
+                await prisma.orders.update({
+                  where: { id: order.id },
+                  data: {
+                    delivery_latitude: geo.latitude,
+                    delivery_longitude: geo.longitude,
+                  },
+                });
+              }
+            } catch (geoErr) {
+              console.error('[walletController] geocode failed for order', order.id, geoErr.message);
+            }
           } catch (subErr) {
             console.error('Wallet order sub-order creation error:', subErr.message, subErr.stack);
           }
