@@ -1,6 +1,5 @@
 import { v2 as cloudinary } from "cloudinary";
 import multer from "multer";
-import { supabase } from "../config/supabaseClient.js";
 import userDao from "../dao/user.dao.js";
 
 // Configure Cloudinary
@@ -44,37 +43,39 @@ export const uploadProfileImage = async (req, res) => {
       });
     }
 
-    // Try to create bucket first, then upload
-    const fileName = `profile_${userId}_${Date.now()}.${req.file.originalname.split('.').pop()}`;
-
-    // Try to create bucket if it doesn't exist
-    try {
-      await supabase.storage.createBucket('profile-images', { public: true });
-    } catch (bucketError) {
-      // Bucket might already exist, continue
+    // Delete old image from Cloudinary if it exists
+    const existingUser = await userDao.getUserById(userId);
+    if (existingUser?.photo_url) {
+      try {
+        // Extract public_id from Cloudinary URL (last path segment without extension)
+        const urlParts = existingUser.photo_url.split("/");
+        const fileWithExt = urlParts[urlParts.length - 1];
+        const folder = urlParts[urlParts.length - 2];
+        const publicId = `${folder}/${fileWithExt.split(".")[0]}`;
+        await cloudinary.uploader.destroy(publicId);
+      } catch (deleteError) {
+        console.error("Failed to delete old Cloudinary image:", deleteError);
+      }
     }
 
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('profile-images')
-      .upload(fileName, req.file.buffer, {
-        contentType: req.file.mimetype,
-        upsert: true
-      });
+    // Upload new image to Cloudinary from buffer
+    const uploadResult = await new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: "profile-images",
+          public_id: `profile_${userId}_${Date.now()}`,
+          overwrite: true,
+          resource_type: "image",
+        },
+        (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        }
+      );
+      stream.end(req.file.buffer);
+    });
 
-    if (uploadError) {
-      console.error("Storage upload error:", uploadError);
-      return res.status(500).json({
-        success: false,
-        error: "Failed to upload image: " + uploadError.message,
-      });
-    }
-
-    // Get public URL
-    const { data: urlData } = supabase.storage
-      .from('profile-images')
-      .getPublicUrl(fileName);
-
-    const imageUrl = urlData.publicUrl;
+    const imageUrl = uploadResult.secure_url;
 
     // Update user profile with new image URL
     const data = await userDao.updateUser(userId, {
@@ -118,15 +119,16 @@ export const deleteProfileImage = async (req, res) => {
       });
     }
 
-    // Delete from Supabase storage if image exists
+    // Delete from Cloudinary if image exists
     if (userData?.photo_url) {
       try {
-        const fileName = userData.photo_url.split('/').pop();
-        await supabase.storage
-          .from('profile-images')
-          .remove([fileName]);
+        const urlParts = userData.photo_url.split("/");
+        const fileWithExt = urlParts[urlParts.length - 1];
+        const folder = urlParts[urlParts.length - 2];
+        const publicId = `${folder}/${fileWithExt.split(".")[0]}`;
+        await cloudinary.uploader.destroy(publicId);
       } catch (storageError) {
-        console.error("Storage deletion error:", storageError);
+        console.error("Cloudinary deletion error:", storageError);
       }
     }
 
