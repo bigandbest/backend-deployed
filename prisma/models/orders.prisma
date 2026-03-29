@@ -41,6 +41,7 @@ model orders {
   order_tracking       order_tracking[]
   users                users?           @relation(fields: [user_id], references: [id])
   return_orders        return_orders[]
+  refund_requests      refund_requests[]
   sub_orders           sub_orders[]
   rider_assignments    rider_assignments[]
 

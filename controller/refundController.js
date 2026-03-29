@@ -1,166 +1,125 @@
-// controllers/refundController.js
-import { supabase } from "../config/supabaseClient.js";
-/*
-import {
-  createRefundNotification,
-  createAdminRefundNotification,
-} from "./NotificationHelpers.js";
-*/
+import refundRequestDao from "../dao/refundRequest.dao.js";
+import orderDao from "../dao/order.dao.js";
+import prisma from "../config/prisma.js";
+import { notifyRefundCreated, notifyRefundStatusUpdated } from "../services/notificationService.js";
 
-// Create refund request for cancelled prepaid orders
+const getRefundPercentage = async () => {
+  try {
+    const settings = await prisma.charge_settings.findUnique({ where: { id: 1 } });
+    return Number(settings?.refund_percentage ?? 0);
+  } catch {
+    return 0;
+  }
+};
+
+// Create refund request for a cancelled prepaid order
 export const createRefundRequest = async (req, res) => {
   try {
-    const {
-      orderId,
-      refundType = "order_cancellation",
-      bankDetails,
-    } = req.body;
+    const { orderId, refundType = "order_cancellation", bankDetails } = req.body;
     const userId = req.user?.id;
 
     if (!orderId) {
-      return res.status(400).json({
-        success: false,
-        error: "Order ID is required",
-      });
+      return res.status(400).json({ success: false, error: "Order ID is required" });
     }
 
-    // Get order details
-    const { data: order, error: orderError } = await supabase
-      .from("orders")
-      .select("*")
-      .eq("id", orderId)
-      .single();
-
-    if (orderError || !order) {
-      return res.status(404).json({
-        success: false,
-        error: "Order not found",
-      });
+    const order = await orderDao.getById(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, error: "Order not found" });
     }
 
-    // Check if order belongs to user (unless admin)
     if (userId && order.user_id !== userId) {
-      return res.status(403).json({
-        success: false,
-        error: "Unauthorized to create refund for this order",
-      });
+      return res.status(403).json({ success: false, error: "Unauthorized to create refund for this order" });
     }
 
-    // Check if order is eligible for refund
     if (order.status !== "cancelled") {
-      return res.status(400).json({
-        success: false,
-        error: "Only cancelled orders are eligible for refund",
-      });
+      return res.status(400).json({ success: false, error: "Only cancelled orders are eligible for refund" });
     }
 
-    // Check if order was prepaid
-    if (order.payment_method !== "prepaid") {
-      return res.status(400).json({
-        success: false,
-        error: "Only prepaid orders are eligible for refund",
-      });
+    const isCOD = ["cod", "cash", "cash on delivery"].some((m) =>
+      order.payment_method?.toLowerCase().includes(m)
+    );
+    if (isCOD) {
+      return res.status(400).json({ success: false, error: "COD orders are not eligible for refunds" });
     }
 
-    // Check if refund request already exists
-    const { data: existingRefund } = await supabase
-      .from("refund_requests")
-      .select("id")
-      .eq("order_id", orderId)
-      .single();
-
-    if (existingRefund) {
-      return res.status(400).json({
-        success: false,
-        error: "Refund request already exists for this order",
-      });
+    const existing = await refundRequestDao.findByOrderId(orderId);
+    if (existing) {
+      return res.status(400).json({ success: false, error: "Refund request already exists for this order" });
     }
 
-    // Calculate refund amount (full order amount for cancellations)
-    const refundAmount = parseFloat(order.total);
+    // Refund = product subtotal only (no shipping/platform/handling charges)
+    // + admin-configured refund percentage on top of product subtotal
+    const refundPct = await getRefundPercentage();
+    const productSubtotal = Number(order.subtotal);
+    const refundAmount = parseFloat((productSubtotal * (1 + refundPct / 100)).toFixed(2));
 
-    // Create refund request
     const refundData = {
       order_id: orderId,
       user_id: order.user_id,
       refund_amount: refundAmount,
       refund_type: refundType,
       payment_method: order.payment_method,
-      original_payment_id: order.payment_id,
+      original_payment_id: order.razorpay_payment_id || null,
+      refund_mode: "bank_transfer",
       status: "pending",
+      ...(bankDetails && {
+        bank_account_holder_name: bankDetails.accountHolderName,
+        bank_account_number: bankDetails.accountNumber,
+        bank_ifsc_code: bankDetails.ifscCode,
+        bank_name: bankDetails.bankName,
+      }),
     };
 
-    // Add bank details if provided
-    if (bankDetails) {
-      refundData.bank_account_holder_name = bankDetails.accountHolderName;
-      refundData.bank_account_number = bankDetails.accountNumber;
-      refundData.bank_ifsc_code = bankDetails.ifscCode;
-      refundData.bank_name = bankDetails.bankName;
-      refundData.refund_mode = "bank_transfer";
-    } else {
-      // Default to bank transfer refund if no bank details
-      refundData.refund_mode = "bank_transfer";
-    }
+    const refundRequest = await refundRequestDao.create(refundData);
 
-    const { data: refundRequest, error: refundError } = await supabase
-      .from("refund_requests")
-      .insert(refundData)
-      .select()
-      .single();
+    await notifyRefundCreated({
+      userId: order.user_id,
+      orderId,
+      refundId: refundRequest.id,
+      amount: refundAmount,
+    });
 
-    if (refundError) {
-      return res.status(500).json({
-        success: false,
-        error: refundError.message,
-      });
-    }
-
-    // Get user details for notifications
-    const { data: userData } = await supabase
-      .from("users")
-      .select("name, email")
-      .eq("id", order.user_id)
-      .single();
-
-    // Create notifications
-    /*
-    try {
-      await createRefundNotification(
-        order.user_id,
-        orderId,
-        "requested",
-        refundAmount
-      );
-
-      await createAdminRefundNotification(
-        orderId,
-        userData?.name || "Unknown User",
-        refundAmount,
-        refundType
-      );
-    } catch (notificationError) {
-      console.error("Error creating refund notifications:", notificationError);
-      // Don't fail the entire operation if notifications fail
-    }
-    */
-
-    res.json({
+    return res.json({
       success: true,
       message: "Refund request created successfully",
       refundRequest: {
         id: refundRequest.id,
-        orderId: orderId,
+        orderId,
         amount: refundAmount,
         status: "pending",
-        refundMode: refundData.refund_mode,
+        refundMode: "bank_transfer",
       },
     });
   } catch (error) {
-    console.error("Create refund request error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
+    console.error("createRefundRequest error:", error);
+    return res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+// Get current user's refund requests
+export const getUserRefundRequests = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const { page = 1, limit = 10 } = req.query;
+
+    if (!userId) {
+      return res.status(401).json({ success: false, error: "Authentication required" });
+    }
+
+    const { data, total } = await refundRequestDao.listByUser(userId, page, limit);
+    const totalPages = Math.ceil(total / limit);
+
+    return res.json({
+      success: true,
+      refundRequests: data,
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      totalPages,
     });
+  } catch (error) {
+    console.error("getUserRefundRequests error:", error);
+    return res.status(500).json({ success: false, error: "Internal server error" });
   }
 };
 
@@ -168,53 +127,21 @@ export const createRefundRequest = async (req, res) => {
 export const getAllRefundRequests = async (req, res) => {
   try {
     const { page = 1, limit = 20, status, refundType } = req.query;
-    const offset = (page - 1) * limit;
 
-    let query = supabase
-      .from("refund_requests")
-      .select(
-        `
-        *,
-        order:orders(id, total, created_at),
-        user:users(id, name, email, phone),
-        processed_by_user:processed_by(name, email)
-      `,
-        { count: "exact" }
-      )
-      .order("created_at", { ascending: false })
-      .range(offset, offset + parseInt(limit) - 1);
+    const { data, total } = await refundRequestDao.listAll({ status, refundType }, page, limit);
+    const totalPages = Math.ceil(total / limit);
 
-    // Apply filters
-    if (status) {
-      query = query.eq("status", status);
-    }
-    if (refundType) {
-      query = query.eq("refund_type", refundType);
-    }
-
-    const { data: refundRequests, error, count } = await query;
-
-    if (error) {
-      return res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    }
-
-    res.json({
+    return res.json({
       success: true,
-      refundRequests,
-      total: count,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(count / limit),
+      refundRequests: data,
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      totalPages,
     });
   } catch (error) {
-    console.error("Get refund requests error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-    });
+    console.error("getAllRefundRequests error:", error);
+    return res.status(500).json({ success: false, error: "Internal server error" });
   }
 };
 
@@ -226,142 +153,38 @@ export const updateRefundRequestStatus = async (req, res) => {
     const adminId = req.user?.id;
 
     if (!status) {
-      return res.status(400).json({
-        success: false,
-        error: "Status is required",
-      });
+      return res.status(400).json({ success: false, error: "Status is required" });
     }
 
-    const validStatuses = [
-      "pending",
-      "approved",
-      "processing",
-      "completed",
-      "rejected",
-    ];
+    const validStatuses = ["pending", "approved", "processing", "completed", "rejected"];
     if (!validStatuses.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid status",
-      });
+      return res.status(400).json({ success: false, error: "Invalid status" });
     }
 
-    // Get current refund request
-    const { data: refundRequest, error: fetchError } = await supabase
-      .from("refund_requests")
-      .select("*")
-      .eq("id", id)
-      .single();
-
-    if (fetchError || !refundRequest) {
-      return res.status(404).json({
-        success: false,
-        error: "Refund request not found",
-      });
+    const existing = await refundRequestDao.findById(id);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: "Refund request not found" });
     }
 
-    // Update refund request
     const updateData = {
       status,
-      admin_notes: adminNotes,
-      processed_by: adminId,
-      updated_at: new Date().toISOString(),
+      admin_notes: adminNotes || existing.admin_notes,
+      processed_by: adminId || null,
+      ...(["processing", "completed"].includes(status) && { processed_at: new Date() }),
     };
 
-    if (status === "completed" || status === "processing") {
-      updateData.processed_at = new Date().toISOString();
-    }
+    await refundRequestDao.update(id, updateData);
 
-    const { error: updateError } = await supabase
-      .from("refund_requests")
-      .update(updateData)
-      .eq("id", id);
-
-    if (updateError) {
-      return res.status(500).json({
-        success: false,
-        error: updateError.message,
-      });
-    }
-
-    // Create notification for user
-    /*
-    try {
-      await createRefundNotification(
-        refundRequest.user_id,
-        refundRequest.order_id,
-        status,
-        refundRequest.refund_amount
-      );
-    } catch (notificationError) {
-      console.error("Error creating refund notification:", notificationError);
-    }
-    */
-
-    res.json({
-      success: true,
-      message: `Refund request ${status} successfully`,
+    await notifyRefundStatusUpdated({
+      userId: existing.user_id,
+      refundId: id,
+      status,
+      amount: Number(existing.refund_amount),
     });
+
+    return res.json({ success: true, message: `Refund request ${status} successfully` });
   } catch (error) {
-    console.error("Update refund request status error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-    });
-  }
-};
-
-// Get user's refund requests
-export const getUserRefundRequests = async (req, res) => {
-  try {
-    const userId = req.user?.id;
-    const { page = 1, limit = 10 } = req.query;
-    const offset = (page - 1) * limit;
-
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        error: "Authentication required",
-      });
-    }
-
-    const {
-      data: refundRequests,
-      error,
-      count,
-    } = await supabase
-      .from("refund_requests")
-      .select(
-        `
-        *,
-        order:orders(id, total, created_at)
-      `,
-        { count: "exact" }
-      )
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .range(offset, offset + parseInt(limit) - 1);
-
-    if (error) {
-      return res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    }
-
-    res.json({
-      success: true,
-      refundRequests,
-      total: count,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(count / limit),
-    });
-  } catch (error) {
-    console.error("Get user refund requests error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-    });
+    console.error("updateRefundRequestStatus error:", error);
+    return res.status(500).json({ success: false, error: "Internal server error" });
   }
 };

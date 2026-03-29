@@ -1,171 +1,98 @@
-// controllers/returnOrderController.js
 import returnOrderDao from "../dao/returnOrder.dao.js";
 import orderDao from "../dao/order.dao.js";
-import prisma from "../config/prisma.js"; // For direct checks if needed
+import prisma from "../config/prisma.js";
+import {
+  notifyReturnCreated,
+  notifyReturnStatusUpdated,
+} from "../services/notificationService.js";
 
-// Helper function to calculate days since order delivery
-const calculateDaysSinceDelivery = (orderDate, orderStatus) => {
-  if (orderStatus?.toLowerCase() !== "delivered") return -1;
-  if (!orderDate) return -1; // Handle null/undefined dates
-
-  const deliveryDate = new Date(orderDate);
-  const currentDate = new Date();
-
-  // Check if date is valid
-  if (isNaN(deliveryDate.getTime())) return -1;
-
-  const diffTime = Math.abs(currentDate - deliveryDate);
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-  console.log("Date calculation debug:", {
-    orderDate,
-    deliveryDate: deliveryDate.toISOString(),
-    currentDate: currentDate.toISOString(),
-    diffTime,
-    diffDays,
-  });
-
-  return diffDays;
-};
-
-// Helper function to generate notification messages
-const getNotificationMessage = (status, return_type) => {
-  const actionType = return_type === "cancellation" ? "cancellation" : "return";
-
-  switch (status) {
-    case "approved":
-      return `Your ${actionType} request has been approved. Refund processing will begin shortly.`;
-    case "rejected":
-      return `Your ${actionType} request has been declined. Please contact support for more details.`;
-    case "processing":
-      return `Your ${actionType} request is being processed. Refund will be credited soon.`;
-    case "completed":
-      return `Your ${actionType} has been completed successfully. Refund amount has been credited to your account.`;
-    default:
-      return `Your ${actionType} request status has been updated to ${status}.`;
+// ---------------------------------------------------------------------------
+// Load refund percentage from charge_settings (0–100, default 0)
+// ---------------------------------------------------------------------------
+const getRefundPercentage = async () => {
+  try {
+    const settings = await prisma.charge_settings.findUnique({ where: { id: 1 } });
+    return Number(settings?.refund_percentage ?? 0);
+  } catch {
+    return 0;
   }
 };
 
-// Test database connection and tables
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+const daysSince = (date) => {
+  if (!date) return -1;
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return -1;
+  return Math.ceil(Math.abs(Date.now() - d) / (1000 * 60 * 60 * 24));
+};
+
+const isCOD = (paymentMethod) =>
+  ["cod", "cash", "cash on delivery"].some((m) =>
+    paymentMethod?.toLowerCase().includes(m)
+  );
+
+// ---------------------------------------------------------------------------
+// Test DB connection
+// ---------------------------------------------------------------------------
 export const testDatabase = async (req, res) => {
   try {
-    // Test if return_orders table exists via Prisma
-    const returnOrdersCount = await prisma.return_orders.count();
-
-    // Notifications check skipped (Supabase dependent)
-
-    return res.json({
-      success: true,
-      message: "Database connection test (Prisma)",
-      tables: {
-        return_orders: {
-          exists: true,
-          count: returnOrdersCount,
-        },
-        notifications: {
-          exists: "unknown (Prisma)",
-          count: 0,
-        },
-      },
-    });
+    const count = await prisma.return_orders.count();
+    return res.json({ success: true, message: "DB OK", return_orders_count: count });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, error: error.message });
   }
 };
 
-// Check if order is eligible for return/cancellation
+// ---------------------------------------------------------------------------
+// Check return / cancellation eligibility
+// ---------------------------------------------------------------------------
 export const checkReturnEligibility = async (req, res) => {
   const { order_id } = req.params;
-
   try {
     const order = await orderDao.getById(order_id);
-
     if (!order) {
-      return res.status(404).json({
-        success: false,
-        error: "Order not found",
-      });
+      return res.status(404).json({ success: false, error: "Order not found" });
     }
 
-    // Check for existing return items to mark them as ineligible
-    const existingReturnItems = await prisma.return_order_items.findMany({
-      where: {
-        return_orders: {
-          order_id: order_id
-        }
-      },
-      select: {
-        order_item_id: true
-      }
+    // Already-returned item ids
+    const returnedRows = await prisma.return_order_items.findMany({
+      where: { return_orders: { order_id } },
+      select: { order_item_id: true },
     });
+    const returnedItemIds = returnedRows.map((r) => r.order_item_id);
 
-    const returnedItemIds = existingReturnItems.map(item => item.order_item_id);
+    const eligibility = { can_return: false, can_cancel: false, reason: "", days_since_delivery: 0 };
+    const item_eligibility = {};
 
-    // If all items are returned, then can_return might be false, but for now we let the frontend handle the disabling
-    // We just pass returnedItemIds to the frontend
-
-
-    let eligibility = {
-      can_return: false,
-      can_cancel: false,
-      reason: "",
-      days_since_delivery: 0,
-    };
-
-    let item_eligibility = {};
-    let atLeastOneEligible = false;
-
-    const isCODOrder = ["cod", "cash", "cash on delivery"].some(method =>
-      order.payment_method?.toLowerCase().includes(method)
-    );
-
-    if (isCODOrder) {
-      eligibility.can_return = false;
-      eligibility.can_cancel = false;
+    if (isCOD(order.payment_method)) {
       eligibility.reason = "COD orders cannot be cancelled or returned as per policy.";
-
-      // Also mark all items as ineligible for COD
-      order.order_items.forEach(item => {
-        item_eligibility[item.id] = {
-          is_eligible: false,
-          reason: "COD orders are non-returnable",
-          return_days: 0,
-          remaining_days: 0
-        };
+      order.order_items?.forEach((item) => {
+        item_eligibility[item.id] = { is_eligible: false, reason: "COD orders are non-returnable", return_days: 0, remaining_days: 0 };
       });
-
-      eligibility.item_eligibility = item_eligibility;
     } else if (order.status?.toLowerCase() === "delivered") {
-      const deliveryDate = order.updated_at || order.created_at;
-      const daysSinceDelivery = calculateDaysSinceDelivery(deliveryDate, order.status);
+      const days = daysSince(order.updated_at || order.created_at);
+      eligibility.days_since_delivery = days;
+      let anyEligible = false;
 
-      order.order_items.forEach(item => {
-        const productReturnDays = item.variant?.product?.return_days || 7;
-        const isAlreadyReturned = returnedItemIds.includes(item.id);
-        const isWindowValid = daysSinceDelivery <= productReturnDays && daysSinceDelivery >= 0;
-
-        const eligible = !isAlreadyReturned && isWindowValid;
-        if (eligible) atLeastOneEligible = true;
+      order.order_items?.forEach((item) => {
+        const returnDays = item.variant?.product?.return_days || 7;
+        const alreadyReturned = returnedItemIds.includes(item.id);
+        const inWindow = days <= returnDays && days >= 0;
+        const eligible = !alreadyReturned && inWindow;
+        if (eligible) anyEligible = true;
 
         item_eligibility[item.id] = {
           is_eligible: eligible,
-          reason: isAlreadyReturned
-            ? "Already returned"
-            : isWindowValid
-              ? `Eligible for return (Window: ${productReturnDays} days)`
-              : `Return window expired (${productReturnDays} days)`,
-          return_days: productReturnDays,
-          remaining_days: Math.max(0, productReturnDays - daysSinceDelivery)
+          reason: alreadyReturned ? "Already returned" : inWindow ? `Eligible (${returnDays}-day window)` : `Return window expired (${returnDays} days)`,
+          return_days: returnDays,
+          remaining_days: Math.max(0, returnDays - days),
         };
       });
 
-      eligibility.can_return = atLeastOneEligible;
-      eligibility.days_since_delivery = daysSinceDelivery;
-      eligibility.item_eligibility = item_eligibility;
-
+      eligibility.can_return = anyEligible;
+      if (!anyEligible) eligibility.reason = "Return window has expired for all items.";
     } else if (["pending", "confirmed", "processing", "shipped"].includes(order.status?.toLowerCase())) {
       eligibility.can_cancel = true;
       eligibility.reason = "Order can be cancelled as it hasn't been delivered yet.";
@@ -176,379 +103,227 @@ export const checkReturnEligibility = async (req, res) => {
     return res.json({
       success: true,
       order_status: order.status,
-      eligibility,
+      eligibility: { ...eligibility, item_eligibility },
       returned_item_ids: returnedItemIds,
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, error: error.message });
   }
 };
 
-// Create return/cancellation request
+// ---------------------------------------------------------------------------
+// Create return / cancellation request
+// ---------------------------------------------------------------------------
 export const createReturnRequest = async (req, res) => {
   const {
-    order_id,
-    user_id,
-    return_type, // 'return' or 'cancellation'
-    reason,
-    additional_details,
-    bank_account_holder_name,
-    bank_account_number,
-    bank_ifsc_code,
-    bank_name,
-    items = [], // For partial returns
+    order_id, user_id, return_type, reason, additional_details,
+    bank_account_holder_name, bank_account_number, bank_ifsc_code, bank_name,
+    items = [],
   } = req.body;
 
   try {
-    // 1. Basic Validation
     if (!order_id || !user_id || !return_type || !reason) {
-      return res.status(400).json({
-        success: false,
-        error: "Order ID, User ID, Return Type, and Reason are required",
-      });
+      return res.status(400).json({ success: false, error: "order_id, user_id, return_type and reason are required" });
     }
 
-    // 2. Fetch Order
-    // Assuming getById returns order even if user_id doesn't match?
-    // Ideally check user_id. OrderDAO doesn't enforce user_id check in getById.
     const order = await orderDao.getById(order_id);
-
     if (!order || order.user_id !== user_id) {
-      return res.status(404).json({
-        success: false,
-        error: "Order not found or doesn't belong to user",
-      });
+      return res.status(404).json({ success: false, error: "Order not found or doesn't belong to user" });
     }
 
-    // 3. Bank Details are ALWAYS required for refunds
-    if (
-      !bank_account_holder_name ||
-      !bank_account_number ||
-      !bank_ifsc_code ||
-      !bank_name
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: "Bank details are required for processing refunds",
-      });
+    // COD: no cancellation, no return
+    if (isCOD(order.payment_method)) {
+      return res.status(400).json({ success: false, error: "COD orders cannot be cancelled or returned as per policy." });
     }
 
-    // 4. Check Eligibility
-    let isEligible = false;
+    // Bank details required for prepaid refund
+    if (!bank_account_holder_name || !bank_account_number || !bank_ifsc_code || !bank_name) {
+      return res.status(400).json({ success: false, error: "Bank details are required for processing refunds" });
+    }
+
     const orderStatus = order.status?.toLowerCase();
-
-    // Block COD orders from cancellation and return
-    const isCODOrder = ["cod", "cash", "cash on delivery"].some(method =>
-      order.payment_method?.toLowerCase().includes(method)
-    );
-
-    if (isCODOrder) {
-      return res.status(400).json({
-        success: false,
-        error: "COD orders cannot be cancelled or returned as per policy.",
-      });
-    }
+    let isEligible = false;
 
     if (return_type === "return") {
-      if (orderStatus === "delivered") {
-        const daysSince = calculateDaysSinceDelivery(
-          order.updated_at || order.created_at,
-          order.status,
-        );
-
-        // Validate each item's return window
-        if (items && items.length > 0) {
-          const ineligibleItems = [];
-
-          items.forEach(requestedItem => {
-            const orderItem = order.order_items.find(oi => oi.id === requestedItem.order_item_id);
-            if (orderItem) {
-              const productReturnDays = orderItem.variant?.product?.return_days || 7;
-              if (daysSince > productReturnDays) {
-                ineligibleItems.push(orderItem.variant?.product?.name || "Unknown Item");
-              }
-            }
-          });
-
-          if (ineligibleItems.length > 0) {
-            return res.status(400).json({
-              success: false,
-              error: `Return window expired for: ${ineligibleItems.join(", ")}`
-            });
-          }
-          isEligible = true;
-        } else {
-          // Fallback for full order return legacy support (assume 7 days if no items specified, though strict item mode is preferred)
-          isEligible = daysSince <= 7 && daysSince >= 0;
-        }
-
+      if (orderStatus !== "delivered") {
+        return res.status(400).json({ success: false, error: "Only delivered orders can be returned" });
       }
+      if (items.length === 0) {
+        return res.status(400).json({ success: false, error: "Select at least one item to return" });
+      }
+
+      const days = daysSince(order.updated_at || order.created_at);
+      const expired = [];
+      items.forEach((ri) => {
+        const oi = order.order_items?.find((o) => o.id === ri.order_item_id);
+        if (oi) {
+          const window = oi.variant?.product?.return_days || 7;
+          if (days > window) expired.push(oi.variant?.product?.name || ri.order_item_id);
+        }
+      });
+      if (expired.length > 0) {
+        return res.status(400).json({ success: false, error: `Return window expired for: ${expired.join(", ")}` });
+      }
+
+      // Check for already-returned items
+      const alreadyReturned = await prisma.return_order_items.findFirst({
+        where: { order_item_id: { in: items.map((i) => i.order_item_id) } },
+      });
+      if (alreadyReturned) {
+        return res.status(400).json({ success: false, error: "One or more selected items have already been returned." });
+      }
+      isEligible = true;
     } else if (return_type === "cancellation") {
       isEligible = ["pending", "confirmed", "processing", "shipped"].includes(orderStatus);
     }
 
-    // 4.1 Check if Items are already returned
-    if (items && items.length > 0) {
-      const itemIds = items.map(item => item.order_item_id);
-
-      const alreadyReturned = await prisma.return_order_items.findFirst({
-        where: {
-          order_item_id: { in: itemIds }
-        }
-      });
-
-      if (alreadyReturned) {
-        return res.status(400).json({
-          success: false,
-          error: "One or more items in this request have already been returned/requested."
-        });
-      }
-    }
-
     if (!isEligible) {
-      return res.status(400).json({
-        success: false,
-        error: "Order is not eligible for this type of request",
-      });
+      return res.status(400).json({ success: false, error: "Order is not eligible for this request type" });
     }
 
-    // 5. Calculate Refund Amount & Initial Status
+    // Calculate refund amount — product price only (no shipping/platform/handling charges)
+    // + optional admin-configured refund percentage bonus on top of product subtotal
+    const refundPct = await getRefundPercentage();
     let refund_amount = 0;
-    let initial_status = "pending";
-    let processed_at = null;
-
-    // Determine if it's a COD order
-    const isCOD = ["cod", "cash", "cash on delivery"].some(method =>
-      order.payment_method?.toLowerCase().includes(method)
-    );
 
     if (return_type === "cancellation") {
-      if (isCOD) {
-        refund_amount = 0;
-        initial_status = "completed";
-        processed_at = new Date();
-      } else {
-        refund_amount = Number(order.total);
-        initial_status = "pending";
-      }
+      // Use order.subtotal (product-only amount) — excludes shipping, handling, platform, surge charges
+      const productSubtotal = Number(order.subtotal);
+      refund_amount = parseFloat((productSubtotal * (1 + refundPct / 100)).toFixed(2));
     } else {
-      // Calculate refund based on items
-      if (items && items.length > 0) {
-        // Fetch order items to calculate refund for the selected items
-        const orderItems = await prisma.order_items.findMany({
-          where: { id: { in: items.map(i => i.order_item_id) } }
-        });
-
-        const itemsTotal = orderItems.reduce((sum, item) => {
-          const requestedQty = items.find(i => i.order_item_id === item.id)?.quantity || 0;
-          return sum + (Number(item.price) * requestedQty);
-        }, 0);
-
-        refund_amount = itemsTotal;
-      } else {
-        // Fallback if no items provided (shouldn't happen for valid return)
-        refund_amount = Number(order.total) - (Number(order.shipping) || 0);
-      }
-      initial_status = "pending";
+      const orderItemIds = items.map((i) => i.order_item_id);
+      const orderItems = await prisma.order_items.findMany({ where: { id: { in: orderItemIds } } });
+      const itemSubtotal = orderItems.reduce((sum, oi) => {
+        const qty = items.find((i) => i.order_item_id === oi.id)?.quantity || 0;
+        return sum + Number(oi.price) * qty;
+      }, 0);
+      refund_amount = parseFloat((itemSubtotal * (1 + refundPct / 100)).toFixed(2));
     }
 
-    // 6. Create return request via DAO
     const returnOrder = await returnOrderDao.create(
       {
-        order_id,
-        user_id,
-        return_type,
-        reason,
-        additional_details,
-        bank_account_holder_name: bank_account_holder_name,
-        bank_account_number: bank_account_number,
-        bank_ifsc_code: bank_ifsc_code,
-        bank_name: bank_name,
+        order_id, user_id, return_type, reason, additional_details,
+        bank_account_holder_name, bank_account_number, bank_ifsc_code, bank_name,
         refund_amount,
-        status: initial_status,
+        status: "pending",
       },
-      items,
+      items
     );
 
-    // 8. Notifications (Skipped/To-do)
-
-    // 9. Update Order Status
+    // Update order status immediately for cancellations
     if (return_type === "cancellation") {
       await orderDao.update(order_id, { status: "cancelled" });
     }
 
-    return res.json({
-      success: true,
-      return_order: returnOrder,
-      message: "Return request created successfully",
-    });
+    await notifyReturnCreated({ userId: user_id, orderId: order_id, returnId: returnOrder.id, returnType: return_type });
+
+    return res.json({ success: true, return_order: returnOrder, message: "Return request created successfully" });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, error: error.message });
   }
 };
 
+// ---------------------------------------------------------------------------
 // Get user's return requests
+// ---------------------------------------------------------------------------
 export const getUserReturnRequests = async (req, res) => {
   const { user_id } = req.params;
   const { limit = 10, offset = 0 } = req.query;
-
   try {
     const data = await returnOrderDao.listByUser(user_id, limit, offset);
-
-    return res.json({
-      success: true,
-      return_requests: data,
-    });
+    return res.json({ success: true, return_requests: data });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, error: error.message });
   }
 };
 
+// ---------------------------------------------------------------------------
 // Get all return requests (admin)
+// ---------------------------------------------------------------------------
 export const getAllReturnRequests = async (req, res) => {
   const { limit = 50, offset = 0, status } = req.query;
-
   try {
     const data = await returnOrderDao.listAll({ status }, limit, offset);
-
-    return res.json({
-      success: true,
-      return_requests: data,
-    });
+    return res.json({ success: true, return_requests: data });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, error: error.message });
   }
 };
 
-// Update return request status (admin)
+// ---------------------------------------------------------------------------
+// Update return status (admin)
+// ---------------------------------------------------------------------------
 export const updateReturnRequestStatus = async (req, res) => {
   const { id } = req.params;
   const { status, admin_notes, admin_id } = req.body;
-
   try {
     if (!id || !status) {
-      return res
-        .status(400)
-        .json({ success: false, error: "ID and Status required" });
+      return res.status(400).json({ success: false, error: "id and status are required" });
     }
 
-    const validStatuses = [
-      "pending",
-      "approved",
-      "rejected",
-      "processing",
-      "completed",
-    ];
-    if (!validStatuses.includes(status)) {
+    const valid = ["pending", "approved", "rejected", "processing", "completed"];
+    if (!valid.includes(status)) {
       return res.status(400).json({ success: false, error: "Invalid status" });
     }
 
-    const existingReturn = await returnOrderDao.findById(id);
-    if (!existingReturn) {
-      return res
-        .status(404)
-        .json({ success: false, error: "Return order not found" });
+    const existing = await returnOrderDao.findById(id);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: "Return order not found" });
     }
 
     const updateData = {
       status,
-      admin_notes,
+      admin_notes: admin_notes || existing.admin_notes,
+      ...(admin_id && { admin_id }),
+      ...(status === "completed" && { processed_at: new Date() }),
     };
 
-    if (admin_id && admin_id !== "admin-user-id") {
-      // Validate UUID if necessary or trust the input if authenticated admin
-      updateData.admin_id = admin_id;
-    }
+    const updated = await returnOrderDao.update(id, updateData);
 
-    if (status === "completed") {
-      updateData.processed_at = new Date();
-    }
-
-    const updatedReturn = await returnOrderDao.update(id, updateData);
-
-    // Notifications (Skipped)
-
-    return res.json({
-      success: true,
-      return_request: updatedReturn,
-      message: "Return request updated successfully",
-      notification_sent: false,
+    await notifyReturnStatusUpdated({
+      userId: existing.user_id,
+      returnId: id,
+      status,
+      returnType: existing.return_type,
     });
+
+    return res.json({ success: true, return_request: updated, message: "Return request updated successfully", notification_sent: true });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, error: error.message });
   }
 };
 
+// ---------------------------------------------------------------------------
 // Get return request details
+// ---------------------------------------------------------------------------
 export const getReturnRequestDetails = async (req, res) => {
   const { id } = req.params;
-
   try {
     const data = await returnOrderDao.findById(id);
-
     if (!data) {
-      return res.status(404).json({
-        success: false,
-        error: "Return request not found",
-      });
+      return res.status(404).json({ success: false, error: "Return request not found" });
     }
 
-    // Data already has includes structure from DAO
-    // Map existing structure if frontend expects `return_items` at top level
-    const return_items =
-      data.return_order_items?.map((item) => ({
-        ...item,
-        order_items: {
-          ...item.order_item,
-          products: item.order_item?.product_variants?.product, // Approximate mapping
-        },
-      })) || [];
+    const return_items = data.return_order_items?.map((item) => ({
+      ...item,
+      order_items: { ...item.order_item, products: item.order_item?.product_variants?.product },
+    })) || [];
 
-    return res.json({
-      success: true,
-      return_request: {
-        ...data,
-        return_items,
-      },
-    });
+    return res.json({ success: true, return_request: { ...data, return_items } });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, error: error.message });
   }
 };
 
-// Delete return request (admin only)
+// ---------------------------------------------------------------------------
+// Delete return request (admin)
+// ---------------------------------------------------------------------------
 export const deleteReturnRequest = async (req, res) => {
   const { id } = req.params;
-
   try {
     await returnOrderDao.delete(id);
-
-    return res.json({
-      success: true,
-      message: "Return request deleted successfully",
-    });
+    return res.json({ success: true, message: "Return request deleted successfully" });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, error: error.message });
   }
 };
