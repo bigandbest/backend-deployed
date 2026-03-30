@@ -1,0 +1,34 @@
+// COD (Cash on Delivery) collection records.
+// Created when a rider accepts a COD order.
+// Admin verifies the cash deposit before unlocking the rider's wallet.
+
+model cod_collections {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rider_id         String    @db.Uuid
+  order_id         String    @unique @db.Uuid   // idempotency — one record per order
+
+  amount_collected Decimal   @db.Decimal(10, 2) // order.total at time of delivery
+
+  // PENDING_DEPOSIT  – rider accepted COD order, wallet locked
+  // DEPOSIT_CLAIMED  – rider claims they transferred to company account
+  // APPROVED         – admin confirmed receipt, wallet unlocked
+  // REJECTED         – admin rejected proof, wallet remains locked
+  status           String    @default("PENDING_DEPOSIT") @db.VarChar(30)
+
+  payment_proof    String?   // URL of uploaded proof (bank receipt, screenshot, etc.)
+  claimed_at       DateTime? @db.Timestamptz(6)
+  approved_by      String?   @db.Uuid           // admin user_id
+  approved_at      DateTime? @db.Timestamptz(6)
+  rejected_reason  String?
+  notes            String?
+
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @default(now()) @db.Timestamptz(6)
+
+  // Relations
+  riders           riders    @relation(fields: [rider_id], references: [id])
+  orders           orders    @relation(fields: [order_id], references: [id])
+
+  @@index([rider_id])
+  @@index([status])
+}

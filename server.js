@@ -106,6 +106,7 @@ import riderOrderRoutes from "./routes/riderOrderRoutes.js";
 import riderLocationRoutes from "./routes/riderLocationRoutes.js";
 import payoutSlabRoutes from "./routes/payoutSlabRoutes.js";
 import riderPayoutViewRoutes from "./routes/riderPayoutViewRoutes.js";
+import codRoutes from "./routes/codRoutes.js";
 import customerAddressRoutes from "./routes/customerAddressRoutes.js";
 import platformFeeRoutes from "./routes/platformFeeRoutes.js";
 import { startAutoCheckoutCron } from "./services/autoCheckoutCron.js";
@@ -296,6 +297,7 @@ const createApp = () => {
   app.use("/api/rider/location", riderLocationRoutes);
   app.use("/api/rider/payouts", riderPayoutViewRoutes);
   app.use("/api/admin/payout", payoutSlabRoutes);
+  app.use("/api", codRoutes);
   app.use("/api/customer/addresses", customerAddressRoutes);
 
   // Fulfillment routing

@@ -233,6 +233,8 @@ export const acceptOrder = async (req, res) => {
             }
         }
 
+        const isCOD = order.payment_method?.toLowerCase() === 'cod';
+
         // Assign order to rider
         const updated = await prisma.orders.update({
             where: { id: orderId },
@@ -245,14 +247,53 @@ export const acceptOrder = async (req, res) => {
             }
         });
 
+        // COD: lock rider wallet until cash deposit is verified by admin
+        if (isCOD) {
+            let wallet = await prisma.wallets.findFirst({ where: { user_id: req.user.id } });
+            if (!wallet) {
+                wallet = await prisma.wallets.create({
+                    data: { user_id: req.user.id, balance: 0 }
+                });
+            }
+
+            if (!wallet.is_frozen) {
+                await prisma.wallets.update({
+                    where: { id: wallet.id },
+                    data: {
+                        is_frozen: true,
+                        frozen_reason: 'COD_PENDING',
+                        frozen_by: null,   // system-triggered, not admin
+                        frozen_at: new Date(),
+                        updated_at: new Date(),
+                    }
+                });
+            }
+
+            // Record COD liability (idempotent)
+            const existingCod = await prisma.cod_collections.findUnique({ where: { order_id: orderId } });
+            if (!existingCod) {
+                await prisma.cod_collections.create({
+                    data: {
+                        rider_id: rider.id,
+                        order_id: orderId,
+                        amount_collected: order.total,
+                        status: 'PENDING_DEPOSIT',
+                    }
+                });
+            }
+        }
+
         res.status(200).json({
             success: true,
             data: {
                 order_id: updated.id,
                 status: updated.status,
                 rider_id: rider.id,
+                cod_wallet_locked: isCOD,
             },
-            message: 'Order accepted successfully',
+            message: isCOD
+                ? 'Order accepted. Wallet locked until COD deposit is verified.'
+                : 'Order accepted successfully',
         });
     } catch (error) {
         console.error('Accept order error:', error);
@@ -283,48 +324,39 @@ export const completeDelivery = async (req, res) => {
             }
         });
 
-        // Rider Payout Logic
-        if (updated.rider_payout_amount && Number(updated.rider_payout_amount) > 0) {
-            const isPrepaid = ['online', 'prepaid', 'wallet'].includes(updated.payment_method?.toLowerCase());
-
-            if (isPrepaid) {
-                // Ensure rider has a wallet
-                let wallet = await prisma.wallets.findFirst({ where: { user_id: req.user.id } });
-                if (!wallet) {
-                    wallet = await prisma.wallets.create({
-                        data: {
-                            user_id: req.user.id,
-                            balance: 0,
-                            currency: 'INR',
-                            status: 'active'
-                        }
-                    });
-                }
-
-                // Credit Wallet
-                await prisma.wallets.update({
-                    where: { id: wallet.id },
+        // For COD orders: record the collected amount so admin can verify deposit
+        if (updated.payment_method?.toLowerCase() === 'cod') {
+            // Check if a cod_collection record already exists (idempotency)
+            const existingCod = await prisma.cod_collections.findUnique({ where: { order_id: orderId } });
+            if (!existingCod) {
+                await prisma.cod_collections.create({
                     data: {
-                        balance: { increment: updated.rider_payout_amount }
-                    }
-                });
-
-                // Log Transaction
-                await prisma.wallet_transactions.create({
-                    data: {
-                        wallet_id: wallet.id,
-                        user_id: req.user.id,
-                        amount: updated.rider_payout_amount,
-                        type: 'credit',
-                        status: 'completed',
-                        description: `Payout for order #${orderId}`,
-                        reference_id: orderId,
-                        reference_type: 'rider_payout',
-                        balance_after: Number(wallet.balance) + Number(updated.rider_payout_amount)
+                        rider_id: rider.id,
+                        order_id: orderId,
+                        amount_collected: updated.total,
+                        status: 'PENDING_DEPOSIT',
                     }
                 });
             }
         }
+
+        // Trigger payout calculation for all sub-orders (non-blocking)
+        // Payout goes through admin approval via rider_payouts table — no direct wallet credit here.
+        setImmediate(async () => {
+            try {
+                const subOrders = await prisma.sub_orders.findMany({
+                    where: { parent_order_id: orderId, source_type: { not: 'zonal' } },
+                    select: { id: true }
+                });
+                for (const so of subOrders) {
+                    await calculateAndCreatePayout(so.id, rider.id).catch(err =>
+                        console.error(`[payout] completeDelivery sub-order ${so.id} failed:`, err.message)
+                    );
+                }
+            } catch (err) {
+                console.error('[payout] completeDelivery payout trigger error:', err.message);
+            }
+        });
 
         res.status(200).json({
             success: true,
@@ -584,6 +616,7 @@ import subOrderDao from '../dao/sub-order.dao.js';
 import riderAssignmentDao from '../dao/rider-assignment.dao.js';
 import fulfillmentEventDao from '../dao/fulfillment-event.dao.js';
 import { calculateAndCreatePayout } from '../services/payoutService.js';
+import { creditSellerEarnings } from '../services/sellerEarningsService.js';
 
 /**
  * Get rider's sub-orders (active ones assigned to this rider)
@@ -703,6 +736,40 @@ export const markSubOrderDelivered = async (req, res) => {
             });
         }
 
+        // GPS DELIVERY VERIFICATION — rider must be within 100m of delivery address
+        const { rider_latitude, rider_longitude } = req.body;
+
+        if (rider_latitude == null || rider_longitude == null) {
+            return res.status(400).json({
+                success: false,
+                error: 'rider_latitude and rider_longitude are required to mark delivery as complete',
+            });
+        }
+
+        const parentOrder = await prisma.orders.findUnique({
+            where: { id: subOrder.parent_order_id },
+            select: { delivery_latitude: true, delivery_longitude: true },
+        });
+
+        if (parentOrder?.delivery_latitude && parentOrder?.delivery_longitude) {
+            const distanceToDelivery = calculateDistanceKm(
+                parseFloat(rider_latitude),
+                parseFloat(rider_longitude),
+                Number(parentOrder.delivery_latitude),
+                Number(parentOrder.delivery_longitude)
+            );
+            const DELIVERY_RADIUS_KM = 0.1; // 100 metres
+            if (distanceToDelivery > DELIVERY_RADIUS_KM) {
+                return res.status(400).json({
+                    success: false,
+                    error: `You must be within 100m of the delivery address. Current distance: ${Math.round(distanceToDelivery * 1000)}m`,
+                    distance_m: Math.round(distanceToDelivery * 1000),
+                });
+            }
+        } else {
+            console.warn(`[GPS] Order ${subOrder.parent_order_id} has no delivery coordinates; skipping GPS proximity check`);
+        }
+
         // Mark delivered
         await subOrderDao.updateStatus(sub_order_id, 'delivered');
 
@@ -711,12 +778,21 @@ export const markSubOrderDelivered = async (req, res) => {
             delivered_at: new Date().toISOString(),
         });
 
-        // Trigger distance-slab payout calculation (non-blocking)
+        // Trigger distance-slab payout calculation for rider (non-blocking)
         setImmediate(() => {
             calculateAndCreatePayout(sub_order_id, rider.id).catch((err) =>
                 console.error('[payout] calculateAndCreatePayout failed:', err.message)
             );
         });
+
+        // Trigger seller wallet credit for seller-type sub-orders (non-blocking)
+        if (subOrder.source_type === 'seller' && subOrder.seller_id) {
+            setImmediate(() => {
+                creditSellerEarnings(sub_order_id, subOrder.seller_id).catch((err) =>
+                    console.error('[seller-earnings] creditSellerEarnings failed:', err.message)
+                );
+            });
+        }
 
         // Check if all sub-orders for this order are delivered
         const allSubOrders = await subOrderDao.listByOrderId(subOrder.parent_order_id);
@@ -756,5 +832,94 @@ export const markSubOrderDelivered = async (req, res) => {
     } catch (error) {
         console.error('markSubOrderDelivered error:', error);
         res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+// ================================================================
+// RIDER WALLET WITHDRAWAL
+// ================================================================
+
+const MAX_WITHDRAWAL = 5000;
+
+/**
+ * Request a wallet withdrawal (rider).
+ * POST /api/rider/wallet/withdraw
+ * Blocked if wallet is frozen (pending COD deposit).
+ * Max ₹5,000 per request.
+ */
+export const requestRiderWithdrawal = async (req, res) => {
+    try {
+        const { amount } = req.body;
+        const withdrawAmount = parseFloat(amount);
+
+        if (!amount || isNaN(withdrawAmount) || withdrawAmount <= 0) {
+            return res.status(400).json({ success: false, error: 'Valid positive amount is required' });
+        }
+        if (withdrawAmount > MAX_WITHDRAWAL) {
+            return res.status(400).json({ success: false, error: `Maximum withdrawal per request is ₹${MAX_WITHDRAWAL.toLocaleString()}` });
+        }
+
+        const rider = await prisma.riders.findUnique({
+            where: { user_id: req.user.id },
+            select: { id: true, bank_account_no: true, bank_ifsc: true, bank_name: true },
+        });
+        if (!rider) return res.status(404).json({ success: false, error: 'Rider profile not found' });
+
+        if (!rider.bank_account_no || !rider.bank_ifsc) {
+            return res.status(400).json({ success: false, error: 'Bank details must be added before requesting a withdrawal' });
+        }
+
+        const wallet = await prisma.wallets.findFirst({ where: { user_id: req.user.id } });
+        if (!wallet) return res.status(404).json({ success: false, error: 'Wallet not found. Complete a delivery first.' });
+
+        if (wallet.is_frozen) {
+            const reason = wallet.frozen_reason === 'COD_PENDING'
+                ? 'Wallet is locked due to a pending COD deposit. Submit your deposit proof to unlock.'
+                : `Wallet is frozen: ${wallet.frozen_reason}`;
+            return res.status(403).json({ success: false, error: reason });
+        }
+
+        if (Number(wallet.balance) < withdrawAmount) {
+            return res.status(400).json({ success: false, error: 'Insufficient wallet balance' });
+        }
+
+        const result = await prisma.$transaction(async (tx) => {
+            const updatedWallet = await tx.wallets.update({
+                where: { id: wallet.id },
+                data: {
+                    balance: { decrement: withdrawAmount },
+                    updated_at: new Date(),
+                    version: { increment: 1 },
+                },
+            });
+
+            const transaction = await tx.wallet_transactions.create({
+                data: {
+                    wallet_id: wallet.id,
+                    user_id: req.user.id,
+                    transaction_type: 'WITHDRAWAL',
+                    amount: withdrawAmount,
+                    balance_before: wallet.balance,
+                    balance_after: updatedWallet.balance,
+                    status: 'PENDING',
+                    description: 'Rider withdrawal to bank account',
+                },
+            });
+
+            return { updatedWallet, transaction };
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Withdrawal requested. Admin will process within 1–2 business days.',
+            data: {
+                transaction_id: result.transaction.id,
+                amount: withdrawAmount,
+                new_balance: Number(result.updatedWallet.balance),
+            },
+        });
+    } catch (error) {
+        console.error('requestRiderWithdrawal error:', error);
+        res.status(500).json({ success: false, error: 'Failed to process withdrawal request' });
     }
 };

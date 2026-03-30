@@ -148,13 +148,16 @@ export const previewSlab = async (req, res) => {
         const km = parseFloat(req.query.km);
         if (isNaN(km)) return res.status(400).json({ success: false, error: 'Provide ?km=<number>' });
 
+        const now = new Date();
         const slab = await prisma.payout_slabs.findFirst({
             where: {
                 is_active: true,
-                effective_from: { lte: new Date() },
-                OR: [{ effective_to: null }, { effective_to: { gte: new Date() } }],
-                min_km: { lte: km },
-                OR: [{ max_km: null }, { max_km: { gte: km } }],
+                effective_from: { lte: now },
+                AND: [
+                    { OR: [{ effective_to: null }, { effective_to: { gte: now } }] },
+                    { min_km: { lte: km } },
+                    { OR: [{ max_km: null }, { max_km: { gte: km } }] },
+                ],
             },
             orderBy: { min_km: 'asc' },
         });
