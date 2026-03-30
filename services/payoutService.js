@@ -114,13 +114,16 @@ export async function calculateAndCreatePayout(subOrderId, riderId) {
         let status = 'PENDING';
 
         if (totalKm !== null) {
+            const now = new Date();
             const slab = await prisma.payout_slabs.findFirst({
                 where: {
                     is_active: true,
-                    effective_from: { lte: new Date() },
-                    OR: [{ effective_to: null }, { effective_to: { gte: new Date() } }],
-                    min_km: { lte: totalKm },
-                    OR: [{ max_km: null }, { max_km: { gte: totalKm } }],
+                    effective_from: { lte: now },
+                    AND: [
+                        { OR: [{ effective_to: null }, { effective_to: { gte: now } }] },
+                        { min_km: { lte: totalKm } },
+                        { OR: [{ max_km: null }, { max_km: { gte: totalKm } }] },
+                    ],
                 },
                 orderBy: { min_km: 'asc' },
             });
@@ -194,39 +197,42 @@ export async function approvePayout(payoutId, adminUserId) {
         let wallet = await tx.wallets.findFirst({ where: { user_id: riderUserId } });
         if (!wallet) {
             wallet = await tx.wallets.create({
-                data: {
-                    user_id: riderUserId,
-                    balance: 0,
-                    currency: 'INR',
-                    status: 'active',
-                },
+                data: { user_id: riderUserId, balance: 0 },
             });
         }
 
-        const newBalance = Number(wallet.balance) + Number(payout.payout_amount);
+        // Guard: wallet must not be frozen (e.g. pending COD deposit)
+        if (wallet.is_frozen) {
+            throw new Error('Rider wallet is frozen. Resolve pending COD deposit before approving payout.');
+        }
+
+        const balanceBefore = wallet.balance;
+        const newBalance = Number(balanceBefore) + Number(payout.payout_amount);
 
         await tx.wallets.update({
             where: { id: wallet.id },
-            data: { balance: newBalance },
+            data: { balance: newBalance, updated_at: new Date(), version: { increment: 1 } },
         });
 
         await tx.wallet_transactions.create({
             data: {
                 wallet_id: wallet.id,
                 user_id: riderUserId,
+                transaction_type: 'CREDIT',
                 amount: payout.payout_amount,
-                type: 'credit',
-                status: 'completed',
-                description: `Payout for sub-order #${payout.sub_order_id}`,
-                reference_id: String(payoutId),
-                reference_type: 'rider_payout',
+                balance_before: balanceBefore,
                 balance_after: newBalance,
+                status: 'COMPLETED',
+                description: `Rider payout for sub-order #${payout.sub_order_id}`,
+                reference_id: payout.sub_order_id,   // UUID of the sub-order
+                reference_type: 'rider_payout',
+                created_by: adminUserId,
             },
         });
 
         await tx.rider_payouts.update({
             where: { id: payoutId },
-            data: { status: 'PAID', paid_at: new Date() },
+            data: { status: 'PAID', paid_at: new Date(), updated_at: new Date() },
         });
 
         // Audit log

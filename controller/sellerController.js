@@ -1127,6 +1127,9 @@ export const requestWalletWithdrawal = async (req, res) => {
         if (!amount || isNaN(withdrawAmount) || withdrawAmount <= 0) {
             return res.status(400).json({ success: false, error: 'Valid positive amount is required' });
         }
+        if (withdrawAmount > 5000) {
+            return res.status(400).json({ success: false, error: 'Maximum withdrawal per request is ₹5,000' });
+        }
 
         const seller = await prisma.sellers.findUnique({ where: { user_id: req.user.id } });
         if (!seller) return res.status(404).json({ success: false, error: 'Seller profile not found' });

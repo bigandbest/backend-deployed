@@ -44,6 +44,7 @@ model orders {
   refund_requests      refund_requests[]
   sub_orders           sub_orders[]
   rider_assignments    rider_assignments[]
+  cod_collections      cod_collections?
 
   @@index([delivery_pincode])
   @@index([rider_id])

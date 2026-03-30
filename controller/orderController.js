@@ -1022,7 +1022,7 @@ export const getOrderTracking = async (req, res) => {
         .json({ success: false, error: "Order ID required" });
     }
 
-    // Fetch order with related items
+    // Fetch order with related items + assigned rider info
     const order = await orderDao.getById(orderId);
 
     if (!order) {
@@ -1092,7 +1092,23 @@ export const getOrderTracking = async (req, res) => {
       }
     }
 
-    return res.json({ success: true, order: order, tracking: deduped });
+    // Include assigned rider info when available (dynamic — not hardcoded)
+    let riderInfo = null;
+    if (order.rider_id) {
+        const riderRecord = await prisma.riders.findUnique({
+            where: { id: order.rider_id },
+            select: { users: { select: { name: true, phone: true } }, vehicle_type: true },
+        });
+        if (riderRecord) {
+            riderInfo = {
+                name: riderRecord.users?.name || null,
+                phone: riderRecord.users?.phone || null,
+                vehicle_type: riderRecord.vehicle_type || null,
+            };
+        }
+    }
+
+    return res.json({ success: true, order: order, tracking: deduped, rider: riderInfo });
   } catch (err) {
     console.error("getOrderTracking error:", err);
     return res

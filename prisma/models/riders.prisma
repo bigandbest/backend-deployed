@@ -39,6 +39,7 @@ model riders {
   rider_assignments     rider_assignments[]
   rider_locations       rider_locations[]
   rider_payouts         rider_payouts[]
+  cod_collections       cod_collections[]
 
   @@index([user_id])
   @@index([is_available])
