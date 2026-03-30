@@ -319,7 +319,9 @@ export const placeOrder = async (req, res) => {
       coupon_discount,
       pincode: bodyPincode,
       mobile,
-      receiver_name
+      receiver_name,
+      delivery_latitude: bodyLat,
+      delivery_longitude: bodyLon,
     } = req.body;
 
     // Use charges from request (snapshot) or fetch current settings as fallback
@@ -407,6 +409,11 @@ export const placeOrder = async (req, res) => {
       coupon_discount: coupon_discount ? parseFloat(coupon_discount) : 0,
       mobile: mobile || null,
       receiver_name: receiver_name || null,
+      // Save GPS coordinates directly if provided by client (mobile app)
+      ...(bodyLat != null && bodyLon != null ? {
+        delivery_latitude: parseFloat(bodyLat),
+        delivery_longitude: parseFloat(bodyLon),
+      } : {}),
       ...finalChargeSettings
     });
 
@@ -525,29 +532,31 @@ export const placeOrder = async (req, res) => {
     }
     // ─────────────────────────────────────────────────────────────────────────
 
-    // Geocode delivery address in background (non-blocking)
-    setImmediate(async () => {
-      try {
-        const addressString = buildAddressString({
-          addressLine1: address,
-          city: '',
-          state: '',
-          pincode: deliverabilityValidation.pincode,
-        });
-        const geo = await geocodeAddress(addressString);
-        if (geo?.latitude && geo?.longitude) {
-          await prisma.orders.update({
-            where: { id: order.id },
-            data: {
-              delivery_latitude: geo.latitude,
-              delivery_longitude: geo.longitude,
-            },
+    // Geocode delivery address in background only if GPS not already provided
+    if (bodyLat == null || bodyLon == null) {
+      setImmediate(async () => {
+        try {
+          const addressString = buildAddressString({
+            addressLine1: address,
+            city: '',
+            state: '',
+            pincode: deliverabilityValidation.pincode,
           });
+          const geo = await geocodeAddress(addressString);
+          if (geo?.latitude && geo?.longitude) {
+            await prisma.orders.update({
+              where: { id: order.id },
+              data: {
+                delivery_latitude: geo.latitude,
+                delivery_longitude: geo.longitude,
+              },
+            });
+          }
+        } catch (geoErr) {
+          console.error('[orderController] geocode failed for order', order.id, geoErr.message);
         }
-      } catch (geoErr) {
-        console.error('[orderController] geocode failed for order', order.id, geoErr.message);
-      }
-    });
+      });
+    }
 
     return res.json({
       success: true,
@@ -583,6 +592,10 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       mobile,
       receiver_name
     } = req.body;
+
+    // Extract GPS coords from gpsLocation if provided
+    const gpsLat = gpsLocation?.latitude != null ? parseFloat(gpsLocation.latitude) : null;
+    const gpsLon = gpsLocation?.longitude != null ? parseFloat(gpsLocation.longitude) : null;
 
     // Use charges from request (snapshot) or fetch current settings as fallback
     let finalChargeSettings = {
@@ -840,6 +853,11 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
           coupon_discount: coupon_discount ? parseFloat(coupon_discount) : 0,
           is_bulk_order: hasBulkOrder,
           ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
+          // Save GPS directly if provided (avoids async geocoding race condition)
+          ...(gpsLat != null && gpsLon != null ? {
+            delivery_latitude: gpsLat,
+            delivery_longitude: gpsLon,
+          } : {}),
           ...finalChargeSettings,
         },
       });

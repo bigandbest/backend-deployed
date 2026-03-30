@@ -1,6 +1,12 @@
 // services/sellerEarningsService.js
 // Credits seller wallet when their sub-order is delivered.
-// Earnings = sum(unit_price * quantity) - platform_fee per item
+// Earnings = sum(seller_offer_price * quantity) - platform_fee per item category
+//
+// BUSINESS RULE:
+//   BBM sells at X (admin/customer price).
+//   Seller accepted bid at Y (offer_price in seller_products).
+//   Platform deducts fee% from Y (based on product category).
+//   Net credit to seller wallet = Y - (Y * fee%)
 
 import prisma from '../config/prisma.js';
 import { resolveApplicablePlatformFee } from './platformFeeService.js';
@@ -44,26 +50,60 @@ export async function creditSellerEarnings(subOrderId, sellerId) {
 
         if (!items.length) return { success: false, reason: 'NO_ITEMS' };
 
-        // 3. Calculate total earnings after platform fee
+        // 3. Calculate total earnings after platform fee.
+        //    Use seller's ACCEPTED OFFER PRICE (from seller_products) as the base,
+        //    NOT item.unit_price which is the customer-facing admin selling price.
         let totalEarnings = 0;
-        for (const item of items) {
-            const itemTotal = Number(item.unit_price) * item.quantity;
-            let feePercent = 0;
+        const earningsBreakdown = [];
 
+        for (const item of items) {
+            const product = item.variant?.product;
+
+            // Look up the seller's accepted offer price for this variant
+            let sellerOfferPrice = null;
+            if (item.variant?.id) {
+                const sellerProduct = await prisma.seller_products.findFirst({
+                    where: {
+                        seller_id: sellerId,
+                        variant_id: item.variant.id,
+                    },
+                    select: { offer_price: true },
+                });
+                if (sellerProduct?.offer_price != null) {
+                    sellerOfferPrice = Number(sellerProduct.offer_price);
+                }
+            }
+
+            // Fallback to unit_price if seller offer price not recorded
+            const basePrice = sellerOfferPrice ?? Number(item.unit_price);
+            const itemTotal = basePrice * item.quantity;
+
+            let feePercent = 0;
             try {
                 const feeResolution = await resolveApplicablePlatformFee({
-                    categoryId: item.variant?.product?.category?.id,
-                    subcategoryId: item.variant?.product?.subcategory?.id,
-                    groupId: item.variant?.product?.group?.id,
+                    categoryId: product?.category?.id,
+                    subcategoryId: product?.subcategory?.id,
+                    groupId: product?.group?.id,
                 });
                 feePercent = Number(feeResolution?.fee_percentage || 0);
             } catch {
-                // If fee resolution fails, proceed with 0% fee so delivery is not blocked
+                // If fee resolution fails, proceed with 0% so delivery is not blocked
                 feePercent = 0;
             }
 
-            const platformCharge = (itemTotal * feePercent) / 100;
-            totalEarnings += itemTotal - platformCharge;
+            const platformCharge = parseFloat(((itemTotal * feePercent) / 100).toFixed(2));
+            const netEarnings = parseFloat((itemTotal - platformCharge).toFixed(2));
+            totalEarnings += netEarnings;
+
+            earningsBreakdown.push({
+                variant_id: item.variant?.id,
+                quantity: item.quantity,
+                offer_price: basePrice,
+                item_total: itemTotal,
+                fee_percent: feePercent,
+                platform_charge: platformCharge,
+                net_earnings: netEarnings,
+            });
         }
 
         totalEarnings = parseFloat(totalEarnings.toFixed(2));
@@ -93,6 +133,10 @@ export async function creditSellerEarnings(subOrderId, sellerId) {
                 data: { balance: newBalance, updated_at: new Date(), version: { increment: 1 } },
             });
 
+            const feeNote = earningsBreakdown.length === 1
+                ? `${earningsBreakdown[0].fee_percent}% category fee deducted`
+                : 'category fee per item deducted';
+
             await tx.wallet_transactions.create({
                 data: {
                     wallet_id: wallet.id,
@@ -102,14 +146,14 @@ export async function creditSellerEarnings(subOrderId, sellerId) {
                     balance_before: balanceBefore,
                     balance_after: newBalance,
                     status: 'COMPLETED',
-                    description: `Seller earnings for sub-order #${subOrderId}`,
+                    description: `Seller earnings for sub-order #${subOrderId} (${feeNote})`,
                     reference_id: subOrderId,
                     reference_type: 'seller_earnings',
                 },
             });
         });
 
-        return { success: true, totalEarnings };
+        return { success: true, totalEarnings, breakdown: earningsBreakdown };
     } catch (err) {
         console.error('[sellerEarningsService] creditSellerEarnings error:', err);
         return { success: false, reason: err.message };
