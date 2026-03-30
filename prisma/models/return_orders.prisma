@@ -10,6 +10,7 @@ model return_orders {
   bank_ifsc_code                      String?              @db.VarChar
   bank_name                           String?              @db.VarChar
   refund_amount                       Decimal              @db.Decimal
+  refund_mode                         String?              @default("bank_transfer") @db.VarChar
   status                              String?              @default("pending") @db.VarChar
   admin_notes                         String?
   admin_id                            String?              @db.Uuid

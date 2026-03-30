@@ -51,7 +51,7 @@ export const createRefundRequest = async (req, res) => {
     // + admin-configured refund percentage on top of product subtotal
     const refundPct = await getRefundPercentage();
     const productSubtotal = Number(order.subtotal);
-    const refundAmount = parseFloat((productSubtotal * (1 + refundPct / 100)).toFixed(2));
+    const refundAmount = parseFloat((productSubtotal * (1 - refundPct / 100)).toFixed(2));
 
     const refundData = {
       order_id: orderId,

@@ -159,12 +159,13 @@ model certifications {
 
 // --- Model: charge_settings.prisma ---
 model charge_settings {
-  id              Int      @id @default(1)
-  handling_charge Decimal  @default(0) @db.Decimal
-  surge_charge    Decimal  @default(0) @db.Decimal
-  discount_charge Decimal  @default(0) @db.Decimal
-  platform_charge Decimal  @default(0) @db.Decimal
-  updated_at      DateTime? @default(now()) @db.Timestamptz
+  id                Int      @id @default(1)
+  handling_charge   Decimal  @default(0) @db.Decimal
+  surge_charge      Decimal  @default(0) @db.Decimal
+  discount_charge   Decimal  @default(0) @db.Decimal
+  platform_charge   Decimal  @default(0) @db.Decimal
+  refund_percentage Decimal  @default(0) @db.Decimal
+  updated_at        DateTime? @default(now()) @db.Timestamptz
 }
 
 
@@ -232,6 +233,34 @@ model coupons {
 
   // Relations
   usages               coupon_usage[]
+}
+
+
+// --- Model: customer_addresses.prisma ---
+model customer_addresses {
+  id                    Int       @id @default(autoincrement())
+  user_id               String    @db.Uuid
+  label                 String?   @db.VarChar(50)   // 'Home' | 'Work' | 'Other'
+  address_line1         String    @db.VarChar(255)
+  address_line2         String?   @db.VarChar(255)
+  city                  String?   @db.VarChar(100)
+  state                 String?   @db.VarChar(100)
+  pincode               String?   @db.VarChar(20)
+  latitude              Decimal?  @db.Decimal(10, 7)
+  longitude             Decimal?  @db.Decimal(10, 7)
+  geocode_source        String?   @db.VarChar(20)   // 'nominatim' | 'photon'
+  geocode_status        String?   @default("PENDING") @db.VarChar(20)
+  // PENDING | SUCCESS | FAILED
+  geocoded_at           DateTime? @db.Timestamptz
+  geocoded_display_name String?   @db.Text
+  is_default            Boolean   @default(false)
+  created_at            DateTime  @default(now()) @db.Timestamptz
+  updated_at            DateTime  @default(now()) @db.Timestamptz
+
+  users                 users     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([is_default])
 }
 
 
@@ -432,6 +461,22 @@ model fulfillment_events {
 }
 
 
+// --- Model: geocode_retry_queue.prisma ---
+model geocode_retry_queue {
+  id             Int      @id @default(autoincrement())
+  entity_type    String   @db.VarChar(30)
+  // 'SELLER' | 'CUSTOMER_ADDRESS' | 'WAREHOUSE'
+  entity_id      String   @db.VarChar(50)  // String to support both Int and UUID IDs
+  address_string String   @db.Text
+  attempts       Int      @default(0)
+  resolved       Boolean  @default(false)
+  created_at     DateTime @default(now()) @db.Timestamptz
+
+  @@index([resolved, attempts])
+  @@index([entity_type])
+}
+
+
 // --- Model: groups.prisma ---
 model groups {
   id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -571,11 +616,12 @@ model orders {
   mobile               String?          @db.VarChar
   razorpay_signature   String?          @db.VarChar
   receiver_name        String?          @db.VarChar
-  delivery_distance_km Decimal?         @default(0) @db.Decimal
-  rider_payout_amount  Decimal?         @default(0) @db.Decimal
-  idempotency_key      String?          @unique @db.VarChar
-  delivery_latitude    Decimal?         @db.Decimal(10, 7)
-  delivery_longitude   Decimal?         @db.Decimal(10, 7)
+  delivery_distance_km   Decimal?         @default(0) @db.Decimal
+  rider_payout_amount    Decimal?         @default(0) @db.Decimal
+  delivery_latitude      Decimal?         @db.Decimal(10, 7)
+  delivery_longitude     Decimal?         @db.Decimal(10, 7)
+  customer_address_id    Int?
+  idempotency_key        String?          @unique @db.VarChar
 
   // Relations — matching backup schema exactly
   coupon_usage         coupon_usage?
@@ -583,6 +629,7 @@ model orders {
   order_tracking       order_tracking[]
   users                users?           @relation(fields: [user_id], references: [id])
   return_orders        return_orders[]
+  refund_requests      refund_requests[]
   sub_orders           sub_orders[]
   rider_assignments    rider_assignments[]
 
@@ -620,6 +667,63 @@ model payment_retry_logs {
   // Relations
   order_execution_logs order_execution_logs? @relation(fields: [execution_log_id], references: [id])
   scheduled_orders     scheduled_orders      @relation(fields: [scheduled_order_id], references: [id])
+}
+
+
+// --- Model: payout_audit_log.prisma ---
+model payout_audit_log {
+  id          Int      @id @default(autoincrement())
+  changed_by  String?  @db.Uuid
+  entity_type String   @db.VarChar(50)
+  entity_id   Int
+  old_value   Json?
+  new_value   Json?
+  changed_at  DateTime @default(now()) @db.Timestamptz
+
+  @@index([entity_type, entity_id])
+  @@index([changed_at])
+}
+
+
+// --- Model: payout_disputes.prisma ---
+model payout_disputes {
+  id              Int       @id @default(autoincrement())
+  payout_id       Int
+  rider_id        String    @db.Uuid                // denormalised for fast lookup
+  reason          String    @db.VarChar(50)
+  // WRONG_DISTANCE | WRONG_AMOUNT | NOT_RECEIVED | OTHER
+  note            String?   @db.Text
+  status          String    @default("OPEN") @db.VarChar(20)
+  // OPEN | RESOLVED
+  resolution_note String?   @db.Text
+  raised_at       DateTime  @default(now()) @db.Timestamptz
+  resolved_at     DateTime? @db.Timestamptz
+
+  payout          rider_payouts @relation(fields: [payout_id], references: [id])
+
+  @@index([payout_id])
+  @@index([rider_id])
+  @@index([status])
+}
+
+
+// --- Model: payout_slabs.prisma ---
+model payout_slabs {
+  id             Int       @id @default(autoincrement())
+  min_km         Decimal   @db.Decimal(5, 2)
+  max_km         Decimal?  @db.Decimal(5, 2)       // NULL = open-ended (last slab)
+  payout_amount  Decimal   @db.Decimal(10, 2)      // fixed amount in rupees
+  is_active      Boolean   @default(true)
+  effective_from DateTime  @default(now()) @db.Timestamptz
+  effective_to   DateTime? @db.Timestamptz
+  created_by     String?   @db.Uuid                // references users.id (no formal relation)
+  created_at     DateTime  @default(now()) @db.Timestamptz
+  updated_at     DateTime  @default(now()) @db.Timestamptz
+
+  rider_payouts  rider_payouts[]
+
+  @@index([is_active])
+  @@index([min_km])
 }
 
 
@@ -1092,6 +1196,39 @@ model recommended_store {
 }
 
 
+// --- Model: refund_requests.prisma ---
+model refund_requests {
+  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  order_id                 String    @db.Uuid
+  user_id                  String    @db.Uuid
+  refund_amount            Decimal   @db.Decimal
+  refund_type              String    @db.VarChar
+  payment_method           String?   @db.VarChar
+  original_payment_id      String?   @db.VarChar
+  bank_account_holder_name String?   @db.VarChar
+  bank_account_number      String?   @db.VarChar
+  bank_ifsc_code           String?   @db.VarChar
+  bank_name                String?   @db.VarChar
+  refund_mode              String?   @default("bank_transfer") @db.VarChar
+  status                   String?   @default("pending") @db.VarChar
+  admin_notes              String?
+  processed_by             String?   @db.Uuid
+  processed_at             DateTime? @db.Timestamp(6)
+  razorpay_refund_id       String?   @db.VarChar
+  created_at               DateTime? @default(now()) @db.Timestamp(6)
+  updated_at               DateTime? @default(now()) @db.Timestamp(6)
+
+  // Relations
+  orders                              orders  @relation(fields: [order_id], references: [id])
+  users_refund_requests_user_idTousers users   @relation("refund_requests_user_idTousers", fields: [user_id], references: [id])
+  users_refund_requests_processed_by  users?  @relation("refund_requests_processed_byTousers", fields: [processed_by], references: [id])
+
+  @@index([order_id])
+  @@index([user_id])
+  @@index([status])
+}
+
+
 // --- Model: return_order_items.prisma ---
 model return_order_items {
   id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -1123,6 +1260,7 @@ model return_orders {
   bank_ifsc_code                      String?              @db.VarChar
   bank_name                           String?              @db.VarChar
   refund_amount                       Decimal              @db.Decimal
+  refund_mode                         String?              @default("bank_transfer") @db.VarChar
   status                              String?              @default("pending") @db.VarChar
   admin_notes                         String?
   admin_id                            String?              @db.Uuid
@@ -1201,6 +1339,22 @@ model rider_documents {
 }
 
 
+// --- Model: rider_locations.prisma ---
+model rider_locations {
+  id          Int      @id @default(autoincrement())
+  rider_id    String   @db.Uuid
+  latitude    Decimal  @db.Decimal(10, 7)
+  longitude   Decimal  @db.Decimal(10, 7)
+  is_online   Boolean  @default(true)
+  recorded_at DateTime @default(now()) @db.Timestamptz
+
+  riders      riders   @relation(fields: [rider_id], references: [id], onDelete: Cascade)
+
+  @@index([rider_id])
+  @@index([recorded_at])
+}
+
+
 // --- Model: rider_payout_milestones.prisma ---
 model rider_payout_milestones {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -1210,6 +1364,52 @@ model rider_payout_milestones {
   created_at      DateTime? @default(now()) @db.Timestamptz(6)
   updated_at      DateTime? @default(now()) @db.Timestamptz(6)
 }
+
+
+// --- Model: rider_payouts.prisma ---
+model rider_payouts {
+  id                  Int       @id @default(autoincrement())
+  rider_id            String    @db.Uuid
+  sub_order_id        String    @db.Uuid
+  parent_order_id     String    @db.Uuid
+  route_type          String    @db.VarChar(10)     // 'SELLER' | 'WAREHOUSE'
+
+  // GPS coordinates
+  pickup_latitude     Decimal?  @db.Decimal(10, 7)  // rider location at pickup moment
+  pickup_longitude    Decimal?  @db.Decimal(10, 7)
+  source_latitude     Decimal?  @db.Decimal(10, 7)  // seller or warehouse lat
+  source_longitude    Decimal?  @db.Decimal(10, 7)
+  delivery_latitude   Decimal?  @db.Decimal(10, 7)  // customer lat
+  delivery_longitude  Decimal?  @db.Decimal(10, 7)
+
+  // Distance breakdown
+  leg1_km             Decimal?  @db.Decimal(5, 2)   // rider → source
+  leg2_km             Decimal?  @db.Decimal(5, 2)   // source → customer
+  total_km            Decimal?  @db.Decimal(5, 2)
+
+  // Payout
+  slab_id             Int?
+  payout_amount       Decimal?  @db.Decimal(10, 2)
+  status              String    @default("PENDING") @db.VarChar(20)
+  // PENDING | APPROVED | PAID | DISPUTED | MANUAL_REVIEW
+
+  calculated_at       DateTime? @db.Timestamptz
+  paid_at             DateTime? @db.Timestamptz
+  created_at          DateTime  @default(now()) @db.Timestamptz
+  updated_at          DateTime  @default(now()) @db.Timestamptz
+
+  // Relations
+  rider               riders          @relation(fields: [rider_id], references: [id])
+  sub_order           sub_orders      @relation(fields: [sub_order_id], references: [id])
+  slab                payout_slabs?   @relation(fields: [slab_id], references: [id])
+  payout_disputes     payout_disputes[]
+
+  @@unique([sub_order_id])  // idempotency: one payout per sub-order
+  @@index([rider_id])
+  @@index([status])
+  @@index([parent_order_id])
+}
+
 
 // --- Model: rider_wage_logs.prisma ---
 model rider_wage_logs {
@@ -1510,8 +1710,14 @@ model sellers {
   city              String?   @db.VarChar
   state             String?   @db.VarChar
   pincode           String?   @db.VarChar
-  latitude          Decimal?  @db.Decimal(10, 7)
-  longitude         Decimal?  @db.Decimal(10, 7)
+
+  // Location (geocoded from address)
+  latitude              Decimal?  @db.Decimal(10, 7)
+  longitude             Decimal?  @db.Decimal(10, 7)
+  geocode_source        String?   @db.VarChar(20)
+  geocode_status        String?   @default("PENDING") @db.VarChar(20)
+  geocoded_at           DateTime? @db.Timestamptz
+  geocoded_display_name String?   @db.Text
 
   // Status
   is_active         Boolean   @default(true)
@@ -1796,6 +2002,8 @@ model users {
   orders                                                    orders[]
   return_orders_return_orders_admin_idTousers               return_orders[]         @relation("return_orders_admin_idTousers")
   return_orders_return_orders_user_idTousers                return_orders[]         @relation("return_orders_user_idTousers")
+  refund_requests_refund_requests_user_idTousers            refund_requests[]       @relation("refund_requests_user_idTousers")
+  refund_requests_refund_requests_processed_byTousers       refund_requests[]       @relation("refund_requests_processed_byTousers")
   riders                                                    riders?
   sellers                                                   sellers?
   service_bookings                                          service_bookings[]
@@ -1808,6 +2016,7 @@ model users {
   wallets_wallets_frozen_byTousers                          wallets[]               @relation("wallets_frozen_byTousers")
   wallets_wallets_user_idTousers                            wallets?                @relation("wallets_user_idTousers")
   wishlist_items                                            wishlist_items[]
+  customer_addresses                                        customer_addresses[]
 }
 
 
@@ -2059,6 +2268,7 @@ model warehouses {
   hierarchy_level             Int?                          @default(0)
   latitude                    Decimal?                      @db.Decimal(10, 7)
   longitude                   Decimal?                      @db.Decimal(10, 7)
+  geocode_status              String?                       @default("PENDING") @db.VarChar(20)
 
   // Relations — matching backup schema exactly
   inventory                   inventory[]
@@ -2124,477 +2334,298 @@ model zone_pincodes {
   delivery_zones delivery_zones  @relation(fields: [zone_id], references: [id], onDelete: Cascade)
 }
 
+// --- Referral System Models ---
 
-// ============================================================================
-// REFER & EARN SYSTEM
-// ============================================================================
-
-// --- Model: referral_configs.prisma ---
 model referral_configs {
   id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  is_enabled               Boolean?  @default(true)
-  program_name             String?   @default("Refer & Earn")
-  referrer_reward_amount   Decimal   @default(75) @db.Decimal
-  referee_reward_amount    Decimal   @default(75) @db.Decimal
-  max_earning_per_user     Decimal   @default(1000) @db.Decimal
+  is_enabled               Boolean   @default(true)
+  program_name             String?   @default("Refer & Earn") @db.VarChar
+  referrer_reward_amount   Decimal   @default(75) @db.Decimal(10, 2)
+  referee_reward_amount    Decimal   @default(75) @db.Decimal(10, 2)
+  min_order_value          Decimal   @default(200) @db.Decimal(10, 2)
   reward_validity_days     Int       @default(7)
-  min_order_value          Decimal   @default(200) @db.Decimal
-  applicable_first_order   Boolean?  @default(true)
-  return_window_days       Int       @default(7)
-  min_withdrawal_amount    Decimal   @default(100) @db.Decimal
+  min_withdrawal_amount    Decimal   @default(100) @db.Decimal(10, 2)
   max_withdrawals_per_month Int      @default(10)
-  withdrawal_enabled       Boolean?  @default(true)
-  tiered_rewards_enabled   Boolean?  @default(false)
+  withdrawal_enabled       Boolean   @default(true)
+  return_window_days       Int       @default(7)
+  max_earning_per_user     Decimal   @default(1000) @db.Decimal(10, 2)
+  tiered_rewards_enabled   Boolean   @default(false)
   tiered_rewards_config    Json?
-  enable_device_tracking   Boolean?  @default(true)
-  enable_ip_tracking       Boolean?  @default(true)
-  max_referrals_per_ip     Int       @default(5)
+  enable_ip_tracking       Boolean   @default(true)
+  max_referrals_per_ip     Int       @default(3)
   cooldown_hours           Int       @default(24)
-  enable_notifications     Boolean?  @default(true)
-  reminder_before_expiry   Int       @default(48)
-  created_at               DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at               DateTime? @default(now()) @db.Timestamptz(6)
-  created_by               String?   @db.Uuid
-  updated_by               String?   @db.Uuid
-
-  @@map("referral_configs")
+  created_at               DateTime  @default(now()) @db.Timestamptz
+  updated_at               DateTime  @updatedAt @db.Timestamptz
 }
 
-// --- Model: user_referral_profiles.prisma ---
 model user_referral_profiles {
   id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id                 String    @unique @db.Uuid
-  referral_code           String    @unique
-  referral_code_active    Boolean?  @default(true)
-  referral_code_created_at DateTime? @default(now()) @db.Timestamptz(6)
+  referral_code           String    @unique @db.VarChar(20)
+  referral_code_active    Boolean   @default(true)
+  is_blocked              Boolean   @default(false)
   total_referrals         Int       @default(0)
   successful_referrals    Int       @default(0)
   pending_referrals       Int       @default(0)
   failed_referrals        Int       @default(0)
-  total_earnings          Decimal   @default(0) @db.Decimal
-  available_balance       Decimal   @default(0) @db.Decimal
-  pending_balance         Decimal   @default(0) @db.Decimal
-  withdrawn_amount        Decimal   @default(0) @db.Decimal
-  expired_amount          Decimal   @default(0) @db.Decimal
-  used_for_purchase       Decimal   @default(0) @db.Decimal
-  was_referred            Boolean?  @default(false)
+  total_earnings          Decimal   @default(0) @db.Decimal(10, 2)
+  available_balance       Decimal   @default(0) @db.Decimal(10, 2)
+  pending_balance         Decimal   @default(0) @db.Decimal(10, 2)
+  withdrawn_amount        Decimal   @default(0) @db.Decimal(10, 2)
+  expired_amount          Decimal   @default(0) @db.Decimal(10, 2)
+  used_for_purchase       Decimal   @default(0) @db.Decimal(10, 2)
+  was_referred            Boolean   @default(false)
   referred_by_user_id     String?   @db.Uuid
-  referred_by_code        String?
-  referred_at             DateTime? @db.Timestamptz(6)
-  referral_bonus_received Boolean?  @default(false)
-  status                  String    @default("ACTIVE")
-  is_blocked              Boolean?  @default(false)
-  block_reason            String?
-  blocked_at              DateTime? @db.Timestamptz(6)
-  blocked_by              String?   @db.Uuid
-  current_tier            String    @default("BRONZE")
-  tier_updated_at         DateTime? @db.Timestamptz(6)
-  created_at              DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at              DateTime? @default(now()) @db.Timestamptz(6)
+  referred_by_code        String?   @db.VarChar(20)
+  referred_at             DateTime? @db.Timestamptz
+  referral_bonus_received Boolean   @default(false)
+  current_tier            String?   @db.VarChar(50)
+  created_at              DateTime  @default(now()) @db.Timestamptz
+  updated_at              DateTime  @updatedAt @db.Timestamptz
 
-  referral_transactions   referral_transactions[]
-  referral_rewards        referral_rewards[]
-  referral_withdrawals    referral_withdrawals[]
-
-  @@index([user_id])
-  @@index([referral_code])
-  @@index([referred_by_user_id])
-  @@index([status])
-  @@map("user_referral_profiles")
+  // Relations
+  referral_transactions_as_referrer referral_transactions[] @relation("ReferrerProfile")
+  referral_rewards                  referral_rewards[]
+  referral_withdrawals              referral_withdrawals[]
 }
 
-// --- Model: referral_transactions.prisma ---
 model referral_transactions {
   id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   referrer_id             String    @db.Uuid
   referrer_profile_id     String    @db.Uuid
-  referral_code_used      String
+  referral_code_used      String    @db.VarChar(20)
   referee_id              String    @db.Uuid
-  referee_email           String?
-  referee_name            String?
-  referee_phone           String?
-  status                  String    @default("PENDING")
-  status_history          Json?
-  order_id                String?   @unique @db.Uuid
-  order_number            String?
-  order_amount            Decimal?  @db.Decimal
-  order_date              DateTime? @db.Timestamptz(6)
-  order_status            String?
-  delivered_at            DateTime? @db.Timestamptz(6)
-  return_window_starts_at DateTime? @db.Timestamptz(6)
-  return_window_ends_at   DateTime? @db.Timestamptz(6)
-  is_returned             Boolean?  @default(false)
-  return_type             String?
-  return_amount           Decimal?  @db.Decimal
-  returned_at             DateTime? @db.Timestamptz(6)
-  referrer_reward_amount  Decimal?  @db.Decimal
-  referee_reward_amount   Decimal?  @db.Decimal
+  referee_email           String?   @db.VarChar
+  referee_name            String?   @db.VarChar
+  referee_phone           String?   @db.VarChar
+  status                  String    @default("PENDING") @db.VarChar(50)
+  status_history          Json      @default("[]")
+  order_id                String?   @db.Uuid
+  order_number            String?   @db.VarChar
+  order_amount            Decimal?  @db.Decimal(10, 2)
+  order_date              DateTime? @db.Timestamptz
+  delivered_at            DateTime? @db.Timestamptz
+  return_window_starts_at DateTime? @db.Timestamptz
+  return_window_ends_at   DateTime? @db.Timestamptz
+  is_returned             Boolean   @default(false)
+  return_type             String?   @db.VarChar(20)
+  return_amount           Decimal?  @db.Decimal(10, 2)
+  returned_at             DateTime? @db.Timestamptz
+  referrer_reward_amount  Decimal?  @db.Decimal(10, 2)
+  referee_reward_amount   Decimal?  @db.Decimal(10, 2)
   referrer_reward_id      String?   @db.Uuid
   referee_reward_id       String?   @db.Uuid
-  reward_credited_at      DateTime? @db.Timestamptz(6)
-  failure_reason          String?
-  failed_at               DateTime? @db.Timestamptz(6)
-  ip_address              String?
-  device_fingerprint      String?
+  reward_credited_at      DateTime? @db.Timestamptz
+  failure_reason          String?   @db.VarChar
+  failed_at               DateTime? @db.Timestamptz
+  ip_address              String?   @db.VarChar
   user_agent              String?
-  is_fraud_suspected      Boolean?  @default(false)
-  fraud_check_passed      Boolean?
-  fraud_notes             String?
-  created_at              DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at              DateTime? @default(now()) @db.Timestamptz(6)
+  created_at              DateTime  @default(now()) @db.Timestamptz
+  updated_at              DateTime  @updatedAt @db.Timestamptz
 
-  referrer_profile        user_referral_profiles @relation(fields: [referrer_profile_id], references: [id])
-
-  @@index([referrer_id])
-  @@index([referee_id])
-  @@index([referral_code_used])
-  @@index([order_id])
-  @@index([status])
-  @@index([created_at])
-  @@map("referral_transactions")
+  // Relations
+  referrer_profile user_referral_profiles @relation("ReferrerProfile", fields: [referrer_profile_id], references: [id])
 }
 
-// --- Model: referral_rewards.prisma ---
 model referral_rewards {
-  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id                  String    @db.Uuid
-  user_profile_id          String    @db.Uuid
-  amount                   Decimal   @db.Decimal
-  original_amount          Decimal   @db.Decimal
-  reward_type              String
-  referral_transaction_id  String?   @db.Uuid
-  source_type              String?
-  source_description       String?
-  credited_at              DateTime? @default(now()) @db.Timestamptz(6)
-  expires_at               DateTime  @db.Timestamptz(6)
-  status                   String    @default("ACTIVE")
-  used_amount              Decimal   @default(0) @db.Decimal
-  remaining_amount         Decimal   @db.Decimal
-  expiry_reminder_sent     Boolean?  @default(false)
-  expiry_reminder_sent_at  DateTime? @db.Timestamptz(6)
-  urgent_reminder_sent     Boolean?  @default(false)
-  urgent_reminder_sent_at  DateTime? @db.Timestamptz(6)
-  expired_at               DateTime? @db.Timestamptz(6)
-  is_extended              Boolean?  @default(false)
-  extended_by              String?   @db.Uuid
-  extended_at              DateTime? @db.Timestamptz(6)
-  previous_expiry_date     DateTime? @db.Timestamptz(6)
-  extension_reason         String?
-  is_cancelled             Boolean?  @default(false)
-  cancelled_by             String?   @db.Uuid
-  cancelled_at             DateTime? @db.Timestamptz(6)
-  cancellation_reason      String?
-  created_at               DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at               DateTime? @default(now()) @db.Timestamptz(6)
-
-  user_profile             user_referral_profiles @relation(fields: [user_profile_id], references: [id])
-  usage_records            referral_reward_usages[]
-
-  @@index([user_id])
-  @@index([user_profile_id])
-  @@index([status])
-  @@index([expires_at])
-  @@index([credited_at])
-  @@map("referral_rewards")
-}
-
-// --- Model: referral_reward_usages.prisma ---
-model referral_reward_usages {
-  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  reward_id            String    @db.Uuid
-  user_id              String    @db.Uuid
-  amount_used          Decimal   @db.Decimal
-  usage_type           String
-  order_id             String?   @db.Uuid
-  order_number         String?
-  withdrawal_id        String?   @db.Uuid
-  reward_balance_after Decimal   @db.Decimal
-  note                 String?
-  created_at           DateTime? @default(now()) @db.Timestamptz(6)
-
-  reward               referral_rewards @relation(fields: [reward_id], references: [id])
-
-  @@index([reward_id])
-  @@index([user_id])
-  @@index([order_id])
-  @@index([withdrawal_id])
-  @@map("referral_reward_usages")
-}
-
-// --- Model: referral_withdrawals.prisma ---
-model referral_withdrawals {
-  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id               String    @db.Uuid
-  user_profile_id       String    @db.Uuid
-  requested_amount      Decimal   @db.Decimal
-  processed_amount      Decimal?  @db.Decimal
-  payment_method        String
-  bank_name             String?
-  bank_account_number   String?
-  bank_ifsc_code        String?
-  account_holder_name   String?
-  upi_id                String?
-  status                String    @default("PENDING")
-  status_history        Json?
-  processed_at          DateTime? @db.Timestamptz(6)
-  processed_by          String?   @db.Uuid
-  payment_gateway_ref   String?
-  transaction_id        String?
-  failure_reason        String?
-  failed_at             DateTime? @db.Timestamptz(6)
-  retry_count           Int       @default(0)
-  max_retries           Int       @default(3)
-  is_re_credited        Boolean?  @default(false)
-  re_credited_at        DateTime? @db.Timestamptz(6)
-  re_credited_reward_id String?   @db.Uuid
-  admin_notes           String?
-  rejection_reason      String?
-  rejected_by           String?   @db.Uuid
-  rejected_at           DateTime? @db.Timestamptz(6)
-  created_at            DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
-
-  user_profile          user_referral_profiles @relation(fields: [user_profile_id], references: [id])
-
-  @@index([user_id])
-  @@index([user_profile_id])
-  @@index([status])
-  @@index([created_at])
-  @@map("referral_withdrawals")
-}
-
-// --- Model: referral_notifications.prisma ---
-model referral_notifications {
   id                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id                   String    @db.Uuid
-  type                      String
-  title                     String
-  message                   String
-  data                      Json?
+  user_profile_id           String    @db.Uuid
   referral_transaction_id   String?   @db.Uuid
-  reward_id                 String?   @db.Uuid
-  withdrawal_id             String?   @db.Uuid
-  channels                  String[]
-  is_push_sent              Boolean?  @default(false)
-  push_sent_at              DateTime? @db.Timestamptz(6)
-  is_email_sent             Boolean?  @default(false)
-  email_sent_at             DateTime? @db.Timestamptz(6)
-  is_sms_sent               Boolean?  @default(false)
-  sms_sent_at               DateTime? @db.Timestamptz(6)
-  is_read                   Boolean?  @default(false)
-  read_at                   DateTime? @db.Timestamptz(6)
-  created_at                DateTime? @default(now()) @db.Timestamptz(6)
+  amount                    Decimal   @db.Decimal(10, 2)
+  original_amount           Decimal   @db.Decimal(10, 2)
+  remaining_amount          Decimal   @db.Decimal(10, 2)
+  used_amount               Decimal   @default(0) @db.Decimal(10, 2)
+  reward_type               String    @db.VarChar(50)
+  source_type               String?   @db.VarChar(50)
+  source_description        String?   @db.VarChar
+  status                    String    @default("ACTIVE") @db.VarChar(50)
+  credited_at               DateTime  @default(now()) @db.Timestamptz
+  expires_at                DateTime? @db.Timestamptz
+  expired_at                DateTime? @db.Timestamptz
+  expiry_reminder_sent      Boolean   @default(false)
+  expiry_reminder_sent_at   DateTime? @db.Timestamptz
+  urgent_reminder_sent      Boolean   @default(false)
+  urgent_reminder_sent_at   DateTime? @db.Timestamptz
+  created_at                DateTime  @default(now()) @db.Timestamptz
+  updated_at                DateTime  @updatedAt @db.Timestamptz
 
-  @@index([user_id])
-  @@index([type])
-  @@index([is_read])
-  @@index([created_at])
-  @@map("referral_notifications")
+  // Relations
+  profile user_referral_profiles @relation(fields: [user_profile_id], references: [id])
+  referral_reward_usages referral_reward_usages[]
 }
 
-// --- Model: referral_fraud_logs.prisma ---
-model referral_fraud_logs {
-  id                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id                   String?   @db.Uuid
-  referral_code             String?
-  referral_transaction_id   String?   @db.Uuid
-  fraud_type                String
-  severity                  String
-  description               String
-  ip_address                String?
-  device_fingerprint        String?
-  user_agent                String?
-  evidence_data             Json?
-  detected_by               String    @default("SYSTEM")
-  detection_rule            String?
-  status                    String    @default("PENDING_REVIEW")
-  reviewed_by               String?   @db.Uuid
-  reviewed_at               DateTime? @db.Timestamptz(6)
-  review_notes              String?
-  action_taken              String?
-  action_taken_by           String?   @db.Uuid
-  action_taken_at           DateTime? @db.Timestamptz(6)
-  created_at                DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at                DateTime? @default(now()) @db.Timestamptz(6)
-
-  @@index([user_id])
-  @@index([fraud_type])
-  @@index([severity])
-  @@index([status])
-  @@index([created_at])
-  @@map("referral_fraud_logs")
-}
-
-// --- Model: referral_admin_logs.prisma ---
-model referral_admin_logs {
-  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  admin_id            String    @db.Uuid
-  admin_email         String?
-  admin_name          String?
-  action              String
-  action_description  String
-  entity_type         String
-  entity_id           String?   @db.Uuid
-  previous_value      Json?
-  new_value           Json?
-  ip_address          String?
-  user_agent          String?
-  created_at          DateTime? @default(now()) @db.Timestamptz(6)
-
-  @@index([admin_id])
-  @@index([action])
-  @@index([entity_type])
-  @@index([created_at])
-  @@map("referral_admin_logs")
-}
-
-// --- Model: referral_campaigns.prisma ---
-model referral_campaigns {
-  id                          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name                        String
-  description                 String?
-  code                        String    @unique
-  type                        String
-  start_date                  DateTime  @db.Timestamptz(6)
-  end_date                    DateTime  @db.Timestamptz(6)
-  is_active                   Boolean?  @default(true)
-  referrer_reward_amount      Decimal?  @db.Decimal
-  referee_reward_amount       Decimal?  @db.Decimal
-  bonus_reward_amount         Decimal?  @db.Decimal
-  reward_validity_days        Int?
-  min_order_value             Decimal?  @db.Decimal
-  max_usage_count             Int?
-  max_usage_per_user          Int?      @default(1)
-  applicable_categories       String[]
-  applicable_products         String[]
-  total_usage_count           Int       @default(0)
-  total_rewards_distributed   Decimal   @default(0) @db.Decimal
-  created_at                  DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at                  DateTime? @default(now()) @db.Timestamptz(6)
-  created_by                  String?   @db.Uuid
-
-  @@index([code])
-  @@index([is_active])
-  @@map("referral_campaigns")
-}
-
-
-// ============================================================================
-// AFFILIATE MARKETING SYSTEM
-// ============================================================================
-
-// --- Model: affiliate_configs ---
-model affiliate_configs {
-  id                          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  is_enabled                  Boolean   @default(true)
-  program_name                String    @default("Affiliate Program")
-  program_description         String?
-  auto_approve                Boolean   @default(false)
-  cookie_duration_hours       Int       @default(24)
-  cookie_name                 String    @default("_aff_ref")
-  default_commission_rate     Decimal   @default(5) @db.Decimal(5, 2)
-  enable_tier_bonuses         Boolean   @default(true)
-  minimum_payout_amount       Decimal   @default(500) @db.Decimal(10, 2)
-  payout_frequency            String    @default("MONTHLY")
-  payout_day_of_month         Int       @default(7)
-  commission_hold_days        Int       @default(7)
-  enable_tds                  Boolean   @default(true)
-  tds_threshold               Decimal   @default(15000) @db.Decimal(10, 2)
-  tds_rate_with_pan           Decimal   @default(5) @db.Decimal(5, 2)
-  tds_rate_without_pan        Decimal   @default(20) @db.Decimal(5, 2)
-  block_self_referral         Boolean   @default(true)
-  terms_and_conditions        String?
-  created_at                  DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at                  DateTime? @default(now()) @db.Timestamptz(6)
-  updated_by                  String?   @db.Uuid
-
-  @@map("affiliate_configs")
-}
-
-// --- Model: affiliate_category_commissions ---
-model affiliate_category_commissions {
+model referral_reward_usages {
   id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  category_id           String    @unique @db.Uuid
-  category_name         String?
-  category_level        String?   // 'category', 'subcategory', 'group'
-  base_commission_rate  Decimal   @db.Decimal(5, 2)
-  is_active             Boolean   @default(true)
-  created_at            DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
-  updated_by            String?   @db.Uuid
-
-  @@index([category_id])
-  @@index([is_active])
-  @@map("affiliate_category_commissions")
-}
-
-// --- Model: affiliate_applications ---
-model affiliate_applications {
-  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reward_id             String    @db.Uuid
   user_id               String    @db.Uuid
-  email                 String
-  full_name             String
-  phone                 String
-  pan_number            String?
-  website_url           String?
-  youtube_channel       String?
-  instagram_handle      String?
-  twitter_handle        String?
-  facebook_page         String?
-  primary_platform      String
-  estimated_audience    Int?
-  niche_categories      String[]
-  promotion_strategy    String
-  previous_experience   String?
-  payment_method        String    @default("BANK_TRANSFER")
-  bank_name             String?
-  bank_account_number   String?
-  bank_ifsc_code        String?
-  account_holder_name   String?
-  upi_id                String?
-  status                String    @default("PENDING")
-  reviewed_by           String?   @db.Uuid
-  reviewed_at           DateTime? @db.Timestamptz(6)
-  review_notes          String?
-  rejection_reason      String?
-  agreed_to_terms       Boolean   @default(false)
-  agreed_at             DateTime? @db.Timestamptz(6)
-  ip_address            String?
-  submitted_at          DateTime? @default(now()) @db.Timestamptz(6)
-  created_at            DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
+  amount_used           Decimal   @db.Decimal(10, 2)
+  usage_type            String    @db.VarChar(50)
+  order_id              String?   @db.Uuid
+  order_number          String?   @db.VarChar
+  reward_balance_after  Decimal   @db.Decimal(10, 2)
+  note                  String?   @db.VarChar
+  created_at            DateTime  @default(now()) @db.Timestamptz
 
-  affiliate_profile     affiliate_profiles?
-
-  @@index([user_id])
-  @@index([email])
-  @@index([status])
-  @@map("affiliate_applications")
+  // Relations
+  referral_rewards referral_rewards @relation(fields: [reward_id], references: [id])
 }
 
-// --- Model: affiliate_profiles ---
+model referral_withdrawals {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id              String    @db.Uuid
+  user_profile_id      String    @db.Uuid
+  requested_amount     Decimal   @db.Decimal(10, 2)
+  processed_amount     Decimal?  @db.Decimal(10, 2)
+  payment_method       String    @db.VarChar(50)
+  status               String    @default("PENDING") @db.VarChar(50)
+  status_history       Json      @default("[]")
+  bank_name            String?   @db.VarChar
+  bank_account_number  String?   @db.VarChar
+  bank_ifsc_code       String?   @db.VarChar
+  account_holder_name  String?   @db.VarChar
+  upi_id               String?   @db.VarChar
+  failure_reason       String?   @db.VarChar
+  rejection_reason     String?   @db.VarChar
+  processed_at         DateTime? @db.Timestamptz
+  created_at           DateTime  @default(now()) @db.Timestamptz
+  updated_at           DateTime  @updatedAt @db.Timestamptz
+
+  // Relations
+  profile user_referral_profiles @relation(fields: [user_profile_id], references: [id])
+}
+
+model referral_notifications {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String    @db.Uuid
+  type       String    @db.VarChar(100)
+  title      String    @db.VarChar
+  message    String
+  data       Json      @default("{}")
+  channels   Json      @default("[\"in_app\"]")
+  is_read    Boolean   @default(false)
+  read_at    DateTime? @db.Timestamptz
+  created_at DateTime  @default(now()) @db.Timestamptz
+}
+
+model referral_fraud_logs {
+  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                  String?   @db.Uuid
+  referral_code            String?   @db.VarChar(20)
+  referral_transaction_id  String?   @db.Uuid
+  fraud_type               String    @db.VarChar(100)
+  severity                 String    @db.VarChar(20)
+  description              String?
+  ip_address               String?   @db.VarChar
+  user_agent               String?
+  detected_by              String?   @db.VarChar(50)
+  resolved                 Boolean   @default(false)
+  resolved_at              DateTime? @db.Timestamptz
+  resolved_by              String?   @db.VarChar
+  resolution_note          String?
+  created_at               DateTime  @default(now()) @db.Timestamptz
+}
+
+model referral_admin_logs {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  admin_id          String?   @db.Uuid
+  admin_email       String?   @db.VarChar
+  admin_name        String?   @db.VarChar
+  action            String    @db.VarChar(100)
+  action_description String?
+  entity_type       String?   @db.VarChar(50)
+  entity_id         String?   @db.Uuid
+  previous_value    Json?
+  new_value         Json?
+  ip_address        String?   @db.VarChar
+  created_at        DateTime  @default(now()) @db.Timestamptz
+}
+
+// --- Affiliate System Models ---
+
+model affiliate_configs {
+  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  is_enabled               Boolean   @default(true)
+  program_name             String    @default("Affiliate Program")
+  program_description      String?
+  auto_approve             Boolean   @default(false)
+  cookie_duration_hours    Int       @default(24)
+  cookie_name              String    @default("_aff_ref")
+  default_commission_rate  Decimal   @default(5) @db.Decimal(10, 2)
+  enable_tier_bonuses      Boolean   @default(true)
+  minimum_payout_amount    Decimal   @default(500) @db.Decimal(10, 2)
+  payout_frequency         String    @default("MONTHLY")
+  payout_day_of_month      Int       @default(7)
+  commission_hold_days     Int       @default(7)
+  enable_tds               Boolean   @default(true)
+  tds_threshold            Decimal   @default(15000) @db.Decimal(10, 2)
+  tds_rate_with_pan        Decimal   @default(5) @db.Decimal(10, 2)
+  tds_rate_without_pan     Decimal   @default(20) @db.Decimal(10, 2)
+  block_self_referral      Boolean   @default(true)
+  terms_and_conditions     String?
+  updated_by               String?   @db.Uuid
+  created_at               DateTime  @default(now()) @db.Timestamptz
+  updated_at               DateTime  @updatedAt @db.Timestamptz
+}
+
+model affiliate_applications {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id              String    @db.Uuid
+  email                String
+  full_name            String
+  phone                String
+  pan_number           String?
+  website_url          String?
+  youtube_channel      String?
+  instagram_handle     String?
+  twitter_handle       String?
+  facebook_page        String?
+  primary_platform     String
+  estimated_audience   Int?
+  niche_categories     String[]
+  promotion_strategy   String
+  previous_experience  String?
+  payment_method       String    @default("BANK_TRANSFER")
+  bank_name            String?
+  bank_account_number  String?
+  bank_ifsc_code       String?
+  account_holder_name  String?
+  upi_id               String?
+  status               String    @default("PENDING")
+  reviewed_by          String?   @db.Uuid
+  reviewed_at          DateTime? @db.Timestamptz
+  review_notes         String?
+  rejection_reason     String?
+  agreed_to_terms      Boolean   @default(false)
+  agreed_at            DateTime? @db.Timestamptz
+  ip_address           String?
+  submitted_at         DateTime? @default(now()) @db.Timestamptz
+  created_at           DateTime  @default(now()) @db.Timestamptz
+  updated_at           DateTime  @updatedAt @db.Timestamptz
+}
+
 model affiliate_profiles {
   id                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id                   String    @unique @db.Uuid
-  application_id            String    @unique @db.Uuid
+  application_id            String    @db.Uuid
   affiliate_code            String    @unique
   display_name              String
   email                     String
   phone                     String?
   pan_number                String?
   tier_name                 String    @default("Bronze")
-  tier_bonus                Decimal   @default(0) @db.Decimal(5, 2)
+  tier_bonus                Decimal   @default(0) @db.Decimal(10, 2)
   primary_platform          String?
   website_url               String?
   social_links              Json?
   total_clicks              Int       @default(0)
   total_orders              Int       @default(0)
-  total_sales               Decimal   @default(0) @db.Decimal(14, 2)
-  total_commission_earned   Decimal   @default(0) @db.Decimal(14, 2)
-  total_commission_paid     Decimal   @default(0) @db.Decimal(14, 2)
-  available_balance         Decimal   @default(0) @db.Decimal(12, 2)
-  pending_balance           Decimal   @default(0) @db.Decimal(12, 2)
-  processing_balance        Decimal   @default(0) @db.Decimal(12, 2)
+  total_sales               Decimal   @default(0) @db.Decimal(10, 2)
+  total_commission_earned   Decimal   @default(0) @db.Decimal(10, 2)
+  total_commission_paid     Decimal   @default(0) @db.Decimal(10, 2)
+  available_balance         Decimal   @default(0) @db.Decimal(10, 2)
+  pending_balance           Decimal   @default(0) @db.Decimal(10, 2)
+  processing_balance        Decimal   @default(0) @db.Decimal(10, 2)
   payment_method            String    @default("BANK_TRANSFER")
   bank_name                 String?
   bank_account_number       String?
@@ -2604,332 +2635,183 @@ model affiliate_profiles {
   status                    String    @default("ACTIVE")
   is_blocked                Boolean   @default(false)
   block_reason              String?
-  approved_at               DateTime? @default(now()) @db.Timestamptz(6)
-  last_active_at            DateTime? @db.Timestamptz(6)
-  created_at                DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at                DateTime? @default(now()) @db.Timestamptz(6)
+  approved_at               DateTime? @default(now()) @db.Timestamptz
+  last_active_at            DateTime? @db.Timestamptz
+  created_at                DateTime  @default(now()) @db.Timestamptz
+  updated_at                DateTime  @updatedAt @db.Timestamptz
 
-  application               affiliate_applications @relation(fields: [application_id], references: [id])
-  links                     affiliate_links[]
-  clicks                    affiliate_clicks[]
-  orders                    affiliate_orders[]
-  commissions               affiliate_commissions[]
-  payouts                   affiliate_payouts[]
-
-  @@index([user_id])
-  @@index([affiliate_code])
-  @@index([status])
-  @@map("affiliate_profiles")
+  // Relations
+  affiliate_links       affiliate_links[]
+  affiliate_clicks      affiliate_clicks[]
+  affiliate_orders      affiliate_orders[]
+  affiliate_commissions affiliate_commissions[]
+  affiliate_payouts     affiliate_payouts[]
 }
 
-// --- Model: affiliate_links ---
 model affiliate_links {
-  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  affiliate_id        String    @db.Uuid
-  affiliate_code      String
-  link_code           String    @unique
-  full_url            String
-  destination_type    String    // PRODUCT, CATEGORY, SEARCH, HOMEPAGE, CUSTOM
-  destination_url     String
-  product_id          String?   @db.Uuid
-  product_name        String?
-  category_id         String?   @db.Uuid
-  category_name       String?
-  search_query        String?
-  campaign_name       String?
-  sub_id              String?
-  is_active           Boolean   @default(true)
-  total_clicks        Int       @default(0)
-  total_orders        Int       @default(0)
-  total_revenue       Decimal   @default(0) @db.Decimal(12, 2)
-  total_commission    Decimal   @default(0) @db.Decimal(10, 2)
-  last_clicked_at     DateTime? @db.Timestamptz(6)
-  created_at          DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at          DateTime? @default(now()) @db.Timestamptz(6)
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  affiliate_id     String    @db.Uuid
+  affiliate_code   String
+  link_code        String    @unique
+  full_url         String
+  destination_type String
+  destination_url  String
+  product_id       String?   @db.Uuid
+  product_name     String?
+  category_id      String?   @db.Uuid
+  category_name    String?
+  search_query     String?
+  campaign_name    String?
+  sub_id           String?
+  is_active        Boolean   @default(true)
+  total_clicks     Int       @default(0)
+  total_orders     Int       @default(0)
+  total_revenue    Decimal   @default(0) @db.Decimal(10, 2)
+  total_commission Decimal   @default(0) @db.Decimal(10, 2)
+  last_clicked_at  DateTime? @db.Timestamptz
+  created_at       DateTime  @default(now()) @db.Timestamptz
+  updated_at       DateTime  @updatedAt @db.Timestamptz
 
-  affiliate_profile   affiliate_profiles @relation(fields: [affiliate_id], references: [id])
-  clicks              affiliate_clicks[]
-
-  @@index([affiliate_id])
-  @@index([link_code])
-  @@index([product_id])
-  @@index([category_id])
-  @@map("affiliate_links")
+  // Relations
+  affiliate_profiles affiliate_profiles @relation(fields: [affiliate_id], references: [id])
+  affiliate_clicks   affiliate_clicks[]
 }
 
-// --- Model: affiliate_clicks ---
 model affiliate_clicks {
-  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  affiliate_id        String    @db.Uuid
-  link_id             String?   @db.Uuid
-  link_code           String?
-  affiliate_code      String
-  visitor_id          String?
-  user_id             String?   @db.Uuid
-  ip_address          String?
-  user_agent          String?
-  device_type         String?
-  country             String?
-  referrer_url        String?
-  destination_url     String
-  cookie_expires_at   DateTime? @db.Timestamptz(6)
-  is_converted        Boolean   @default(false)
-  converted_at        DateTime? @db.Timestamptz(6)
-  order_id            String?   @db.Uuid
-  is_suspicious       Boolean   @default(false)
-  clicked_at          DateTime? @default(now()) @db.Timestamptz(6)
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  affiliate_id     String    @db.Uuid
+  link_id          String?   @db.Uuid
+  link_code        String?
+  affiliate_code   String
+  visitor_id       String?
+  user_id          String?   @db.Uuid
+  ip_address       String?
+  user_agent       String?
+  device_type      String?
+  country          String?
+  referrer_url     String?
+  destination_url  String
+  cookie_expires_at DateTime? @db.Timestamptz
+  is_converted     Boolean   @default(false)
+  converted_at     DateTime? @db.Timestamptz
+  order_id         String?   @db.Uuid
+  is_suspicious    Boolean   @default(false)
+  clicked_at       DateTime  @default(now()) @db.Timestamptz
 
-  affiliate_profile   affiliate_profiles @relation(fields: [affiliate_id], references: [id])
-  link                affiliate_links?   @relation(fields: [link_id], references: [id])
-
-  @@index([affiliate_id])
-  @@index([link_id])
-  @@index([affiliate_code])
-  @@index([visitor_id])
-  @@index([is_converted])
-  @@index([clicked_at])
-  @@map("affiliate_clicks")
+  // Relations
+  affiliate_profiles affiliate_profiles @relation(fields: [affiliate_id], references: [id])
+  affiliate_links    affiliate_links?   @relation(fields: [link_id], references: [id])
 }
 
-// --- Model: affiliate_orders ---
 model affiliate_orders {
   id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   affiliate_id          String    @db.Uuid
   affiliate_code        String
   click_id              String?   @db.Uuid
-  order_id              String    @unique @db.Uuid
+  order_id              String    @db.Uuid
   order_number          String?
   customer_id           String    @db.Uuid
   customer_email        String?
-  order_date            DateTime  @db.Timestamptz(6)
+  order_date            DateTime  @db.Timestamptz
   order_status          String
-  gross_order_value     Decimal   @db.Decimal(12, 2)
-  discount_amount       Decimal   @default(0) @db.Decimal(12, 2)
-  net_order_value       Decimal   @db.Decimal(12, 2)
+  gross_order_value     Decimal   @db.Decimal(10, 2)
+  discount_amount       Decimal   @default(0) @db.Decimal(10, 2)
+  net_order_value       Decimal   @db.Decimal(10, 2)
   is_returned           Boolean   @default(false)
-  return_amount         Decimal   @default(0) @db.Decimal(12, 2)
-  final_order_value     Decimal   @db.Decimal(12, 2)
-  delivered_at          DateTime? @db.Timestamptz(6)
-  return_window_ends_at DateTime? @db.Timestamptz(6)
+  return_amount         Decimal   @default(0) @db.Decimal(10, 2)
+  final_order_value     Decimal   @db.Decimal(10, 2)
+  delivered_at          DateTime? @db.Timestamptz
+  return_window_ends_at DateTime? @db.Timestamptz
   commission_status     String    @default("PENDING")
-  commission_rate       Decimal?  @db.Decimal(5, 2)
+  commission_rate       Decimal?  @db.Decimal(10, 2)
   commission_amount     Decimal?  @db.Decimal(10, 2)
-  tier_bonus            Decimal   @default(0) @db.Decimal(5, 2)
+  tier_bonus            Decimal   @default(0) @db.Decimal(10, 2)
   final_commission      Decimal?  @db.Decimal(10, 2)
   is_fraud_suspected    Boolean   @default(false)
-  created_at            DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
-  processed_at          DateTime? @db.Timestamptz(6)
+  processed_at          DateTime? @db.Timestamptz
+  created_at            DateTime  @default(now()) @db.Timestamptz
+  updated_at            DateTime  @updatedAt @db.Timestamptz
 
-  affiliate_profile     affiliate_profiles  @relation(fields: [affiliate_id], references: [id])
-  commission            affiliate_commissions?
-
-  @@index([affiliate_id])
-  @@index([order_id])
-  @@index([customer_id])
-  @@index([commission_status])
-  @@map("affiliate_orders")
+  // Relations
+  affiliate_profiles    affiliate_profiles    @relation(fields: [affiliate_id], references: [id])
+  affiliate_commissions affiliate_commissions[]
 }
 
-// --- Model: affiliate_commissions ---
 model affiliate_commissions {
-  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  affiliate_id          String    @db.Uuid
-  affiliate_order_id    String    @unique @db.Uuid
-  order_id              String    @db.Uuid
-  order_value           Decimal   @db.Decimal(12, 2)
-  base_commission_rate  Decimal   @db.Decimal(5, 2)
-  tier_bonus            Decimal   @default(0) @db.Decimal(5, 2)
-  effective_rate        Decimal   @db.Decimal(5, 2)
-  gross_commission      Decimal   @db.Decimal(10, 2)
-  net_commission        Decimal   @db.Decimal(10, 2)
-  tds_applicable        Boolean   @default(false)
-  tds_rate              Decimal   @default(0) @db.Decimal(5, 2)
-  tds_amount            Decimal   @default(0) @db.Decimal(10, 2)
-  final_amount          Decimal   @db.Decimal(10, 2)
-  status                String    @default("PENDING")
-  payout_id             String?   @db.Uuid
-  order_date            DateTime  @db.Timestamptz(6)
-  qualified_at          DateTime? @db.Timestamptz(6)
-  approved_at           DateTime? @db.Timestamptz(6)
-  paid_at               DateTime? @db.Timestamptz(6)
-  cancelled_at          DateTime? @db.Timestamptz(6)
-  cancellation_reason   String?
-  created_at            DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  affiliate_id         String    @db.Uuid
+  affiliate_order_id   String    @db.Uuid
+  order_id             String    @db.Uuid
+  order_value          Decimal   @db.Decimal(10, 2)
+  base_commission_rate Decimal   @db.Decimal(10, 2)
+  tier_bonus           Decimal   @default(0) @db.Decimal(10, 2)
+  effective_rate       Decimal   @db.Decimal(10, 2)
+  gross_commission     Decimal   @db.Decimal(10, 2)
+  net_commission       Decimal   @db.Decimal(10, 2)
+  tds_applicable       Boolean   @default(false)
+  tds_rate             Decimal   @default(0) @db.Decimal(10, 2)
+  tds_amount           Decimal   @default(0) @db.Decimal(10, 2)
+  final_amount         Decimal   @db.Decimal(10, 2)
+  status               String    @default("PENDING")
+  payout_id            String?   @db.Uuid
+  order_date           DateTime  @db.Timestamptz
+  qualified_at         DateTime? @db.Timestamptz
+  approved_at          DateTime? @db.Timestamptz
+  paid_at              DateTime? @db.Timestamptz
+  cancelled_at         DateTime? @db.Timestamptz
+  cancellation_reason  String?
+  created_at           DateTime  @default(now()) @db.Timestamptz
+  updated_at           DateTime  @updatedAt @db.Timestamptz
 
-  affiliate_profile     affiliate_profiles @relation(fields: [affiliate_id], references: [id])
-  affiliate_order       affiliate_orders   @relation(fields: [affiliate_order_id], references: [id])
-  payout                affiliate_payouts? @relation(fields: [payout_id], references: [id])
-
-  @@index([affiliate_id])
-  @@index([order_id])
-  @@index([status])
-  @@index([payout_id])
-  @@map("affiliate_commissions")
+  // Relations
+  affiliate_profiles affiliate_profiles @relation(fields: [affiliate_id], references: [id])
+  affiliate_orders   affiliate_orders   @relation(fields: [affiliate_order_id], references: [id])
+  affiliate_payouts  affiliate_payouts? @relation(fields: [payout_id], references: [id])
 }
 
-// --- Model: affiliate_payouts ---
 model affiliate_payouts {
-  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  affiliate_id          String    @db.Uuid
-  payout_number         String    @unique
-  payout_period         String?
-  gross_amount          Decimal   @db.Decimal(12, 2)
-  tds_amount            Decimal   @default(0) @db.Decimal(10, 2)
-  net_amount            Decimal   @db.Decimal(12, 2)
-  commission_count      Int       @default(0)
-  payment_method        String    @default("BANK_TRANSFER")
-  bank_name             String?
-  bank_account_number   String?
-  bank_ifsc_code        String?
-  account_holder_name   String?
-  upi_id                String?
-  status                String    @default("PENDING")
-  processed_by          String?   @db.Uuid
-  processed_at          DateTime? @db.Timestamptz(6)
-  transaction_id        String?
-  payment_proof         String?
-  failure_reason        String?
-  admin_notes           String?
-  period_start_date     DateTime? @db.Timestamptz(6)
-  period_end_date       DateTime? @db.Timestamptz(6)
-  requested_at          DateTime? @default(now()) @db.Timestamptz(6)
-  completed_at          DateTime? @db.Timestamptz(6)
-  created_at            DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
-
-  affiliate_profile     affiliate_profiles    @relation(fields: [affiliate_id], references: [id])
-  commissions           affiliate_commissions[]
-
-  @@index([affiliate_id])
-  @@index([payout_number])
-  @@index([status])
-  @@map("affiliate_payouts")
-}
-
-
-// --- Model: rider_locations.prisma ---
-model rider_locations {
-  id          Int      @id @default(autoincrement())
-  rider_id    String   @db.Uuid
-  latitude    Decimal  @db.Decimal(10, 7)
-  longitude   Decimal  @db.Decimal(10, 7)
-  is_online   Boolean  @default(true)
-  recorded_at DateTime @default(now()) @db.Timestamptz
-
-  riders      riders   @relation(fields: [rider_id], references: [id], onDelete: Cascade)
-
-  @@index([rider_id])
-  @@index([recorded_at])
-}
-
-
-// --- Model: payout_slabs.prisma ---
-model payout_slabs {
-  id             Int       @id @default(autoincrement())
-  min_km         Decimal   @db.Decimal(5, 2)
-  max_km         Decimal?  @db.Decimal(5, 2)
-  payout_amount  Decimal   @db.Decimal(10, 2)
-  is_active      Boolean   @default(true)
-  effective_from DateTime  @default(now()) @db.Timestamptz
-  effective_to   DateTime? @db.Timestamptz
-  created_by     String?   @db.Uuid
-  created_at     DateTime  @default(now()) @db.Timestamptz
-  updated_at     DateTime  @default(now()) @db.Timestamptz
-
-  rider_payouts  rider_payouts[]
-
-  @@index([is_active])
-  @@index([min_km])
-}
-
-
-// --- Model: rider_payouts.prisma ---
-model rider_payouts {
-  id                  Int       @id @default(autoincrement())
-  rider_id            String    @db.Uuid
-  sub_order_id        String    @db.Uuid
-  parent_order_id     String?   @db.Uuid
-  route_type          String    @db.VarChar(10)
-
-  pickup_latitude     Decimal?  @db.Decimal(10, 7)
-  pickup_longitude    Decimal?  @db.Decimal(10, 7)
-  source_latitude     Decimal?  @db.Decimal(10, 7)
-  source_longitude    Decimal?  @db.Decimal(10, 7)
-  delivery_latitude   Decimal?  @db.Decimal(10, 7)
-  delivery_longitude  Decimal?  @db.Decimal(10, 7)
-
-  leg1_km             Decimal?  @db.Decimal(5, 2)
-  leg2_km             Decimal?  @db.Decimal(5, 2)
-  total_km            Decimal?  @db.Decimal(5, 2)
-
-  slab_id             Int?
-  payout_amount       Decimal?  @db.Decimal(10, 2)
-  status              String    @default("PENDING") @db.VarChar(20)
-
-  calculated_at       DateTime? @db.Timestamptz
-  paid_at             DateTime? @db.Timestamptz
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  affiliate_id        String    @db.Uuid
+  payout_number       String    @unique
+  payout_period       String?
+  gross_amount        Decimal   @db.Decimal(10, 2)
+  tds_amount          Decimal   @default(0) @db.Decimal(10, 2)
+  net_amount          Decimal   @db.Decimal(10, 2)
+  commission_count    Int       @default(0)
+  payment_method      String    @default("BANK_TRANSFER")
+  bank_name           String?
+  bank_account_number String?
+  bank_ifsc_code      String?
+  account_holder_name String?
+  upi_id              String?
+  status              String    @default("PENDING")
+  processed_by        String?   @db.Uuid
+  processed_at        DateTime? @db.Timestamptz
+  transaction_id      String?
+  payment_proof       String?
+  failure_reason      String?
+  admin_notes         String?
+  period_start_date   DateTime? @db.Timestamptz
+  period_end_date     DateTime? @db.Timestamptz
+  requested_at        DateTime  @default(now()) @db.Timestamptz
+  completed_at        DateTime? @db.Timestamptz
   created_at          DateTime  @default(now()) @db.Timestamptz
-  updated_at          DateTime  @default(now()) @db.Timestamptz
+  updated_at          DateTime  @updatedAt @db.Timestamptz
 
-  rider               riders          @relation(fields: [rider_id], references: [id])
-  sub_order           sub_orders      @relation(fields: [sub_order_id], references: [id])
-  slab                payout_slabs?   @relation(fields: [slab_id], references: [id])
-  payout_disputes     payout_disputes[]
-
-  @@unique([sub_order_id])
-  @@index([rider_id])
-  @@index([status])
-  @@index([parent_order_id])
+  // Relations
+  affiliate_profiles    affiliate_profiles    @relation(fields: [affiliate_id], references: [id])
+  affiliate_commissions affiliate_commissions[]
 }
 
-
-// --- Model: payout_disputes.prisma ---
-model payout_disputes {
-  id              Int       @id @default(autoincrement())
-  payout_id       Int
-  rider_id        String    @db.Uuid
-  reason          String    @db.VarChar(50)
-  note            String?   @db.Text
-  status          String    @default("OPEN") @db.VarChar(20)
-  resolution_note String?   @db.Text
-  raised_at       DateTime  @default(now()) @db.Timestamptz
-  resolved_at     DateTime? @db.Timestamptz
-
-  payout          rider_payouts @relation(fields: [payout_id], references: [id])
-
-  @@index([payout_id])
-  @@index([rider_id])
-  @@index([status])
+model affiliate_category_commissions {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  category_id          String    @unique @db.Uuid
+  category_name        String?
+  category_level       String?
+  base_commission_rate Decimal   @db.Decimal(10, 2)
+  is_active            Boolean   @default(true)
+  updated_by           String?   @db.Uuid
+  created_at           DateTime  @default(now()) @db.Timestamptz
+  updated_at           DateTime  @updatedAt @db.Timestamptz
 }
 
-
-// --- Model: payout_audit_log.prisma ---
-model payout_audit_log {
-  id          Int      @id @default(autoincrement())
-  changed_by  String?  @db.Uuid
-  entity_type String   @db.VarChar(50)
-  entity_id   Int
-  old_value   Json?
-  new_value   Json?
-  changed_at  DateTime @default(now()) @db.Timestamptz
-
-  @@index([entity_type, entity_id])
-  @@index([changed_at])
-}
-
-
-// --- Model: geocode_retry_queue.prisma ---
-model geocode_retry_queue {
-  id             Int      @id @default(autoincrement())
-  entity_type    String   @db.VarChar(30)
-  entity_id      String   @db.VarChar(50)
-  address_string String   @db.Text
-  attempts       Int      @default(0)
-  resolved       Boolean  @default(false)
-  created_at     DateTime @default(now()) @db.Timestamptz
-
-  @@index([resolved, attempts])
-  @@index([entity_type])
-}
