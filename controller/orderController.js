@@ -287,11 +287,31 @@ export const getOrderDetails = async (req, res) => {
       timeline.push({ key: "delivered", title: "Delivered", completed: false });
     }
 
+    // Fetch assigned rider info if order has a rider
+    let riderInfo = null;
+    if (order.rider_id) {
+      const riderRecord = await prisma.riders.findUnique({
+        where: { id: order.rider_id },
+        select: {
+          vehicle_type: true,
+          users: { select: { name: true, phone: true } },
+        },
+      });
+      if (riderRecord) {
+        riderInfo = {
+          name: riderRecord.users?.name || null,
+          phone: riderRecord.users?.phone || null,
+          vehicle_type: riderRecord.vehicle_type || null,
+        };
+      }
+    }
+
     return res.json({
       success: true,
       order: {
         ...order,
-        timeline
+        timeline,
+        rider: riderInfo,
       }
     });
   } catch (error) {
@@ -582,7 +602,6 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       razorpay_order_id,
       razorpay_payment_id,
       razorpay_signature,
-      gpsLocation,
       handling_charge,
       surge_charge,
       platform_charge,
@@ -593,9 +612,10 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       receiver_name
     } = req.body;
 
-    // Extract GPS coords from gpsLocation if provided
-    const gpsLat = gpsLocation?.latitude != null ? parseFloat(gpsLocation.latitude) : null;
-    const gpsLon = gpsLocation?.longitude != null ? parseFloat(gpsLocation.longitude) : null;
+    // Delivery coordinates are resolved from the delivery address itself — not the
+    // device GPS — so orders placed for family/friends at a different location are
+    // handled correctly. deliveryGeo is populated below after addressString is built.
+    let deliveryGeo = null;
 
     // Use charges from request (snapshot) or fetch current settings as fallback
     let finalChargeSettings = {
@@ -670,6 +690,16 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       .filter(Boolean)
       .join(", ");
 
+    // Geocode the delivery address synchronously (4s timeout) so coordinates are
+    // available immediately. If it times out, a retry is queued after order creation.
+    try {
+      deliveryGeo = await Promise.race([
+        geocodeAddress(addressString),
+        new Promise((resolve) => setTimeout(() => resolve(null), 4000)),
+      ]);
+    } catch {
+      deliveryGeo = null;
+    }
 
     const pincodeStr = detailedAddress.postalCode?.trim() || "";
 
@@ -853,10 +883,10 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
           coupon_discount: coupon_discount ? parseFloat(coupon_discount) : 0,
           is_bulk_order: hasBulkOrder,
           ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
-          // Save GPS directly if provided (avoids async geocoding race condition)
-          ...(gpsLat != null && gpsLon != null ? {
-            delivery_latitude: gpsLat,
-            delivery_longitude: gpsLon,
+          // Use geocoded delivery address coordinates (resolved from addressString above)
+          ...(deliveryGeo?.latitude && deliveryGeo?.longitude ? {
+            delivery_latitude: deliveryGeo.latitude,
+            delivery_longitude: deliveryGeo.longitude,
           } : {}),
           ...finalChargeSettings,
         },
@@ -912,6 +942,19 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
     routeSubOrders(order.id).catch(err =>
       console.error('[Order] Fulfillment routing error:', err.message)
     );
+
+    // ── Queue geocoding retry if synchronous attempt timed out ───────────────
+    if (!deliveryGeo) {
+      prisma.geocode_retry_queue.create({
+        data: {
+          address_string: addressString,
+          entity_type: 'ORDER',
+          entity_id: order.id,
+          resolved: false,
+          attempts: 0,
+        },
+      }).catch(err => console.error('[geocode] Failed to queue retry for order', order.id, err.message));
+    }
     // ─────────────────────────────────────────────────────────────────────────
 
     return res.status(201).json({

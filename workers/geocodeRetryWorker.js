@@ -56,6 +56,14 @@ async function runRetryQueue() {
                             updated_at: new Date(),
                         },
                     });
+                } else if (job.entity_type === 'ORDER') {
+                    await prisma.orders.update({
+                        where: { id: job.entity_id },
+                        data: {
+                            delivery_latitude: geo.latitude,
+                            delivery_longitude: geo.longitude,
+                        },
+                    });
                 }
 
                 await prisma.geocode_retry_queue.update({

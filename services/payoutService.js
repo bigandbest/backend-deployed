@@ -3,7 +3,7 @@
 // Called after a sub-order is marked as delivered.
 
 import prisma from '../config/prisma.js';
-import { calculateDistanceKm } from '../utils/distanceUtils.js';
+import { getTwoLegDistance } from '../utils/roadDistance.js';
 
 /**
  * Calculate payout for a delivered sub-order and store a rider_payouts record.
@@ -93,19 +93,24 @@ export async function calculateAndCreatePayout(subOrderId, riderId) {
         const pickupLat = lastLocation ? Number(lastLocation.latitude) : null;
         const pickupLon = lastLocation ? Number(lastLocation.longitude) : null;
 
-        // 7. Calculate distances
+        // 7. Calculate distances via OSRM road network (falls back to Haversine × 1.4)
         let leg1 = null;
         let leg2 = null;
         let totalKm = null;
+        let distanceSource = 'haversine_fallback';
 
-        if (pickupLat && pickupLon && sourceLat && sourceLon) {
-            leg1 = calculateDistanceKm(pickupLat, pickupLon, sourceLat, sourceLon);
-        }
         if (sourceLat && sourceLon && deliveryLat && deliveryLon) {
-            leg2 = calculateDistanceKm(sourceLat, sourceLon, deliveryLat, deliveryLon);
-        }
-        if (leg1 !== null && leg2 !== null) {
-            totalKm = parseFloat((leg1 + leg2).toFixed(2));
+            const roadResult = await getTwoLegDistance(
+                pickupLat, pickupLon,    // rider location (may be null → leg1 = null)
+                sourceLat, sourceLon,    // seller / warehouse (pickup point)
+                deliveryLat, deliveryLon // customer delivery address
+            );
+            if (roadResult.source !== 'no_gps') {
+                leg1 = roadResult.leg1Km;       // null when rider GPS unavailable
+                leg2 = roadResult.leg2Km;
+                totalKm = roadResult.totalKm;   // null when leg1 is null → MANUAL_REVIEW
+                distanceSource = roadResult.source;
+            }
         }
 
         // 8. Find matching active payout slab
@@ -155,6 +160,8 @@ export async function calculateAndCreatePayout(subOrderId, riderId) {
                 leg1_km: leg1,
                 leg2_km: leg2,
                 total_km: totalKm,
+                distance_source: distanceSource,
+                distance_calculated_at: new Date(),
                 slab_id: slabId,
                 payout_amount: payoutAmount,
                 status,
@@ -199,11 +206,6 @@ export async function approvePayout(payoutId, adminUserId) {
             wallet = await tx.wallets.create({
                 data: { user_id: riderUserId, balance: 0 },
             });
-        }
-
-        // Guard: wallet must not be frozen (e.g. pending COD deposit)
-        if (wallet.is_frozen) {
-            throw new Error('Rider wallet is frozen. Resolve pending COD deposit before approving payout.');
         }
 
         const balanceBefore = wallet.balance;

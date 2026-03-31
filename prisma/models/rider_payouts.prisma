@@ -14,9 +14,11 @@ model rider_payouts {
   delivery_longitude  Decimal?  @db.Decimal(10, 7)
 
   // Distance breakdown
-  leg1_km             Decimal?  @db.Decimal(5, 2)   // rider → source
-  leg2_km             Decimal?  @db.Decimal(5, 2)   // source → customer
-  total_km            Decimal?  @db.Decimal(5, 2)
+  leg1_km                  Decimal?  @db.Decimal(5, 2)   // rider → source
+  leg2_km                  Decimal?  @db.Decimal(5, 2)   // source → customer
+  total_km                 Decimal?  @db.Decimal(5, 2)
+  distance_source          String?   @default("haversine_fallback") @db.VarChar(30)  // 'osrm' | 'haversine_fallback' | 'no_gps'
+  distance_calculated_at   DateTime? @db.Timestamptz
 
   // Payout
   slab_id             Int?
