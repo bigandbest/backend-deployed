@@ -67,10 +67,10 @@ export async function creditSellerEarnings(subOrderId, sellerId) {
                         seller_id: sellerId,
                         variant_id: item.variant.id,
                     },
-                    select: { offer_price: true },
+                    select: { seller_offer_price: true },
                 });
-                if (sellerProduct?.offer_price != null) {
-                    sellerOfferPrice = Number(sellerProduct.offer_price);
+                if (sellerProduct?.seller_offer_price != null) {
+                    sellerOfferPrice = Number(sellerProduct.seller_offer_price);
                 }
             }
 

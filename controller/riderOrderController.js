@@ -247,29 +247,8 @@ export const acceptOrder = async (req, res) => {
             }
         });
 
-        // COD: lock rider wallet until cash deposit is verified by admin
+        // COD: record collection liability (idempotent — no wallet freeze)
         if (isCOD) {
-            let wallet = await prisma.wallets.findFirst({ where: { user_id: req.user.id } });
-            if (!wallet) {
-                wallet = await prisma.wallets.create({
-                    data: { user_id: req.user.id, balance: 0 }
-                });
-            }
-
-            if (!wallet.is_frozen) {
-                await prisma.wallets.update({
-                    where: { id: wallet.id },
-                    data: {
-                        is_frozen: true,
-                        frozen_reason: 'COD_PENDING',
-                        frozen_by: null,   // system-triggered, not admin
-                        frozen_at: new Date(),
-                        updated_at: new Date(),
-                    }
-                });
-            }
-
-            // Record COD liability (idempotent)
             const existingCod = await prisma.cod_collections.findUnique({ where: { order_id: orderId } });
             if (!existingCod) {
                 await prisma.cod_collections.create({
@@ -289,10 +268,10 @@ export const acceptOrder = async (req, res) => {
                 order_id: updated.id,
                 status: updated.status,
                 rider_id: rider.id,
-                cod_wallet_locked: isCOD,
+                is_cod: isCOD,
             },
             message: isCOD
-                ? 'Order accepted. Wallet locked until COD deposit is verified.'
+                ? 'Order accepted. Collect cash on delivery and deposit to company account with proof.'
                 : 'Order accepted successfully',
         });
     } catch (error) {
@@ -872,11 +851,19 @@ export const requestRiderWithdrawal = async (req, res) => {
         const wallet = await prisma.wallets.findFirst({ where: { user_id: req.user.id } });
         if (!wallet) return res.status(404).json({ success: false, error: 'Wallet not found. Complete a delivery first.' });
 
-        if (wallet.is_frozen) {
-            const reason = wallet.frozen_reason === 'COD_PENDING'
-                ? 'Wallet is locked due to a pending COD deposit. Submit your deposit proof to unlock.'
-                : `Wallet is frozen: ${wallet.frozen_reason}`;
-            return res.status(403).json({ success: false, error: reason });
+        // Block withdrawal if rider has any unresolved COD collections
+        const pendingCod = await prisma.cod_collections.count({
+            where: {
+                rider_id: rider.id,
+                status: { in: ['PENDING_DEPOSIT', 'DEPOSIT_CLAIMED'] },
+            },
+        });
+        if (pendingCod > 0) {
+            return res.status(403).json({
+                success: false,
+                error: `Withdrawal blocked: you have ${pendingCod} pending COD deposit(s). Submit deposit proof and wait for admin approval before withdrawing.`,
+                pending_cod_count: pendingCod,
+            });
         }
 
         if (Number(wallet.balance) < withdrawAmount) {

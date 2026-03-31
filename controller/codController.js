@@ -82,8 +82,11 @@ export const approveCodDeposit = async (req, res) => {
 
         const riderUserId = collection.riders.user_id;
 
+        let totalPayoutCredited = 0;
+        let payoutsCredited = 0;
+
         await prisma.$transaction(async (tx) => {
-            // Mark collection approved
+            // 1. Mark collection approved
             await tx.cod_collections.update({
                 where: { id },
                 data: {
@@ -95,16 +98,82 @@ export const approveCodDeposit = async (req, res) => {
                 },
             });
 
-            // Check if this rider has any remaining pending COD collections
+            // 2. Credit rider payouts for all sub-orders of this COD order
+            const subOrders = await tx.sub_orders.findMany({
+                where: { parent_order_id: collection.order_id, source_type: { not: 'zonal' } },
+                select: { id: true },
+            });
+
+            for (const so of subOrders) {
+                const riderPayout = await tx.rider_payouts.findFirst({
+                    where: {
+                        sub_order_id: so.id,
+                        rider_id: collection.rider_id,
+                        status: { in: ['PENDING', 'MANUAL_REVIEW'] },
+                    },
+                });
+
+                if (!riderPayout || !riderPayout.payout_amount || Number(riderPayout.payout_amount) <= 0) continue;
+
+                // Re-read wallet inside loop to get latest balance after each credit
+                let wallet = await tx.wallets.findFirst({ where: { user_id: riderUserId } });
+                if (!wallet) {
+                    wallet = await tx.wallets.create({ data: { user_id: riderUserId, balance: 0 } });
+                }
+
+                const balanceBefore = wallet.balance;
+                const newBalance = Number(balanceBefore) + Number(riderPayout.payout_amount);
+
+                await tx.wallets.update({
+                    where: { id: wallet.id },
+                    data: { balance: newBalance, updated_at: new Date(), version: { increment: 1 } },
+                });
+
+                await tx.wallet_transactions.create({
+                    data: {
+                        wallet_id: wallet.id,
+                        user_id: riderUserId,
+                        transaction_type: 'CREDIT',
+                        amount: riderPayout.payout_amount,
+                        balance_before: balanceBefore,
+                        balance_after: newBalance,
+                        status: 'COMPLETED',
+                        description: `Rider payout for sub-order #${so.id} (COD deposit approved)`,
+                        reference_id: so.id,
+                        reference_type: 'rider_payout',
+                        created_by: adminUserId,
+                    },
+                });
+
+                await tx.rider_payouts.update({
+                    where: { id: riderPayout.id },
+                    data: { status: 'PAID', paid_at: new Date(), updated_at: new Date() },
+                });
+
+                await tx.payout_audit_log.create({
+                    data: {
+                        changed_by: adminUserId,
+                        entity_type: 'rider_payouts',
+                        entity_id: riderPayout.id,
+                        old_value: { status: riderPayout.status },
+                        new_value: { status: 'PAID', paid_at: new Date().toISOString() },
+                    },
+                });
+
+                totalPayoutCredited += Number(riderPayout.payout_amount);
+                payoutsCredited++;
+            }
+
+            // 3. Check remaining pending COD collections
             const pendingCount = await tx.cod_collections.count({
                 where: {
                     rider_id: collection.rider_id,
                     status: { in: ['PENDING_DEPOSIT', 'DEPOSIT_CLAIMED'] },
-                    id: { not: id },   // exclude the one we just approved
+                    id: { not: id },
                 },
             });
 
-            // Unlock wallet only if no other pending COD orders remain
+            // 4. Unfreeze wallet if clean (handles any previously frozen wallets)
             if (pendingCount === 0) {
                 const wallet = await tx.wallets.findFirst({ where: { user_id: riderUserId } });
                 if (wallet && wallet.is_frozen && wallet.frozen_reason === 'COD_PENDING') {
@@ -122,7 +191,6 @@ export const approveCodDeposit = async (req, res) => {
             }
         });
 
-        // Fetch updated state for response
         const pendingRemaining = await prisma.cod_collections.count({
             where: {
                 rider_id: collection.rider_id,
@@ -133,9 +201,12 @@ export const approveCodDeposit = async (req, res) => {
         res.status(200).json({
             success: true,
             message: pendingRemaining === 0
-                ? 'COD deposit approved. Rider wallet unlocked.'
-                : `COD deposit approved. Wallet remains locked — ${pendingRemaining} other pending COD order(s) still outstanding.`,
-            wallet_unlocked: pendingRemaining === 0,
+                ? `COD deposit approved. ₹${totalPayoutCredited.toFixed(2)} credited to rider wallet across ${payoutsCredited} payout(s). Withdrawals now enabled.`
+                : `COD deposit approved. ₹${totalPayoutCredited.toFixed(2)} credited to rider wallet. ${pendingRemaining} other COD order(s) still pending — withdrawals remain blocked.`,
+            payouts_credited: payoutsCredited,
+            total_credited: totalPayoutCredited,
+            pending_cod_remaining: pendingRemaining,
+            withdrawals_enabled: pendingRemaining === 0,
         });
     } catch (err) {
         console.error('approveCodDeposit error:', err);
@@ -174,7 +245,7 @@ export const rejectCodDeposit = async (req, res) => {
 
         res.status(200).json({
             success: true,
-            message: 'COD deposit rejected. Rider wallet remains locked until valid proof is submitted.',
+            message: 'COD deposit rejected. Rider must submit valid proof before payout can be credited and withdrawals enabled.',
         });
     } catch (err) {
         console.error('rejectCodDeposit error:', err);
@@ -216,7 +287,7 @@ export const riderClaimDeposit = async (req, res) => {
 
         res.status(200).json({
             success: true,
-            message: 'Deposit claim submitted. Admin will verify and unlock your wallet.',
+            message: 'Deposit claim submitted. Admin will verify your proof and credit your payout.',
         });
     } catch (err) {
         console.error('riderClaimDeposit error:', err);
