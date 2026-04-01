@@ -51,7 +51,7 @@ export const getMyPayouts = async (req, res) => {
 
 /**
  * GET /api/rider/payouts/summary
- * Today / this week / this month totals.
+ * Today / this week / this month totals from wallet transactions.
  */
 export const getPayoutSummary = async (req, res) => {
     try {
@@ -64,29 +64,48 @@ export const getPayoutSummary = async (req, res) => {
         startOfWeek.setDate(startOfDay.getDate() - startOfDay.getDay());
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-        const [todayPayouts, weekPayouts, monthPayouts] = await Promise.all([
-            prisma.rider_payouts.findMany({
-                where: { rider_id: rider.id, status: 'PAID', paid_at: { gte: startOfDay } },
-                select: { payout_amount: true },
+        const [todayTxns, weekTxns, monthTxns, wallet] = await Promise.all([
+            prisma.wallet_transactions.findMany({
+                where: {
+                    user_id: req.user.id,
+                    transaction_type: 'CREDIT',
+                    status: 'COMPLETED',
+                    created_at: { gte: startOfDay },
+                },
+                select: { amount: true },
             }),
-            prisma.rider_payouts.findMany({
-                where: { rider_id: rider.id, status: 'PAID', paid_at: { gte: startOfWeek } },
-                select: { payout_amount: true },
+            prisma.wallet_transactions.findMany({
+                where: {
+                    user_id: req.user.id,
+                    transaction_type: 'CREDIT',
+                    status: 'COMPLETED',
+                    created_at: { gte: startOfWeek },
+                },
+                select: { amount: true },
             }),
-            prisma.rider_payouts.findMany({
-                where: { rider_id: rider.id, status: 'PAID', paid_at: { gte: startOfMonth } },
-                select: { payout_amount: true },
+            prisma.wallet_transactions.findMany({
+                where: {
+                    user_id: req.user.id,
+                    transaction_type: 'CREDIT',
+                    status: 'COMPLETED',
+                    created_at: { gte: startOfMonth },
+                },
+                select: { amount: true },
+            }),
+            prisma.wallets.findFirst({
+                where: { user_id: req.user.id },
             }),
         ]);
 
-        const sum = (arr) => arr.reduce((acc, p) => acc + Number(p.payout_amount || 0), 0);
+        const sum = (arr) => arr.reduce((acc, t) => acc + Number(t.amount || 0), 0);
 
         res.status(200).json({
             success: true,
             data: {
-                today: sum(todayPayouts),
-                this_week: sum(weekPayouts),
-                this_month: sum(monthPayouts),
+                today: sum(todayTxns),
+                this_week: sum(weekTxns),
+                this_month: sum(monthTxns),
+                total_balance: wallet ? Number(wallet.balance) : 0,
             },
         });
     } catch (err) {
