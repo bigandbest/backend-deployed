@@ -1,0 +1,19 @@
+// Bank account settings for COD deposit receipts.
+// Stores company account details for riders to pay COD collections into.
+
+model bank_account_settings {
+  id                    Int       @id @default(autoincrement())
+  account_holder_name   String    @db.VarChar(255)
+  account_number        String    @unique @db.VarChar(255)
+  bank_name             String    @db.VarChar(255)
+  ifsc_code             String    @db.VarChar(20)
+  upi_id                String?   @db.VarChar(255)  // Optional UPI for faster transfers
+  instructions          String?   @db.Text          // Payment instructions for riders
+
+  is_active             Boolean   @default(true)
+
+  created_at            DateTime  @default(now()) @db.Timestamptz
+  updated_at            DateTime  @default(now()) @db.Timestamptz
+
+  @@index([is_active])
+}
