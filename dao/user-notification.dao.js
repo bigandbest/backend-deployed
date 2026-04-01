@@ -26,6 +26,21 @@ class UserNotificationDAO {
         });
     }
 
+    async markAllAsRead(userId) {
+        const result = await prisma.user_notifications.updateMany({
+            where: {
+                user_id: userId,
+                is_read: false
+            },
+            data: {
+                is_read: true,
+                read_at: new Date()
+            }
+        });
+
+        return result.count;
+    }
+
     async getUnreadCount(userId) {
         const now = new Date();
         return await prisma.user_notifications.count({
