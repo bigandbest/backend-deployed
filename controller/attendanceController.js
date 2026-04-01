@@ -50,10 +50,9 @@ export const checkIn = async (req, res) => {
         // Assign to warehouse by pincode if provided
         // Do this FIRST to throw an error if unserviceable, preventing check-in.
         if (pincode) {
-            try {
-                await assignRiderToPincode(rider.id, pincode);
-            } catch (pincodeErr) {
-                return res.status(200).json({ success: false, error: pincodeErr.message });
+            const assignment = await assignRiderToPincode(rider.id, pincode);
+            if (!assignment.success) {
+                return res.status(200).json({ success: false, error: assignment.message });
             }
         }
 
@@ -161,10 +160,28 @@ export const getTodaySummary = async (req, res) => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        const logs = await prisma.attendance_logs.findMany({
+        const todayLogs = await prisma.attendance_logs.findMany({
             where: { rider_id: rider.id, date: today },
             orderBy: { check_in_time: 'asc' }
         });
+
+        // Use current_shift_id as authoritative source — handles cross-midnight shifts
+        // where the log's date is yesterday but shift is still active
+        let activeShift = null;
+        if (rider.current_shift_id) {
+            const currentShift = await prisma.attendance_logs.findUnique({
+                where: { id: rider.current_shift_id }
+            });
+            if (currentShift && !currentShift.check_out_time) {
+                activeShift = currentShift;
+            }
+        }
+
+        // Merge: today's logs + active shift if it started yesterday
+        const activeShiftFromYesterday = activeShift && !todayLogs.some(l => l.id === activeShift.id)
+            ? activeShift
+            : null;
+        const logs = activeShiftFromYesterday ? [...todayLogs, activeShiftFromYesterday] : todayLogs;
 
         // Calculate total hours (including in-progress shift)
         let totalHours = 0;
@@ -178,8 +195,6 @@ export const getTodaySummary = async (req, res) => {
                 totalHours += ms / (1000 * 60 * 60);
             }
         }
-
-        const activeShift = logs.find(l => !l.check_out_time);
 
         res.status(200).json({
             success: true,

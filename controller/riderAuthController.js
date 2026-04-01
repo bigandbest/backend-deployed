@@ -128,6 +128,29 @@ export const loginRider = async (req, res) => {
             data: { last_login: new Date() }
         });
 
+        // Auto-restore warehouse assignment on login so rider can receive orders
+        // without needing a manual SQL insert.
+        const rider = user.riders;
+        if (rider?.id && rider.verification_status === 'VERIFIED') {
+            const activeAssignment = await prisma.warehouse_riders.findFirst({
+                where: { rider_id: rider.id, is_active: true },
+            });
+
+            if (!activeAssignment) {
+                // Reactivate the most recent prior assignment
+                const lastAssignment = await prisma.warehouse_riders.findFirst({
+                    where: { rider_id: rider.id },
+                    orderBy: { assigned_at: 'desc' },
+                });
+                if (lastAssignment) {
+                    await prisma.warehouse_riders.update({
+                        where: { id: lastAssignment.id },
+                        data: { is_active: true, assigned_at: new Date() },
+                    });
+                }
+            }
+        }
+
         const token = generateToken({
             id: user.id,
             email: user.email,
@@ -208,6 +231,24 @@ export const getRiderMe = async (req, res) => {
             return sum + (log.total_hours ? parseFloat(log.total_hours) : 0);
         }, 0);
 
+        // Get wallet and earnings
+        const wallet = await prisma.wallets.findFirst({
+            where: { user_id: user.id }
+        });
+
+        const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        const monthEarnings = await prisma.wallet_transactions.findMany({
+            where: {
+                user_id: user.id,
+                transaction_type: 'CREDIT',
+                status: 'COMPLETED',
+                created_at: { gte: startOfMonth }
+            },
+            select: { amount: true }
+        });
+
+        const totalEarningsMonth = monthEarnings.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+
         res.status(200).json({
             success: true,
             data: {
@@ -246,6 +287,13 @@ export const getRiderMe = async (req, res) => {
                     total_hours: totalHoursToday.toFixed(2),
                     segments: todayLogs.length,
                     is_eligible_for_minimum_wage: totalHoursToday >= 8,
+                },
+                wallet: {
+                    balance: wallet ? Number(wallet.balance) : 0,
+                    is_frozen: wallet?.is_frozen || false,
+                },
+                earnings: {
+                    this_month: totalEarningsMonth,
                 },
             },
         });

@@ -98,23 +98,34 @@ export const approveCodDeposit = async (req, res) => {
                 },
             });
 
-            // 2. Credit rider payouts for all sub-orders of this COD order
+            // 2. Credit rider payout based on default slab for all sub-orders of this COD order
+            // Use a fixed default slab distance (5km) to determine payout
             const subOrders = await tx.sub_orders.findMany({
                 where: { parent_order_id: collection.order_id, source_type: { not: 'zonal' } },
                 select: { id: true },
             });
 
-            for (const so of subOrders) {
-                const riderPayout = await tx.rider_payouts.findFirst({
-                    where: {
-                        sub_order_id: so.id,
-                        rider_id: collection.rider_id,
-                        status: { in: ['PENDING', 'MANUAL_REVIEW'] },
-                    },
+            const now = new Date();
+            const defaultSlab = await tx.payout_slabs.findFirst({
+                where: {
+                    is_active: true,
+                    effective_from: { lte: now },
+                    OR: [{ effective_to: null }, { effective_to: { gte: now } }],
+                },
+                orderBy: { payout_amount: 'desc' },
+            });
+
+            const payoutAmount = defaultSlab ? Number(defaultSlab.payout_amount) : 0;
+
+            // Skip if no valid payout amount
+            if (!payoutAmount || payoutAmount <= 0) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'No active payout slab configured. Cannot approve COD deposit.',
                 });
+            }
 
-                if (!riderPayout || !riderPayout.payout_amount || Number(riderPayout.payout_amount) <= 0) continue;
-
+            for (const so of subOrders) {
                 // Re-read wallet inside loop to get latest balance after each credit
                 let wallet = await tx.wallets.findFirst({ where: { user_id: riderUserId } });
                 if (!wallet) {
@@ -122,7 +133,7 @@ export const approveCodDeposit = async (req, res) => {
                 }
 
                 const balanceBefore = wallet.balance;
-                const newBalance = Number(balanceBefore) + Number(riderPayout.payout_amount);
+                const newBalance = Number(balanceBefore) + payoutAmount;
 
                 await tx.wallets.update({
                     where: { id: wallet.id },
@@ -134,33 +145,18 @@ export const approveCodDeposit = async (req, res) => {
                         wallet_id: wallet.id,
                         user_id: riderUserId,
                         transaction_type: 'CREDIT',
-                        amount: riderPayout.payout_amount,
+                        amount: payoutAmount,
                         balance_before: balanceBefore,
                         balance_after: newBalance,
                         status: 'COMPLETED',
                         description: `Rider payout for sub-order #${so.id} (COD deposit approved)`,
                         reference_id: so.id,
-                        reference_type: 'rider_payout',
+                        reference_type: 'cod_collection',
                         created_by: adminUserId,
                     },
                 });
 
-                await tx.rider_payouts.update({
-                    where: { id: riderPayout.id },
-                    data: { status: 'PAID', paid_at: new Date(), updated_at: new Date() },
-                });
-
-                await tx.payout_audit_log.create({
-                    data: {
-                        changed_by: adminUserId,
-                        entity_type: 'rider_payouts',
-                        entity_id: riderPayout.id,
-                        old_value: { status: riderPayout.status },
-                        new_value: { status: 'PAID', paid_at: new Date().toISOString() },
-                    },
-                });
-
-                totalPayoutCredited += Number(riderPayout.payout_amount);
+                totalPayoutCredited += payoutAmount;
                 payoutsCredited++;
             }
 
@@ -320,6 +316,7 @@ export const getRiderPendingCod = async (req, res) => {
             data: collections.map(c => ({
                 id: c.id,
                 order_id: c.order_id,
+                amount: Number(c.amount_collected),
                 order_total: Number(c.amount_collected),
                 tracking_number: c.orders?.tracking_number,
                 address: c.orders?.address,

@@ -160,8 +160,6 @@ export async function calculateAndCreatePayout(subOrderId, riderId) {
                 leg1_km: leg1,
                 leg2_km: leg2,
                 total_km: totalKm,
-                distance_source: distanceSource,
-                distance_calculated_at: new Date(),
                 slab_id: slabId,
                 payout_amount: payoutAmount,
                 status,
