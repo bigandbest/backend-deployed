@@ -78,6 +78,7 @@ import userAddressRoutes from "./routes/userAddressRoutes.js";
 import reviewRoutes from "./routes/reviewRoutes.js";
 import customerTestimonialRoutes from "./routes/customerTestimonialRoutes.js";
 import wishlistRoutes from "./routes/wishlistRoutes.js";
+import shoppingListRoutes from "./routes/shoppingListRoutes.js";
 import enquiryMessagesRoutes from "./routes/enquiryMessagesRoutes.js";
 import bidRoutes from "./routes/bidRoutes.js";
 import searchRoutes from "./routes/searchRoutes.js";
@@ -185,6 +186,7 @@ const createApp = () => {
         "Cache-Control",
         "X-File-Name",
         "X-Client-Info",
+        "x-user-pincode",
       ],
       credentials: true,
     }),
@@ -316,6 +318,7 @@ const createApp = () => {
   app.use("/api/reviews", reviewRoutes);
   app.use("/api/customer-testimonials", customerTestimonialRoutes);
   app.use("/api/wishlist", wishlistRoutes);
+  app.use("/api/shopping-lists", shoppingListRoutes);
   app.use("/api/enquiry-messages", enquiryMessagesRoutes);
   app.use("/api/bids", bidRoutes);
   app.use("/api/search", searchRoutes);

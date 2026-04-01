@@ -2017,6 +2017,7 @@ model users {
   wallets_wallets_user_idTousers                            wallets?                @relation("wallets_user_idTousers")
   wishlist_items                                            wishlist_items[]
   customer_addresses                                        customer_addresses[]
+  shopping_lists                                            shopping_lists[]
 }
 
 
@@ -2815,3 +2816,37 @@ model affiliate_category_commissions {
   updated_at           DateTime  @updatedAt @db.Timestamptz
 }
 
+
+// --- Shopping Lists Feature ---
+model shopping_lists {
+  id         String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String                @db.Uuid
+  name       String                @db.VarChar(100)
+  created_at DateTime              @default(now()) @db.Timestamptz
+  updated_at DateTime              @default(now()) @updatedAt @db.Timestamptz
+
+  users      users                 @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  items      shopping_list_items[]
+
+  @@index([user_id])
+}
+
+model shopping_list_items {
+  id         String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  list_id    String         @db.Uuid
+  product_id String         @db.Uuid
+  variant_id String?        @db.Uuid
+  name       String         @db.VarChar(255)
+  price      Decimal        @db.Decimal(10, 2)
+  old_price  Decimal?       @db.Decimal(10, 2)
+  image      String?
+  brand      String?        @db.VarChar(100)
+  weight     String?        @db.VarChar(50)
+  quantity   Int            @default(1)
+  added_at   DateTime       @default(now()) @db.Timestamptz
+
+  list       shopping_lists @relation(fields: [list_id], references: [id], onDelete: Cascade)
+
+  @@index([list_id])
+  @@index([product_id])
+}
