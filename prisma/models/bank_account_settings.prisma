@@ -9,6 +9,8 @@ model bank_account_settings {
   ifsc_code             String    @db.VarChar(20)
   upi_id                String?   @db.VarChar(255)  // Optional UPI for faster transfers
   instructions          String?   @db.Text          // Payment instructions for riders
+  admin_name            String?   @db.VarChar(255)  // Admin name for settlement support
+  admin_phone           String?   @db.VarChar(20)   // Admin phone for settlement support
 
   is_active             Boolean   @default(true)
 

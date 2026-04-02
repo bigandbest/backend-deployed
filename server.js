@@ -119,6 +119,7 @@ import adminReferralRoutes from "./routes/adminReferralRoutes.js";
 import internalReferralRoutes from "./routes/internalReferralRoutes.js";
 import affiliateRoutes from "./routes/affiliateRoutes.js";
 import affiliateAdminRoutes from "./routes/affiliateAdminRoutes.js";
+import bankAccountRoutes from "./routes/bankAccountRoutes.js";
 import { startGeocodeRetryWorker } from "./workers/geocodeRetryWorker.js";
 
 // Configuration
@@ -336,6 +337,7 @@ const createApp = () => {
   app.use("/api/faq-templates", faqTemplateRoutes);
   app.use("/api/out-of-stock", outOfStockRoutes);
   app.use("/api/platform-fees", platformFeeRoutes);
+  app.use("/api/settings", bankAccountRoutes); // Using /api/settings as base for bank account
 
   // Enhanced health check with cluster and system info
   app.get("/api/health", (req, res) => {
