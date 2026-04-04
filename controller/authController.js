@@ -10,6 +10,7 @@ import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
 import { twilioClient } from "../utils/twilio.js";
+import admin from "../config/firebase.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -279,6 +280,48 @@ export const verifyOTP = async (req, res) => {
   } catch (err) {
     console.error("Twilio Verify OTP Error:", err);
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/**
+ * POST /api/auth/phone-login
+ * Verify Firebase phone ID token and login/create user
+ */
+export const phoneLogin = async (req, res) => {
+  try {
+    const { idToken, phone } = req.body;
+
+    if (!idToken) {
+      return res.status(400).json({ success: false, error: "idToken is required" });
+    }
+
+    // Verify Firebase ID token
+    let decoded;
+    try {
+      decoded = await admin.auth().verifyIdToken(idToken);
+    } catch (err) {
+      return res.status(401).json({ success: false, error: "Invalid or expired token" });
+    }
+
+    // Use phone from token (authoritative) or fallback to body
+    const verifiedPhone = decoded.phone_number || phone;
+    if (!verifiedPhone) {
+      return res.status(400).json({ success: false, error: "Phone number not found in token" });
+    }
+
+    // Login or create user by phone
+    const result = await AuthService.loginOrSignupWithOTP(verifiedPhone);
+
+    res.json({
+      success: true,
+      message: "Phone login successful",
+      user: result.user,
+      token: result.token,
+      refreshToken: result.refreshToken,
+    });
+  } catch (error) {
+    console.error("Phone login error:", error);
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 

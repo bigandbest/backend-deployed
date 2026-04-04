@@ -10,6 +10,7 @@ import {
   sendOTP,
   verifyOTP,
   getBusinessUsers,
+  phoneLogin,
 } from "../controller/authController.js";
 import authenticate from "../middleware/authenticate.js";
 
@@ -26,5 +27,8 @@ router.get("/business-users", getBusinessUsers);
 // OTP Routes
 router.post("/send-otp", sendOTP);
 router.post("/verify-otp", verifyOTP);
+
+// Firebase Phone Login
+router.post("/phone-login", phoneLogin);
 
 export default router;

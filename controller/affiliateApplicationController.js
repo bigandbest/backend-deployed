@@ -84,7 +84,14 @@ export const getApplicationStatus = async (req, res) => {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ success: false, error: "Auth required" });
 
-    const application = await affiliateDAO.getApplicationByUserId(userId);
+    let application;
+    try {
+      application = await affiliateDAO.getApplicationByUserId(userId);
+    } catch (dbErr) {
+      // Table may not exist yet — treat as no application
+      console.warn("getApplicationStatus: affiliate table unavailable:", dbErr.message);
+      return res.json({ success: true, data: null });
+    }
     if (!application) {
       return res.json({ success: true, data: null });
     }

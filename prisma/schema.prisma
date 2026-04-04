@@ -1443,11 +1443,9 @@ model rider_payouts {
   delivery_longitude  Decimal?  @db.Decimal(10, 7)
 
   // Distance breakdown
-  leg1_km                 Decimal?  @db.Decimal(5, 2)   // rider → source
-  leg2_km                 Decimal?  @db.Decimal(5, 2)   // source → customer
-  total_km                Decimal?  @db.Decimal(5, 2)
-  distance_source         String?   @default("haversine_fallback") @db.VarChar(30) // 'osrm' | 'haversine_fallback' | 'no_gps'
-  distance_calculated_at  DateTime? @db.Timestamptz
+  leg1_km             Decimal?  @db.Decimal(5, 2)   // rider → source
+  leg2_km             Decimal?  @db.Decimal(5, 2)   // source → customer
+  total_km            Decimal?  @db.Decimal(5, 2)
 
   // Payout
   slab_id             Int?
@@ -1840,6 +1838,7 @@ model service_bookings {
   @@index([status])
   @@index([user_id])
 }
+
 
 
 // --- Model: shopping_lists.prisma ---
@@ -2627,18 +2626,18 @@ model referral_fraud_logs {
 }
 
 model referral_admin_logs {
-  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  admin_id           String?   @db.Uuid
-  admin_email        String?   @db.VarChar
-  admin_name         String?   @db.VarChar
-  action             String    @db.VarChar(100)
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  admin_id          String?   @db.Uuid
+  admin_email       String?   @db.VarChar
+  admin_name        String?   @db.VarChar
+  action            String    @db.VarChar(100)
   action_description String?
-  entity_type        String?   @db.VarChar(50)
-  entity_id          String?   @db.Uuid
-  previous_value     Json?
-  new_value          Json?
-  ip_address         String?   @db.VarChar
-  created_at         DateTime  @default(now()) @db.Timestamptz
+  entity_type       String?   @db.VarChar(50)
+  entity_id         String?   @db.Uuid
+  previous_value    Json?
+  new_value         Json?
+  ip_address        String?   @db.VarChar
+  created_at        DateTime  @default(now()) @db.Timestamptz
 }
 
 // --- Affiliate System Models ---
@@ -2778,25 +2777,25 @@ model affiliate_links {
 }
 
 model affiliate_clicks {
-  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  affiliate_id      String    @db.Uuid
-  link_id           String?   @db.Uuid
-  link_code         String?
-  affiliate_code    String
-  visitor_id        String?
-  user_id           String?   @db.Uuid
-  ip_address        String?
-  user_agent        String?
-  device_type       String?
-  country           String?
-  referrer_url      String?
-  destination_url   String
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  affiliate_id     String    @db.Uuid
+  link_id          String?   @db.Uuid
+  link_code        String?
+  affiliate_code   String
+  visitor_id       String?
+  user_id          String?   @db.Uuid
+  ip_address       String?
+  user_agent       String?
+  device_type      String?
+  country          String?
+  referrer_url     String?
+  destination_url  String
   cookie_expires_at DateTime? @db.Timestamptz
-  is_converted      Boolean   @default(false)
-  converted_at      DateTime? @db.Timestamptz
-  order_id          String?   @db.Uuid
-  is_suspicious     Boolean   @default(false)
-  clicked_at        DateTime  @default(now()) @db.Timestamptz
+  is_converted     Boolean   @default(false)
+  converted_at     DateTime? @db.Timestamptz
+  order_id         String?   @db.Uuid
+  is_suspicious    Boolean   @default(false)
+  clicked_at       DateTime  @default(now()) @db.Timestamptz
 
   // Relations
   affiliate_profiles affiliate_profiles @relation(fields: [affiliate_id], references: [id])
@@ -2915,51 +2914,3 @@ model affiliate_category_commissions {
   updated_at           DateTime  @updatedAt @db.Timestamptz
 }
 
-// --- Unique Sections Models (restored) ---
-
-model unique_sections {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String   @unique @db.VarChar(255)
-  type        String?  @db.VarChar(100)
-  description String?
-  created_at  DateTime @default(now()) @db.Timestamptz
-  updated_at  DateTime @default(now()) @updatedAt @db.Timestamptz
-
-  products unique_section_products[]
-}
-
-model unique_section_products {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  section_id String   @db.Uuid
-  product_id String   @db.Uuid
-  created_at DateTime @default(now()) @db.Timestamptz
-
-  section unique_sections @relation(fields: [section_id], references: [id], onDelete: Cascade)
-
-  @@unique([section_id, product_id])
-}
-
-// --- Order Warehouse Assignments ---
-
-model order_warehouse_assignments {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  order_id       String   @db.Uuid
-  product_id     String   @db.Uuid
-  warehouse_id   String   @db.Uuid
-  quantity       Int
-  priority       Int?
-  fallback_level Int?
-  created_at     DateTime @default(now()) @db.Timestamptz
-}
-
-// --- Referral Campaigns ---
-
-model referral_campaigns {
-  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String    @db.VarChar(255)
-  description String?
-  is_active   Boolean   @default(true)
-  created_by  String?   @db.Uuid
-  created_at  DateTime  @default(now()) @db.Timestamptz
-  updated_at  DateTime  @updatedAt @db.Timestamptz
-}

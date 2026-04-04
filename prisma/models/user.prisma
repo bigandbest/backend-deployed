@@ -38,6 +38,7 @@ model users {
   last_name                                                 String?
   business_type                                             String?
   user_image                                                String?
+  fcm_token                                                 String?           @db.Text         // Firebase Cloud Messaging token for push notifications
 
   // Relations — exact production schema names and aliases
   Post                                                      Post[]
