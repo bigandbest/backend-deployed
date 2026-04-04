@@ -1,0 +1,17 @@
+model referral_fraud_logs {
+  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                  String?   @db.Uuid
+  referral_code            String?   @db.VarChar(20)
+  referral_transaction_id  String?   @db.Uuid
+  fraud_type               String    @db.VarChar(100)
+  severity                 String    @db.VarChar(20)
+  description              String?
+  ip_address               String?   @db.VarChar
+  user_agent               String?
+  detected_by              String?   @db.VarChar(50)
+  resolved                 Boolean   @default(false)
+  resolved_at              DateTime? @db.Timestamptz
+  resolved_by              String?   @db.VarChar
+  resolution_note          String?
+  created_at               DateTime  @default(now()) @db.Timestamptz
+}

@@ -1,0 +1,37 @@
+model referral_transactions {
+  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  referrer_id             String    @db.Uuid
+  referrer_profile_id     String    @db.Uuid
+  referral_code_used      String    @db.VarChar(20)
+  referee_id              String    @db.Uuid
+  referee_email           String?   @db.VarChar
+  referee_name            String?   @db.VarChar
+  referee_phone           String?   @db.VarChar
+  status                  String    @default("PENDING") @db.VarChar(50)
+  status_history          Json      @default("[]")
+  order_id                String?   @db.Uuid
+  order_number            String?   @db.VarChar
+  order_amount            Decimal?  @db.Decimal(10, 2)
+  order_date              DateTime? @db.Timestamptz
+  delivered_at            DateTime? @db.Timestamptz
+  return_window_starts_at DateTime? @db.Timestamptz
+  return_window_ends_at   DateTime? @db.Timestamptz
+  is_returned             Boolean   @default(false)
+  return_type             String?   @db.VarChar(20)
+  return_amount           Decimal?  @db.Decimal(10, 2)
+  returned_at             DateTime? @db.Timestamptz
+  referrer_reward_amount  Decimal?  @db.Decimal(10, 2)
+  referee_reward_amount   Decimal?  @db.Decimal(10, 2)
+  referrer_reward_id      String?   @db.Uuid
+  referee_reward_id       String?   @db.Uuid
+  reward_credited_at      DateTime? @db.Timestamptz
+  failure_reason          String?   @db.VarChar
+  failed_at               DateTime? @db.Timestamptz
+  ip_address              String?   @db.VarChar
+  user_agent              String?
+  created_at              DateTime  @default(now()) @db.Timestamptz
+  updated_at              DateTime  @updatedAt @db.Timestamptz
+
+  // Relations
+  referrer_profile user_referral_profiles @relation("ReferrerProfile", fields: [referrer_profile_id], references: [id])
+}

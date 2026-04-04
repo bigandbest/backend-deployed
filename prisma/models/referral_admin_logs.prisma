@@ -1,0 +1,14 @@
+model referral_admin_logs {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  admin_id           String?   @db.Uuid
+  admin_email        String?   @db.VarChar
+  admin_name         String?   @db.VarChar
+  action             String    @db.VarChar(100)
+  action_description String?
+  entity_type        String?   @db.VarChar(50)
+  entity_id          String?   @db.Uuid
+  previous_value     Json?
+  new_value          Json?
+  ip_address         String?   @db.VarChar
+  created_at         DateTime  @default(now()) @db.Timestamptz
+}

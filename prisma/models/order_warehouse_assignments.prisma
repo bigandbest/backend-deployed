@@ -1,0 +1,10 @@
+model order_warehouse_assignments {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  order_id       String   @db.Uuid
+  product_id     String   @db.Uuid
+  warehouse_id   String   @db.Uuid
+  quantity       Int
+  priority       Int?
+  fallback_level Int?
+  created_at     DateTime @default(now()) @db.Timestamptz
+}

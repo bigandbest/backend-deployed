@@ -94,7 +94,7 @@ class ShoppingListDAO {
           user_id: userId,
           name: cl.name,
           items: {
-            create: (cl.items || []).map((item) => ({
+            create: (cl.items || []).filter((item) => item.productId).map((item) => ({
               product_id: item.productId,
               variant_id: item.variantId || null,
               name:       item.name,

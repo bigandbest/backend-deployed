@@ -1,0 +1,24 @@
+model affiliate_configs {
+  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  is_enabled               Boolean   @default(true)
+  program_name             String    @default("Affiliate Program")
+  program_description      String?
+  auto_approve             Boolean   @default(false)
+  cookie_duration_hours    Int       @default(24)
+  cookie_name              String    @default("_aff_ref")
+  default_commission_rate  Decimal   @default(5) @db.Decimal(10, 2)
+  enable_tier_bonuses      Boolean   @default(true)
+  minimum_payout_amount    Decimal   @default(500) @db.Decimal(10, 2)
+  payout_frequency         String    @default("MONTHLY")
+  payout_day_of_month      Int       @default(7)
+  commission_hold_days     Int       @default(7)
+  enable_tds               Boolean   @default(true)
+  tds_threshold            Decimal   @default(15000) @db.Decimal(10, 2)
+  tds_rate_with_pan        Decimal   @default(5) @db.Decimal(10, 2)
+  tds_rate_without_pan     Decimal   @default(20) @db.Decimal(10, 2)
+  block_self_referral      Boolean   @default(true)
+  terms_and_conditions     String?
+  updated_by               String?   @db.Uuid
+  created_at               DateTime  @default(now()) @db.Timestamptz
+  updated_at               DateTime  @updatedAt @db.Timestamptz
+}

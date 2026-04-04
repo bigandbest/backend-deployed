@@ -166,16 +166,7 @@ const createApp = () => {
   // Middleware
   app.use(
     cors({
-      origin: [
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "https://admin-deployed.vercel.app",
-        "https://big-best-frontend.vercel.app",
-        "https://api.amitdev.tech",
-        "https://big-best-backend.vercel.app",
-        "https://www.bigbestmart.com",
-      ],
+      origin: true, // Allow all origins for mobile app compatibility
       methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
       exposedHeaders: ["Authorization"],
       allowedHeaders: [
@@ -201,6 +192,11 @@ const createApp = () => {
   app.use("/api/business", authRoutes);
   app.use("/api/auth", authRoutes);
   app.use("/api/admin-auth", adminAuthRoutes);
+  app.use("/api/shopping-lists", shoppingListRoutes);
+  app.use("/api/referral", referralRoutes);
+  app.use("/api/affiliate", affiliateRoutes);
+  app.use("/api/wallet", walletRoutes);
+  app.use("/api/wishlist", wishlistRoutes);
   app.use("/api/seller-auth", sellerAuthRoutes);
   app.use("/api/seller", sellerRoutes);
   app.use("/api/seller-pincode", sellerPincodeRoutes);
@@ -308,7 +304,6 @@ const createApp = () => {
   app.use("/api/admin/fulfillment", adminFulfillmentRoutes);
 
   app.use("/api/enquiries", enquiriesRoutes);
-  app.use("/api/wallet", walletRoutes);
   app.use("/api/admin/wallets", adminWalletRoutes);
   app.use("/api/referral", referralRoutes);
   app.use("/api/admin/referral", adminReferralRoutes);
@@ -318,8 +313,6 @@ const createApp = () => {
   app.use("/api/user/addresses", userAddressRoutes);
   app.use("/api/reviews", reviewRoutes);
   app.use("/api/customer-testimonials", customerTestimonialRoutes);
-  app.use("/api/wishlist", wishlistRoutes);
-  app.use("/api/shopping-lists", shoppingListRoutes);
   app.use("/api/enquiry-messages", enquiryMessagesRoutes);
   app.use("/api/bids", bidRoutes);
   app.use("/api/search", searchRoutes);
@@ -338,6 +331,17 @@ const createApp = () => {
   app.use("/api/out-of-stock", outOfStockRoutes);
   app.use("/api/platform-fees", platformFeeRoutes);
   app.use("/api/settings", bankAccountRoutes); // Using /api/settings as base for bank account
+
+  // 404 handler for API routes
+  app.use("/api", (req, res) => {
+    console.log(`404 - Route not found: ${req.method} ${req.originalUrl}`);
+    res.status(404).json({
+      success: false,
+      error: "API endpoint not found",
+      requested_path: req.originalUrl,
+      method: req.method,
+    });
+  });
 
   // Enhanced health check with cluster and system info
   app.get("/api/health", (req, res) => {

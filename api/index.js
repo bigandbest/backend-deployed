@@ -70,6 +70,19 @@ import zoneRoutes from "../routes/zoneRoutes.js";
 import adminAuthRoutes from "../routes/adminAuthRoutes.js";
 import inventoryManagementRoutes from "../routes/inventoryManagementRoutes.js";
 import platformFeeRoutes from "../routes/platformFeeRoutes.js";
+import shoppingListRoutes from "../routes/shoppingListRoutes.js";
+import referralRoutes from "../routes/referralRoutes.js";
+import adminReferralRoutes from "../routes/adminReferralRoutes.js";
+import internalReferralRoutes from "../routes/internalReferralRoutes.js";
+import affiliateRoutes from "../routes/affiliateRoutes.js";
+import affiliateAdminRoutes from "../routes/affiliateAdminRoutes.js";
+import walletRoutes from "../routes/walletRoutes.js";
+import adminWalletRoutes from "../routes/adminWalletRoutes.js";
+
+import wishlistRoutes from "../routes/wishlistRoutes.js";
+import walletOrderRoutes from "../routes/walletOrderRoutes.js";
+import onlinePaymentOrderRoutes from "../routes/onlinePaymentOrderRoutes.js";
+import faqTemplateRoutes from "../routes/faqTemplateRoutes.js";
 
 const app = express();
 
@@ -114,6 +127,11 @@ app.use(cookieParser());
 app.use("/api/business", authRoutes);
 app.use("/api/geo-address", geoAddressRoute);
 app.use("/api/warehouse", warehouseRoute);
+app.use("/api/shopping-lists", shoppingListRoutes);
+app.use("/api/referral", referralRoutes);
+app.use("/api/affiliate", affiliateRoutes);
+app.use("/api/wallet", walletRoutes);
+app.use("/api/wishlist", wishlistRoutes);
 
 // Add CORS middleware specifically for these problematic routes
 app.use("/api/warehouses", (req, res, next) => {
@@ -233,8 +251,30 @@ app.use("/api/zones", (req, res, next) => {
   next();
 });
 
+// Add CORS middleware for shopping-lists
+app.use("/api/shopping-lists", (req, res, next) => {
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  res.header(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+  );
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, X-Requested-With, Accept, Origin, Cache-Control, X-File-Name"
+  );
+  res.header("Access-Control-Allow-Credentials", "true");
+  next();
+});
+
 app.use("/api/zones", zoneRoutes);
 app.use("/api/platform-fees", platformFeeRoutes);
+app.use("/api/admin/referral", adminReferralRoutes);
+app.use("/api/internal/referral", internalReferralRoutes);
+app.use("/api/admin/affiliate", affiliateAdminRoutes);
+app.use("/api/admin/wallets", adminWalletRoutes);
+app.use("/api/wallet-orders", walletOrderRoutes);
+app.use("/api/online-payment-orders", onlinePaymentOrderRoutes);
+app.use("/api/faq-templates", faqTemplateRoutes);
 console.log("✅ Zone routes mounted at /api/zones");
 
 // Simple test endpoints for debugging CORS
@@ -303,6 +343,11 @@ app.use("/api", (req, res) => {
       "/api/productsroute",
       "/api/location-search",
       "/api/health",
+      "/api/shopping-lists",
+      "/api/referral",
+      "/api/affiliate",
+      "/api/wallet",
+      "/api/wishlist",
     ],
   });
 });
