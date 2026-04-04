@@ -94,17 +94,19 @@ class ShoppingListDAO {
           user_id: userId,
           name: cl.name,
           items: {
-            create: (cl.items || []).map((item) => ({
-              product_id: item.productId,
-              variant_id: item.variantId || null,
-              name:       item.name,
-              price:      item.price,
-              old_price:  item.old_price || null,
-              image:      item.image || null,
-              brand:      item.brand || null,
-              weight:     item.weight || null,
-              quantity:   item.quantity || 1,
-            })),
+            create: (cl.items || [])
+              .filter((item) => item.productId)
+              .map((item) => ({
+                product_id: item.productId,
+                variant_id: item.variantId || null,
+                name:       item.name,
+                price:      item.price,
+                old_price:  item.old_price || null,
+                image:      item.image || null,
+                brand:      item.brand || null,
+                weight:     item.weight || null,
+                quantity:   item.quantity || 1,
+              })),
           },
         },
         include: { items: true },

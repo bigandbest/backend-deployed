@@ -1,0 +1,35 @@
+model affiliate_applications {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id              String    @db.Uuid
+  email                String
+  full_name            String
+  phone                String
+  pan_number           String?
+  website_url          String?
+  youtube_channel      String?
+  instagram_handle     String?
+  twitter_handle       String?
+  facebook_page        String?
+  primary_platform     String
+  estimated_audience   Int?
+  niche_categories     String[]
+  promotion_strategy   String
+  previous_experience  String?
+  payment_method       String    @default("BANK_TRANSFER")
+  bank_name            String?
+  bank_account_number  String?
+  bank_ifsc_code       String?
+  account_holder_name  String?
+  upi_id               String?
+  status               String    @default("PENDING")
+  reviewed_by          String?   @db.Uuid
+  reviewed_at          DateTime? @db.Timestamptz
+  review_notes         String?
+  rejection_reason     String?
+  agreed_to_terms      Boolean   @default(false)
+  agreed_at            DateTime? @db.Timestamptz
+  ip_address           String?
+  submitted_at         DateTime? @default(now()) @db.Timestamptz
+  created_at           DateTime  @default(now()) @db.Timestamptz
+  updated_at           DateTime  @updatedAt @db.Timestamptz
+}

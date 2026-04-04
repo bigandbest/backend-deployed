@@ -1,0 +1,11 @@
+model affiliate_category_commissions {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  category_id          String    @unique @db.Uuid
+  category_name        String?
+  category_level       String?
+  base_commission_rate Decimal   @db.Decimal(10, 2)
+  is_active            Boolean   @default(true)
+  updated_by           String?   @db.Uuid
+  created_at           DateTime  @default(now()) @db.Timestamptz
+  updated_at           DateTime  @updatedAt @db.Timestamptz
+}

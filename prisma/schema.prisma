@@ -70,6 +70,29 @@ model attendance_logs {
 }
 
 
+// --- Model: bank_account_settings.prisma ---
+// Bank account settings for COD deposit receipts.
+// Stores company account details for riders to pay COD collections into.
+
+model bank_account_settings {
+  id                    Int       @id @default(autoincrement())
+  account_holder_name   String    @db.VarChar(255)
+  account_number        String    @unique @db.VarChar(255)
+  bank_name             String    @db.VarChar(255)
+  ifsc_code             String    @db.VarChar(20)
+  upi_id                String?   @db.VarChar(255)  // Optional UPI for faster transfers
+  instructions          String?   @db.Text          // Payment instructions for riders
+  admin_name            String?   @db.VarChar(255)  // Admin name for settlement support
+  admin_phone           String?   @db.VarChar(20)   // Admin phone for settlement support
+
+  is_active             Boolean   @default(true)
+
+  created_at            DateTime  @default(now()) @db.Timestamptz
+  updated_at            DateTime  @default(now()) @db.Timestamptz
+
+  @@index([is_active])
+}
+
 // --- Model: banners.prisma ---
 model banners {
   id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -168,6 +191,42 @@ model charge_settings {
   updated_at        DateTime? @default(now()) @db.Timestamptz
 }
 
+
+// --- Model: cod_collections.prisma ---
+// COD (Cash on Delivery) collection records.
+// Created when a rider accepts a COD order.
+// Admin verifies the cash deposit before unlocking the rider's wallet.
+
+model cod_collections {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rider_id         String    @db.Uuid
+  order_id         String    @unique @db.Uuid   // idempotency — one record per order
+
+  amount_collected Decimal   @db.Decimal(10, 2) // order.total at time of delivery
+
+  // PENDING_DEPOSIT  – rider accepted COD order, wallet locked
+  // DEPOSIT_CLAIMED  – rider claims they transferred to company account
+  // APPROVED         – admin confirmed receipt, wallet unlocked
+  // REJECTED         – admin rejected proof, wallet remains locked
+  status           String    @default("PENDING_DEPOSIT") @db.VarChar(30)
+
+  payment_proof    String?   // URL of uploaded proof (bank receipt, screenshot, etc.)
+  claimed_at       DateTime? @db.Timestamptz(6)
+  approved_by      String?   @db.Uuid           // admin user_id
+  approved_at      DateTime? @db.Timestamptz(6)
+  rejected_reason  String?
+  notes            String?
+
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @default(now()) @db.Timestamptz(6)
+
+  // Relations
+  riders           riders    @relation(fields: [rider_id], references: [id])
+  orders           orders    @relation(fields: [order_id], references: [id])
+
+  @@index([rider_id])
+  @@index([status])
+}
 
 // --- Model: contact_queries.prisma ---
 model contact_queries {
@@ -1384,9 +1443,11 @@ model rider_payouts {
   delivery_longitude  Decimal?  @db.Decimal(10, 7)
 
   // Distance breakdown
-  leg1_km             Decimal?  @db.Decimal(5, 2)   // rider → source
-  leg2_km             Decimal?  @db.Decimal(5, 2)   // source → customer
-  total_km            Decimal?  @db.Decimal(5, 2)
+  leg1_km                 Decimal?  @db.Decimal(5, 2)   // rider → source
+  leg2_km                 Decimal?  @db.Decimal(5, 2)   // source → customer
+  total_km                Decimal?  @db.Decimal(5, 2)
+  distance_source         String?   @default("haversine_fallback") @db.VarChar(30) // 'osrm' | 'haversine_fallback' | 'no_gps'
+  distance_calculated_at  DateTime? @db.Timestamptz
 
   // Payout
   slab_id             Int?
@@ -1780,6 +1841,42 @@ model service_bookings {
   @@index([user_id])
 }
 
+
+// --- Model: shopping_lists.prisma ---
+model shopping_lists {
+  id         String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String                @db.Uuid
+  name       String                @db.VarChar(100)
+  created_at DateTime              @default(now()) @db.Timestamptz
+  updated_at DateTime              @default(now()) @updatedAt @db.Timestamptz
+
+  // Relations
+  users      users                 @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  items      shopping_list_items[]
+
+  @@index([user_id])
+}
+
+model shopping_list_items {
+  id         String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  list_id    String         @db.Uuid
+  product_id String         @db.Uuid
+  variant_id String?        @db.Uuid
+  name       String         @db.VarChar(255)
+  price      Decimal        @db.Decimal(10, 2)
+  old_price  Decimal?       @db.Decimal(10, 2)
+  image      String?
+  brand      String?        @db.VarChar(100)
+  weight     String?        @db.VarChar(50)
+  quantity   Int            @default(1)
+  added_at   DateTime       @default(now()) @db.Timestamptz
+
+  // Relations
+  list       shopping_lists @relation(fields: [list_id], references: [id], onDelete: Cascade)
+
+  @@index([list_id])
+  @@index([product_id])
+}
 
 // --- Model: small_promo_cards.prisma ---
 model small_promo_cards {
@@ -2530,18 +2627,18 @@ model referral_fraud_logs {
 }
 
 model referral_admin_logs {
-  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  admin_id          String?   @db.Uuid
-  admin_email       String?   @db.VarChar
-  admin_name        String?   @db.VarChar
-  action            String    @db.VarChar(100)
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  admin_id           String?   @db.Uuid
+  admin_email        String?   @db.VarChar
+  admin_name         String?   @db.VarChar
+  action             String    @db.VarChar(100)
   action_description String?
-  entity_type       String?   @db.VarChar(50)
-  entity_id         String?   @db.Uuid
-  previous_value    Json?
-  new_value         Json?
-  ip_address        String?   @db.VarChar
-  created_at        DateTime  @default(now()) @db.Timestamptz
+  entity_type        String?   @db.VarChar(50)
+  entity_id          String?   @db.Uuid
+  previous_value     Json?
+  new_value          Json?
+  ip_address         String?   @db.VarChar
+  created_at         DateTime  @default(now()) @db.Timestamptz
 }
 
 // --- Affiliate System Models ---
@@ -2681,25 +2778,25 @@ model affiliate_links {
 }
 
 model affiliate_clicks {
-  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  affiliate_id     String    @db.Uuid
-  link_id          String?   @db.Uuid
-  link_code        String?
-  affiliate_code   String
-  visitor_id       String?
-  user_id          String?   @db.Uuid
-  ip_address       String?
-  user_agent       String?
-  device_type      String?
-  country          String?
-  referrer_url     String?
-  destination_url  String
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  affiliate_id      String    @db.Uuid
+  link_id           String?   @db.Uuid
+  link_code         String?
+  affiliate_code    String
+  visitor_id        String?
+  user_id           String?   @db.Uuid
+  ip_address        String?
+  user_agent        String?
+  device_type       String?
+  country           String?
+  referrer_url      String?
+  destination_url   String
   cookie_expires_at DateTime? @db.Timestamptz
-  is_converted     Boolean   @default(false)
-  converted_at     DateTime? @db.Timestamptz
-  order_id         String?   @db.Uuid
-  is_suspicious    Boolean   @default(false)
-  clicked_at       DateTime  @default(now()) @db.Timestamptz
+  is_converted      Boolean   @default(false)
+  converted_at      DateTime? @db.Timestamptz
+  order_id          String?   @db.Uuid
+  is_suspicious     Boolean   @default(false)
+  clicked_at        DateTime  @default(now()) @db.Timestamptz
 
   // Relations
   affiliate_profiles affiliate_profiles @relation(fields: [affiliate_id], references: [id])
@@ -2818,74 +2915,51 @@ model affiliate_category_commissions {
   updated_at           DateTime  @updatedAt @db.Timestamptz
 }
 
+// --- Unique Sections Models (restored) ---
 
-// --- Shopping Lists Feature ---
-model shopping_lists {
-  id         String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id    String                @db.Uuid
-  name       String                @db.VarChar(100)
-  created_at DateTime              @default(now()) @db.Timestamptz
-  updated_at DateTime              @default(now()) @updatedAt @db.Timestamptz
+model unique_sections {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @unique @db.VarChar(255)
+  type        String?  @db.VarChar(100)
+  description String?
+  created_at  DateTime @default(now()) @db.Timestamptz
+  updated_at  DateTime @default(now()) @updatedAt @db.Timestamptz
 
-  users      users                 @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  items      shopping_list_items[]
-
-  @@index([user_id])
+  products unique_section_products[]
 }
 
-model shopping_list_items {
-  id         String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  list_id    String         @db.Uuid
-  product_id String         @db.Uuid
-  variant_id String?        @db.Uuid
-  name       String         @db.VarChar(255)
-  price      Decimal        @db.Decimal(10, 2)
-  old_price  Decimal?       @db.Decimal(10, 2)
-  image      String?
-  brand      String?        @db.VarChar(100)
-  weight     String?        @db.VarChar(50)
-  quantity   Int            @default(1)
-  added_at   DateTime       @default(now()) @db.Timestamptz
+model unique_section_products {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  section_id String   @db.Uuid
+  product_id String   @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamptz
 
-  list       shopping_lists @relation(fields: [list_id], references: [id], onDelete: Cascade)
+  section unique_sections @relation(fields: [section_id], references: [id], onDelete: Cascade)
 
-  @@index([list_id])
-  @@index([product_id])
+  @@unique([section_id, product_id])
 }
 
+// --- Order Warehouse Assignments ---
 
-// --- Model: cod_collections.prisma ---
-// COD (Cash on Delivery) collection records.
-// Created when a rider accepts a COD order.
-// Admin verifies the cash deposit before unlocking the rider's wallet.
+model order_warehouse_assignments {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  order_id       String   @db.Uuid
+  product_id     String   @db.Uuid
+  warehouse_id   String   @db.Uuid
+  quantity       Int
+  priority       Int?
+  fallback_level Int?
+  created_at     DateTime @default(now()) @db.Timestamptz
+}
 
-model cod_collections {
-  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  rider_id         String    @db.Uuid
-  order_id         String    @unique @db.Uuid   // idempotency — one record per order
+// --- Referral Campaigns ---
 
-  amount_collected Decimal   @db.Decimal(10, 2) // order.total at time of delivery
-
-  // PENDING_DEPOSIT  – rider accepted COD order, wallet locked
-  // DEPOSIT_CLAIMED  – rider claims they transferred to company account
-  // APPROVED         – admin confirmed receipt, wallet unlocked
-  // REJECTED         – admin rejected proof, wallet remains locked
-  status           String    @default("PENDING_DEPOSIT") @db.VarChar(30)
-
-  payment_proof    String?   // URL of uploaded proof (bank receipt, screenshot, etc.)
-  claimed_at       DateTime? @db.Timestamptz(6)
-  approved_by      String?   @db.Uuid           // admin user_id
-  approved_at      DateTime? @db.Timestamptz(6)
-  rejected_reason  String?
-  notes            String?
-
-  created_at       DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime  @default(now()) @db.Timestamptz(6)
-
-  // Relations
-  riders           riders    @relation(fields: [rider_id], references: [id])
-  orders           orders    @relation(fields: [order_id], references: [id])
-
-  @@index([rider_id])
-  @@index([status])
+model referral_campaigns {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String    @db.VarChar(255)
+  description String?
+  is_active   Boolean   @default(true)
+  created_by  String?   @db.Uuid
+  created_at  DateTime  @default(now()) @db.Timestamptz
+  updated_at  DateTime  @updatedAt @db.Timestamptz
 }

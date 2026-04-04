@@ -1,0 +1,15 @@
+model referral_reward_usages {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reward_id             String    @db.Uuid
+  user_id               String    @db.Uuid
+  amount_used           Decimal   @db.Decimal(10, 2)
+  usage_type            String    @db.VarChar(50)
+  order_id              String?   @db.Uuid
+  order_number          String?   @db.VarChar
+  reward_balance_after  Decimal   @db.Decimal(10, 2)
+  note                  String?   @db.VarChar
+  created_at            DateTime  @default(now()) @db.Timestamptz
+
+  // Relations
+  referral_rewards referral_rewards @relation(fields: [reward_id], references: [id])
+}

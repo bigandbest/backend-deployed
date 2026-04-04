@@ -1,0 +1,33 @@
+model affiliate_payouts {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  affiliate_id        String    @db.Uuid
+  payout_number       String    @unique
+  payout_period       String?
+  gross_amount        Decimal   @db.Decimal(10, 2)
+  tds_amount          Decimal   @default(0) @db.Decimal(10, 2)
+  net_amount          Decimal   @db.Decimal(10, 2)
+  commission_count    Int       @default(0)
+  payment_method      String    @default("BANK_TRANSFER")
+  bank_name           String?
+  bank_account_number String?
+  bank_ifsc_code      String?
+  account_holder_name String?
+  upi_id              String?
+  status              String    @default("PENDING")
+  processed_by        String?   @db.Uuid
+  processed_at        DateTime? @db.Timestamptz
+  transaction_id      String?
+  payment_proof       String?
+  failure_reason      String?
+  admin_notes         String?
+  period_start_date   DateTime? @db.Timestamptz
+  period_end_date     DateTime? @db.Timestamptz
+  requested_at        DateTime  @default(now()) @db.Timestamptz
+  completed_at        DateTime? @db.Timestamptz
+  created_at          DateTime  @default(now()) @db.Timestamptz
+  updated_at          DateTime  @updatedAt @db.Timestamptz
+
+  // Relations
+  affiliate_profiles    affiliate_profiles    @relation(fields: [affiliate_id], references: [id])
+  affiliate_commissions affiliate_commissions[]
+}

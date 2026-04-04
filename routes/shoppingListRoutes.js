@@ -16,6 +16,8 @@ const router = express.Router();
 // All routes require auth
 router.use(authenticateToken);
 
+// Sync from localStorage on login
+router.post("/sync", syncLists);
 // List operations
 router.get("/", getLists);
 router.post("/", createList);
@@ -26,8 +28,5 @@ router.delete("/:listId", deleteList);
 router.post("/:listId/items", addItem);
 router.delete("/:listId/items/:itemId", removeItem);
 router.patch("/:listId/items/:itemId", updateItemQuantity);
-
-// Sync from localStorage on login
-router.post("/sync", syncLists);
 
 export default router;

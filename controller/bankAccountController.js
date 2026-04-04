@@ -27,6 +27,8 @@ export const getBankAccount = async (req, res) => {
                 ifsc_code: account.ifsc_code,
                 upi_id: account.upi_id,
                 instructions: account.instructions,
+                admin_name: account.admin_name,
+                admin_phone: account.admin_phone,
                 created_at: account.created_at,
                 updated_at: account.updated_at,
             },
@@ -43,7 +45,7 @@ export const getBankAccount = async (req, res) => {
  */
 export const saveBankAccount = async (req, res) => {
     try {
-        const { account_holder_name, account_number, bank_name, ifsc_code, upi_id, instructions } = req.body;
+        const { account_holder_name, account_number, bank_name, ifsc_code, upi_id, instructions, admin_name, admin_phone } = req.body;
 
         // Validate required fields
         if (!account_holder_name || !account_number || !bank_name || !ifsc_code) {
@@ -69,6 +71,8 @@ export const saveBankAccount = async (req, res) => {
                     ifsc_code,
                     upi_id: upi_id || null,
                     instructions: instructions || null,
+                    admin_name: admin_name || null,
+                    admin_phone: admin_phone || null,
                     is_active: true,
                 },
             });
@@ -140,10 +144,47 @@ export const getRiderBankAccount = async (req, res) => {
                 ifsc_code: account.ifsc_code,
                 upi_id: account.upi_id,
                 instructions: account.instructions,
+                admin_name: account.admin_name,
+                admin_phone: account.admin_phone,
             },
         });
     } catch (err) {
         console.error('getRiderBankAccount error:', err);
         res.status(500).json({ success: false, error: 'Failed to fetch bank account details' });
+    }
+};
+
+/**
+ * GET /api/settings/rider/admin-contact
+ * Fetch the primary administrator's contact name and phone for support.
+ * Returns info from the 'users' table where role is 'ADMIN'.
+ */
+export const getAdminProfileContact = async (req, res) => {
+    try {
+        const admin = await prisma.users.findFirst({
+            where: { role: 'ADMIN' },
+            select: {
+                name: true,
+                phone: true,
+                email: true,
+            },
+            orderBy: { created_at: 'asc' }, // Get the earliest created admin (usually super admin)
+        });
+
+        if (!admin) {
+            return res.status(404).json({ success: false, error: 'No administrator details found' });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: {
+                name: admin.name,
+                phone: admin.phone,
+                email: admin.email,
+            },
+        });
+    } catch (err) {
+        console.error('getAdminProfileContact error:', err);
+        res.status(500).json({ success: false, error: 'Failed to fetch admin contact details' });
     }
 };
