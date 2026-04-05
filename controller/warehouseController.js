@@ -82,6 +82,7 @@ export const createWarehouse = async (req, res) => {
   try {
     const {
       name, type, location, pincode, address, contact_person, contact_phone, contact_email,
+      latitude, longitude,
       zone_ids, parent_warehouse_id, pincode_assignments, seller_ids, rider_ids
     } = req.body;
 
@@ -107,6 +108,9 @@ export const createWarehouse = async (req, res) => {
       return res.status(400).json({ success: false, error: "Division warehouses must have a parent zonal warehouse" });
     }
 
+    const normLat = (latitude === '' || latitude == null) ? null : Number(latitude);
+    const normLon = (longitude === '' || longitude == null) ? null : Number(longitude);
+
     const data = {
       name,
       type,
@@ -116,7 +120,9 @@ export const createWarehouse = async (req, res) => {
       contact_phone,
       contact_email,
       parent_warehouse_id: parent_warehouse_id ? parseInt(parent_warehouse_id, 10) : null,
-      hierarchy_level: type === "zonal" ? 0 : 1
+      hierarchy_level: type === "zonal" ? 0 : 1,
+      ...(normLat != null ? { latitude: normLat } : {}),
+      ...(normLon != null ? { longitude: normLon } : {}),
     };
 
     const warehouse = await WarehouseDAO.createWithRelations(data, { zone_ids, pincode_assignments, seller_ids, rider_ids });
@@ -194,10 +200,14 @@ export const updateWarehouse = async (req, res) => {
     const { id } = req.params;
     const {
       name, type, location, pincode, address, contact_person, contact_phone, contact_email,
+      latitude, longitude,
       parent_warehouse_id, zone_ids, pincode_assignments, seller_ids, rider_ids, ...otherUpdates
     } = req.body;
 
     if (!name || !type) return res.status(400).json({ success: false, error: "Name and type required" });
+
+    const normLat = (latitude === '' || latitude == null) ? null : Number(latitude);
+    const normLon = (longitude === '' || longitude == null) ? null : Number(longitude);
 
     const warehouseUpdates = {
       name,
@@ -208,6 +218,8 @@ export const updateWarehouse = async (req, res) => {
       contact_phone,
       contact_email,
       parent_warehouse_id: parent_warehouse_id ? parseInt(parent_warehouse_id, 10) : null,
+      ...(latitude !== undefined ? { latitude: normLat } : {}),
+      ...(longitude !== undefined ? { longitude: normLon } : {}),
       ...otherUpdates
     };
 

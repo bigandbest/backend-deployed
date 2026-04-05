@@ -12,18 +12,24 @@ export const checkIn = async (req, res) => {
         const rider = await prisma.riders.findUnique({ where: { user_id: req.user.id } });
         if (!rider) return res.status(200).json({ success: false, error: 'Rider profile not found' });
 
-        // Guard: Rider must be verified
+        // Guard: Rider should be able to stay in the app even if not verified.
+        // We return 200 (not 403) so mobile clients don't treat it like an auth failure.
         if (rider.verification_status !== 'VERIFIED') {
-            return res.status(403).json({
+            return res.status(200).json({
                 success: false,
-                error: 'You must be verified to check in',
+                error: 'Complete document verification to check in and start accepting orders.',
+                action: 'UPLOAD_DOCUMENTS',
                 verification_status: rider.verification_status,
             });
         }
 
         // Guard: Rider must be active (not suspended)
         if (!rider.is_active) {
-            return res.status(403).json({ success: false, error: 'Your account is suspended' });
+            return res.status(200).json({
+                success: false,
+                error: 'Your account is suspended',
+                action: 'CONTACT_SUPPORT',
+            });
         }
 
         // Guard: Prevent double check-in

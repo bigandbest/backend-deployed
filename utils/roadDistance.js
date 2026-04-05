@@ -143,8 +143,11 @@ export async function getTwoLegDistance(riderLat, riderLon, pickupLat, pickupLon
                 leg2Km = parseFloat((route.distance / 1000).toFixed(2));
             }
 
-            const totalKm = (leg1Km !== null && leg2Km !== null)
-                ? parseFloat((leg1Km + leg2Km).toFixed(2))
+            // If rider GPS is unavailable, we still can pay based on pickup→customer distance (leg2).
+            const totalKm = (leg2Km !== null)
+                ? (leg1Km !== null
+                    ? parseFloat((leg1Km + leg2Km).toFixed(2))
+                    : leg2Km)
                 : null;
 
             const durationMinutes = route.duration != null
@@ -164,7 +167,10 @@ export async function getTwoLegDistance(riderLat, riderLon, pickupLat, pickupLon
             ? haversineFallback(riderLat, riderLon, pickupLat, pickupLon)
             : null;
         const leg2Km = haversineFallback(pickupLat, pickupLon, customerLat, customerLon);
-        const totalKm = leg1Km !== null ? parseFloat((leg1Km + leg2Km).toFixed(2)) : null;
+        // Rider GPS unavailable: use leg2 only for totalKm.
+        const totalKm = leg2Km !== null
+            ? (leg1Km !== null ? parseFloat((leg1Km + leg2Km).toFixed(2)) : leg2Km)
+            : null;
 
         const result = { leg1Km, leg2Km, totalKm, source: 'haversine_fallback', durationMinutes: null };
         cache.set(key, result, DISTANCE_CACHE_TTL);

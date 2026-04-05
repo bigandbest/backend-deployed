@@ -1,5 +1,6 @@
 import prisma from '../config/prisma.js';
 import { calculateDistanceKm } from '../utils/distanceUtils.js';
+import { calculateAndCreatePayout } from '../services/payoutService.js';
 
 // ============ GET ASSIGNABLE ORDERS ============
 export const getAssignableOrders = async (req, res) => {
@@ -64,9 +65,15 @@ export const getAssignableOrders = async (req, res) => {
             return o.sub_orders.some(so => so.fulfillment_status === 'confirmed');
         });
 
-        // Calculate estimated payout 
-        const milestones = await prisma.rider_payout_milestones.findMany({
-            orderBy: { min_order_value: 'asc' }
+        // Calculate estimated payout using distance slabs (admin-configured)
+        const now = new Date();
+        const payoutSlabs = await prisma.payout_slabs.findMany({
+            where: {
+                is_active: true,
+                effective_from: { lte: now },
+                OR: [{ effective_to: null }, { effective_to: { gte: now } }],
+            },
+            orderBy: { min_km: 'asc' },
         });
 
         const pincodesToFetch = [...new Set([
@@ -92,7 +99,19 @@ export const getAssignableOrders = async (req, res) => {
                 let estimatedPayout = 0;
                 let distance = 0;
 
-                // Determine Warehouse origin
+                // Determine origin: prefer saved warehouse coordinates, else fall back to pincode_locations
+                let originLat = null;
+                let originLon = null;
+                for (const wr of rider.warehouse_riders) {
+                    const w = wr.warehouses;
+                    if (w?.latitude && w?.longitude) {
+                        originLat = Number(w.latitude);
+                        originLon = Number(w.longitude);
+                        break;
+                    }
+                }
+
+                // Determine Warehouse origin (pincode fallback)
                 let originPincode = null;
                 for (const wr of rider.warehouse_riders) {
                     if (wr.warehouses.location && locationMap[wr.warehouses.location]) {
@@ -104,23 +123,27 @@ export const getAssignableOrders = async (req, res) => {
                     originPincode = riderPincodes.find(p => locationMap[p]); // Find first mapped pincode for this warehouse
                 }
 
-                if (originPincode && o.delivery_pincode && locationMap[originPincode] && locationMap[o.delivery_pincode]) {
-                    distance = calculateDistanceKm(
-                        locationMap[originPincode].lat,
-                        locationMap[originPincode].lon,
-                        locationMap[o.delivery_pincode].lat,
-                        locationMap[o.delivery_pincode].lon
-                    );
+                // Delivery coords: prefer stored order GPS, else fall back to pincode_locations
+                let deliveryLat = o.delivery_latitude ? Number(o.delivery_latitude) : null;
+                let deliveryLon = o.delivery_longitude ? Number(o.delivery_longitude) : null;
+                if ((!deliveryLat || !deliveryLon) && o.delivery_pincode && locationMap[o.delivery_pincode]) {
+                    deliveryLat = Number(locationMap[o.delivery_pincode].lat);
+                    deliveryLon = Number(locationMap[o.delivery_pincode].lon);
+                }
 
-                    // Find suitable milestone
-                    const totalValue = Number(o.total) || 0;
-                    const applicableMilestone = milestones.find(m =>
-                        totalValue >= Number(m.min_order_value) && totalValue <= Number(m.max_order_value)
-                    );
+                // Origin coords fallback
+                if ((!originLat || !originLon) && originPincode && locationMap[originPincode]) {
+                    originLat = Number(locationMap[originPincode].lat);
+                    originLon = Number(locationMap[originPincode].lon);
+                }
 
-                    if (applicableMilestone) {
-                        estimatedPayout = Number((distance * Number(applicableMilestone.base_pay_per_km)).toFixed(2));
-                    }
+                if (originLat && originLon && deliveryLat && deliveryLon) {
+                    distance = calculateDistanceKm(originLat, originLon, deliveryLat, deliveryLon);
+                    const slab = payoutSlabs.find(s =>
+                        distance >= Number(s.min_km) &&
+                        (!s.max_km || distance <= Number(s.max_km))
+                    );
+                    if (slab) estimatedPayout = Number(slab.payout_amount);
                 }
 
                 return {
@@ -203,42 +226,67 @@ export const acceptOrder = async (req, res) => {
             });
         }
 
-        // Calculate Final Payout before freezing
+        // Calculate Final Payout before freezing (distance slabs)
         let finalDistance = 0;
         let finalPayout = 0;
 
-        const milestones = await prisma.rider_payout_milestones.findMany({
-            orderBy: { min_order_value: 'asc' }
+        const now = new Date();
+        const payoutSlabs = await prisma.payout_slabs.findMany({
+            where: {
+                is_active: true,
+                effective_from: { lte: now },
+                OR: [{ effective_to: null }, { effective_to: { gte: now } }],
+            },
+            orderBy: { min_km: 'asc' },
         });
 
+        // Origin: prefer saved warehouse coords
+        let originLat = null;
+        let originLon = null;
         let originPincode = null;
         for (const wr of rider.warehouse_riders) {
-            if (wr.warehouses.location) {
-                originPincode = wr.warehouses.location;
+            const w = wr.warehouses;
+            if (!originPincode && w?.location) originPincode = w.location;
+            if (w?.latitude && w?.longitude) {
+                originLat = Number(w.latitude);
+                originLon = Number(w.longitude);
                 break;
             }
         }
         if (!originPincode && riderPincodes.length > 0) originPincode = riderPincodes[0];
 
-        if (originPincode && order.delivery_pincode) {
+        // Delivery: prefer stored order GPS, else pincode_locations
+        let deliveryLat = order.delivery_latitude ? Number(order.delivery_latitude) : null;
+        let deliveryLon = order.delivery_longitude ? Number(order.delivery_longitude) : null;
+
+        const pincodesToFetch = [];
+        if ((!originLat || !originLon) && originPincode) pincodesToFetch.push(originPincode);
+        if ((!deliveryLat || !deliveryLon) && order.delivery_pincode) pincodesToFetch.push(order.delivery_pincode);
+
+        if (pincodesToFetch.length > 0) {
             const locs = await prisma.pincode_locations.findMany({
-                where: { pincode: { in: [originPincode, order.delivery_pincode] } }
+                where: { pincode: { in: [...new Set(pincodesToFetch)] } }
             });
-            const originLoc = locs.find(l => l.pincode === originPincode);
-            const destLoc = locs.find(l => l.pincode === order.delivery_pincode);
+            const originLoc = originPincode ? locs.find(l => l.pincode === originPincode) : null;
+            const destLoc = order.delivery_pincode ? locs.find(l => l.pincode === order.delivery_pincode) : null;
 
-            if (originLoc && destLoc && originLoc.latitude && destLoc.latitude) {
-                finalDistance = calculateDistanceKm(
-                    originLoc.latitude, originLoc.longitude,
-                    destLoc.latitude, destLoc.longitude
-                );
-
-                const totalValue = Number(order.total) || 0;
-                const m = milestones.find(m => totalValue >= Number(m.min_order_value) && totalValue <= Number(m.max_order_value));
-                if (m) {
-                    finalPayout = Number((finalDistance * Number(m.base_pay_per_km)).toFixed(2));
-                }
+            if ((!originLat || !originLon) && originLoc?.latitude && originLoc?.longitude) {
+                originLat = Number(originLoc.latitude);
+                originLon = Number(originLoc.longitude);
             }
+            if ((!deliveryLat || !deliveryLon) && destLoc?.latitude && destLoc?.longitude) {
+                deliveryLat = Number(destLoc.latitude);
+                deliveryLon = Number(destLoc.longitude);
+            }
+        }
+
+        if (originLat && originLon && deliveryLat && deliveryLon) {
+            finalDistance = calculateDistanceKm(originLat, originLon, deliveryLat, deliveryLon);
+            const slab = payoutSlabs.find(s =>
+                finalDistance >= Number(s.min_km) &&
+                (!s.max_km || finalDistance <= Number(s.max_km))
+            );
+            if (slab) finalPayout = Number(slab.payout_amount);
         }
 
         const isCOD = order.payment_method?.toLowerCase() === 'cod';
@@ -365,55 +413,52 @@ export const completeDelivery = async (req, res) => {
                 });
             }
         } else if (subOrders.length > 0) {
-            // Non-COD: credit wallet immediately using payout slab
+            // Non-COD: credit wallet immediately using payout slabs (distance-based)
             try {
-                const now = new Date();
-                const slab = await prisma.payout_slabs.findFirst({
-                    where: {
-                        is_active: true,
-                        effective_from: { lte: now },
-                        OR: [{ effective_to: null }, { effective_to: { gte: now } }],
-                    },
-                    orderBy: { payout_amount: 'desc' },
-                });
+                let wallet = await prisma.wallets.findFirst({ where: { user_id: riderUserId } });
+                if (!wallet) {
+                    wallet = await prisma.wallets.create({ data: { user_id: riderUserId, balance: 0 } });
+                }
 
-                if (!slab) {
-                    console.warn(`[payout] No active slab found for order ${orderId}`);
-                } else {
-                    const payoutAmount = Number(slab.payout_amount);
-                    let wallet = await prisma.wallets.findFirst({ where: { user_id: riderUserId } });
-                    if (!wallet) {
-                        wallet = await prisma.wallets.create({ data: { user_id: riderUserId, balance: 0 } });
+                for (const so of subOrders) {
+                    const calc = await calculateAndCreatePayout(so.id, rider.id);
+                    const payoutAmount = calc?.payoutAmount != null ? Number(calc.payoutAmount) : null;
+                    if (!payoutAmount || payoutAmount <= 0) {
+                        console.warn(`[payout] No payout amount calculated for sub-order ${so.id} (order ${orderId})`);
+                        continue;
                     }
 
-                    for (const so of subOrders) {
-                        const balanceBefore = Number(wallet.balance);
-                        const newBalance = balanceBefore + payoutAmount;
+                    const balanceBefore = Number(wallet.balance);
+                    const newBalance = balanceBefore + payoutAmount;
 
-                        await prisma.wallets.update({
-                            where: { id: wallet.id },
-                            data: { balance: newBalance, updated_at: new Date() },
-                        });
+                    await prisma.wallets.update({
+                        where: { id: wallet.id },
+                        data: { balance: newBalance, updated_at: new Date(), version: { increment: 1 } },
+                    });
 
-                        await prisma.wallet_transactions.create({
-                            data: {
-                                wallet_id: wallet.id,
-                                user_id: riderUserId,
-                                transaction_type: 'CREDIT',
-                                amount: payoutAmount,
-                                balance_before: balanceBefore,
-                                balance_after: newBalance,
-                                status: 'COMPLETED',
-                                description: `Rider payout for sub-order #${so.id}`,
-                                reference_id: so.id,
-                                reference_type: 'sub_order',
-                            },
-                        });
+                    await prisma.wallet_transactions.create({
+                        data: {
+                            wallet_id: wallet.id,
+                            user_id: riderUserId,
+                            transaction_type: 'CREDIT',
+                            amount: payoutAmount,
+                            balance_before: balanceBefore,
+                            balance_after: newBalance,
+                            status: 'COMPLETED',
+                            description: `Rider payout for sub-order #${so.id}`,
+                            reference_id: so.id,
+                            reference_type: 'rider_payout',
+                        },
+                    });
 
-                        wallet = await prisma.wallets.findFirst({ where: { user_id: riderUserId } });
-                    }
+                    // Mark payout as paid (idempotent: payout exists because calculateAndCreatePayout is idempotent)
+                    await prisma.rider_payouts.update({
+                        where: { sub_order_id: so.id },
+                        data: { status: 'PAID', paid_at: new Date(), updated_at: new Date() },
+                    });
 
-                    console.log(`[payout] Credited ₹${payoutAmount * subOrders.length} to rider ${riderUserId} for order ${orderId}`);
+                    // Keep local wallet snapshot in sync to avoid re-fetching.
+                    wallet = { ...wallet, balance: newBalance };
                 }
             } catch (err) {
                 console.error(`[payout] Failed to credit wallet for order ${orderId}:`, err.message);
@@ -532,64 +577,66 @@ export const getOrderDetails = async (req, res) => {
         let estimatedPayout = Number(order.rider_payout_amount) || 0;
 
         // Always calculate payout dynamically based on distance slabs
+        const now = new Date();
         const payoutSlabs = await prisma.payout_slabs.findMany({
-            where: { is_active: true, effective_from: { lte: new Date() } },
+            where: {
+                is_active: true,
+                effective_from: { lte: now },
+                OR: [{ effective_to: null }, { effective_to: { gte: now } }],
+            },
             orderBy: { min_km: 'asc' }
         });
 
+        // Origin: prefer saved warehouse coords, else fall back to pincode_locations
+        let originLat = null;
+        let originLon = null;
         let originPincode = null;
         for (const wr of rider.warehouse_riders || []) {
-            if (wr.warehouses?.location) {
-                originPincode = wr.warehouses.location;
+            const w = wr.warehouses;
+            if (!originPincode && w?.location) originPincode = w.location;
+            if (w?.latitude && w?.longitude) {
+                originLat = Number(w.latitude);
+                originLon = Number(w.longitude);
                 break;
             }
         }
 
-        if (originPincode && order.delivery_pincode) {
-            try {
+        // Delivery: prefer stored order GPS, else pincode_locations
+        let deliveryLat = order.delivery_latitude ? Number(order.delivery_latitude) : null;
+        let deliveryLon = order.delivery_longitude ? Number(order.delivery_longitude) : null;
+
+        try {
+            const pincodesToFetch = [];
+            if ((!originLat || !originLon) && originPincode) pincodesToFetch.push(originPincode);
+            if ((!deliveryLat || !deliveryLon) && order.delivery_pincode) pincodesToFetch.push(order.delivery_pincode);
+
+            if (pincodesToFetch.length > 0) {
                 const locs = await prisma.pincode_locations.findMany({
-                    where: { pincode: { in: [originPincode, order.delivery_pincode] } }
+                    where: { pincode: { in: [...new Set(pincodesToFetch)] } }
                 });
-                const originLoc = locs.find(l => l.pincode === originPincode);
-                const destLoc = locs.find(l => l.pincode === order.delivery_pincode);
+                const originLoc = originPincode ? locs.find(l => l.pincode === originPincode) : null;
+                const destLoc = order.delivery_pincode ? locs.find(l => l.pincode === order.delivery_pincode) : null;
 
-                if (originLoc && destLoc && originLoc.latitude && destLoc.latitude) {
-                    finalDistance = calculateDistanceKm(
-                        originLoc.latitude, originLoc.longitude,
-                        destLoc.latitude, destLoc.longitude
-                    );
-
-                    // Find matching payout slab based on distance
-                    const slab = payoutSlabs.find(s =>
-                        finalDistance >= Number(s.min_km) &&
-                        (!s.max_km || finalDistance <= Number(s.max_km))
-                    );
-                    if (slab) {
-                        estimatedPayout = Number(slab.payout_amount);
-                    }
-                } else {
-                    // Fallback: use 5km as baseline distance
-                    finalDistance = 5;
-                    const slab = payoutSlabs.find(s =>
-                        finalDistance >= Number(s.min_km) &&
-                        (!s.max_km || finalDistance <= Number(s.max_km))
-                    );
-                    if (slab) {
-                        estimatedPayout = Number(slab.payout_amount);
-                    }
+                if ((!originLat || !originLon) && originLoc?.latitude && originLoc?.longitude) {
+                    originLat = Number(originLoc.latitude);
+                    originLon = Number(originLoc.longitude);
                 }
-            } catch (err) {
-                console.error('Distance calculation error:', err);
-                // Fallback: use default slab
-                finalDistance = 5;
+                if ((!deliveryLat || !deliveryLon) && destLoc?.latitude && destLoc?.longitude) {
+                    deliveryLat = Number(destLoc.latitude);
+                    deliveryLon = Number(destLoc.longitude);
+                }
+            }
+
+            if (originLat && originLon && deliveryLat && deliveryLon) {
+                finalDistance = calculateDistanceKm(originLat, originLon, deliveryLat, deliveryLon);
                 const slab = payoutSlabs.find(s =>
                     finalDistance >= Number(s.min_km) &&
                     (!s.max_km || finalDistance <= Number(s.max_km))
                 );
-                if (slab) {
-                    estimatedPayout = Number(slab.payout_amount);
-                }
+                if (slab) estimatedPayout = Number(slab.payout_amount);
             }
+        } catch (err) {
+            console.error('Distance calculation error:', err);
         }
 
         // Prepare item details and aggregate warehouse/seller sources
@@ -893,23 +940,13 @@ export const markSubOrderDelivered = async (req, res) => {
         const riderUserId = req.user.id; // capture before async boundary
 
         if (!isCod) {
-            // Non-COD: credit wallet immediately using payout slab
+            // Non-COD: credit wallet immediately using payout slabs (distance-based)
             try {
-                const now = new Date();
-                const slab = await prisma.payout_slabs.findFirst({
-                    where: {
-                        is_active: true,
-                        effective_from: { lte: now },
-                        OR: [{ effective_to: null }, { effective_to: { gte: now } }],
-                    },
-                    orderBy: { payout_amount: 'desc' },
-                });
-
-                if (!slab || !slab.payout_amount) {
-                    console.warn(`[payout] No active slab found for sub-order ${sub_order_id}`);
+                const calc = await calculateAndCreatePayout(sub_order_id, rider.id);
+                const payoutAmount = calc?.payoutAmount != null ? Number(calc.payoutAmount) : null;
+                if (!payoutAmount || payoutAmount <= 0) {
+                    console.warn(`[payout] No payout amount calculated for sub-order ${sub_order_id}`);
                 } else {
-                    const payoutAmount = Number(slab.payout_amount);
-
                     let wallet = await prisma.wallets.findFirst({ where: { user_id: riderUserId } });
                     if (!wallet) {
                         wallet = await prisma.wallets.create({ data: { user_id: riderUserId, balance: 0 } });
@@ -920,7 +957,7 @@ export const markSubOrderDelivered = async (req, res) => {
 
                     await prisma.wallets.update({
                         where: { id: wallet.id },
-                        data: { balance: newBalance, updated_at: new Date() },
+                        data: { balance: newBalance, updated_at: new Date(), version: { increment: 1 } },
                     });
 
                     await prisma.wallet_transactions.create({
@@ -934,8 +971,13 @@ export const markSubOrderDelivered = async (req, res) => {
                             status: 'COMPLETED',
                             description: `Rider payout for sub-order #${sub_order_id}`,
                             reference_id: sub_order_id,
-                            reference_type: 'sub_order',
+                            reference_type: 'rider_payout',
                         },
+                    });
+
+                    await prisma.rider_payouts.update({
+                        where: { sub_order_id },
+                        data: { status: 'PAID', paid_at: new Date(), updated_at: new Date() },
                     });
 
                     console.log(`[payout] Credited ₹${payoutAmount} to rider ${riderUserId} for sub-order ${sub_order_id}`);
