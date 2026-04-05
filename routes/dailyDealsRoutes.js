@@ -18,6 +18,8 @@ const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
 // --- Daily Deal Routes ---
+// Backwards-compat: older clients call GET /api/daily-deals
+router.get("/", getAllDailyDeals);
 router.post("/add", upload.single("image_url"), addDailyDeal);
 router.put("/update/:id", upload.single("image_url"), updateDailyDeal);
 router.delete("/delete/:id", deleteDailyDeal);
