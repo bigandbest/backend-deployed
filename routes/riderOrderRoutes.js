@@ -9,6 +9,7 @@ import {
     // Sub-order fulfillment
     getMySubOrders,
     markPickupComplete,
+    markOutForDelivery,
     markSubOrderDelivered,
     // Wallet
     requestRiderWithdrawal,
@@ -26,6 +27,7 @@ router.get('/:orderId/details', authenticateToken, getOrderDetails);
 // Sub-order fulfillment routes
 router.get('/sub-orders', authenticateToken, getMySubOrders);
 router.post('/:sub_order_id/pickup-complete', authenticateToken, markPickupComplete);
+router.post('/:sub_order_id/out-for-delivery', authenticateToken, markOutForDelivery);
 router.post('/:sub_order_id/delivered', authenticateToken, markSubOrderDelivered);
 
 // Wallet withdrawal

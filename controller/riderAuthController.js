@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { generateToken, verifyToken } from '../utils/jwtUtils.js';
 import { uploadToCloudinary } from '../services/uploadService.js';
 import multer from 'multer';
+import admin from '../config/firebase.js';
 
 // ============ MULTER CONFIG ============
 const storage = multer.memoryStorage();
@@ -459,5 +460,89 @@ export const logoutRider = async (req, res) => {
         res.status(200).json({ success: true, message: 'Logged out successfully' });
     } catch (error) {
         res.status(500).json({ success: false, error: 'Logout failed' });
+    }
+};
+
+// ============ RIDER FIREBASE PHONE AUTH ============
+// Client sends Firebase idToken after completing phone OTP on client side
+export const verifyRiderFirebasePhone = async (req, res) => {
+    try {
+        const { idToken } = req.body;
+
+        if (!idToken) {
+            return res.status(400).json({ success: false, message: 'Firebase ID token is required' });
+        }
+
+        // Verify Firebase ID token
+        const decoded = await admin.auth().verifyIdToken(idToken);
+        const firebasePhone = decoded.phone_number;
+
+        if (!firebasePhone) {
+            return res.status(400).json({ success: false, message: 'No phone number associated with this token' });
+        }
+
+        // Find or create rider user
+        let user = await prisma.users.findFirst({
+            where: { phone: firebasePhone, role: 'RIDER' },
+            include: { riders: true }
+        });
+
+        if (!user) {
+            // Auto-create rider on first phone login
+            const result = await prisma.$transaction(async (tx) => {
+                const newUser = await tx.users.create({
+                    data: {
+                        phone: firebasePhone,
+                        email: `rider_${firebasePhone.replace(/\D/g, '')}@riders.local`,
+                        name: `Rider ${firebasePhone}`,
+                        role: 'RIDER',
+                        is_active: true,
+                    }
+                });
+
+                const rider = await tx.riders.create({
+                    data: {
+                        user_id: newUser.id,
+                        verification_status: 'PENDING_VERIFICATION',
+                    }
+                });
+
+                return { user: newUser, rider };
+            });
+            user = { ...result.user, riders: result.rider };
+        }
+
+        // Update last login
+        await prisma.users.update({
+            where: { id: user.id },
+            data: { last_login: new Date() }
+        });
+
+        const token = generateToken({
+            id: user.id,
+            email: user.email,
+            role: user.role,
+            name: user.name,
+            phone: user.phone,
+            rider_id: user.riders?.id,
+        });
+
+        res.json({
+            success: true,
+            message: 'Phone verified',
+            token,
+            data: {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                phone: user.phone,
+                role: user.role,
+                rider_id: user.riders?.id,
+                verification_status: user.riders?.verification_status,
+            },
+        });
+    } catch (err) {
+        console.error('Firebase Phone Verify Error:', err);
+        res.status(500).json({ success: false, message: err.message });
     }
 };

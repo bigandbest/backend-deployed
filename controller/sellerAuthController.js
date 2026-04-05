@@ -1,6 +1,7 @@
 import prisma from '../config/prisma.js';
 import bcrypt from 'bcrypt';
 import { generateToken, verifyToken } from '../utils/jwtUtils.js';
+import admin from '../config/firebase.js';
 
 /**
  * Seller Registration
@@ -380,5 +381,71 @@ export const verifySellerToken = async (req, res) => {
         res.status(200).json({ success: true, valid: true, user: decoded });
     } catch (error) {
         res.status(401).json({ success: false, error: 'Invalid or expired token' });
+    }
+};
+
+// ============ SELLER FIREBASE PHONE AUTH ============
+// Client sends Firebase idToken after completing phone OTP on client side
+export const verifySellerFirebasePhone = async (req, res) => {
+    try {
+        const { idToken } = req.body;
+
+        if (!idToken) {
+            return res.status(400).json({ success: false, message: 'Firebase ID token is required' });
+        }
+
+        // Verify Firebase ID token
+        const decoded = await admin.auth().verifyIdToken(idToken);
+        const firebasePhone = decoded.phone_number;
+
+        if (!firebasePhone) {
+            return res.status(400).json({ success: false, message: 'No phone number associated with this token' });
+        }
+
+        // Find seller user by phone - must have existing seller account
+        const user = await prisma.users.findFirst({
+            where: { phone: firebasePhone, role: { in: ['SELLER', 'VENDOR'] } },
+            include: { sellers: true }
+        });
+
+        if (!user) {
+            return res.status(403).json({
+                success: false,
+                message: 'No seller account found for this phone number. Please register with email first.'
+            });
+        }
+
+        // Update last login
+        await prisma.users.update({
+            where: { id: user.id },
+            data: { last_login: new Date() }
+        });
+
+        const token = generateToken({
+            id: user.id,
+            email: user.email,
+            role: user.role,
+            name: user.name,
+            phone: user.phone,
+            seller_id: user.sellers?.[0]?.id,
+        });
+
+        res.json({
+            success: true,
+            message: 'Phone verified',
+            token,
+            data: {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                phone: user.phone,
+                role: user.role,
+                seller_id: user.sellers?.[0]?.id,
+                seller_type: user.sellers?.[0]?.seller_type,
+            },
+        });
+    } catch (err) {
+        console.error('Firebase Phone Verify Error:', err);
+        res.status(500).json({ success: false, message: err.message });
     }
 };

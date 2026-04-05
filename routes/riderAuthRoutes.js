@@ -9,6 +9,7 @@ import {
     submitVerificationRequest,
     verifyRiderToken,
     logoutRider,
+    verifyRiderFirebasePhone,
 } from '../controller/riderAuthController.js';
 
 const router = express.Router();
@@ -17,6 +18,7 @@ const router = express.Router();
 router.post('/register', registerRider);
 router.post('/login', loginRider);
 router.post('/verify-token', verifyRiderToken);
+router.post('/firebase-phone', verifyRiderFirebasePhone);
 
 // Protected routes
 router.get('/me', authenticateToken, getRiderMe);

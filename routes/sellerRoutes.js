@@ -30,6 +30,7 @@ import {
     getSellerSubOrders,
     acceptSubOrder,
     rejectSubOrder,
+    verifyOtpAndDeliverSeller,
 } from '../controller/sellerController.js';
 
 const router = express.Router();
@@ -77,6 +78,7 @@ router.put('/orders/:orderId/status', authenticateToken, requireSeller, updateSe
 // Sub-order fulfillment management (new)
 router.get('/sub-orders', authenticateToken, requireSeller, getSellerSubOrders);
 router.post('/sub-orders/:sub_order_id/accept', authenticateToken, requireSeller, acceptSubOrder);
+router.post('/sub-orders/:sub_order_id/verify-otp', authenticateToken, requireSeller, verifyOtpAndDeliverSeller);
 router.post('/sub-orders/:sub_order_id/reject', authenticateToken, requireSeller, rejectSubOrder);
 
 // Wallet management

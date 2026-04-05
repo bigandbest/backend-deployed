@@ -2914,3 +2914,15 @@ model affiliate_category_commissions {
   updated_at           DateTime  @updatedAt @db.Timestamptz
 }
 
+model otpVerification {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  phone     String   @db.VarChar
+  otp       String   @db.VarChar(6)
+  type      String   @db.VarChar(50)
+  expiresAt DateTime @db.Timestamptz
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  @@index([phone])
+  @@index([expiresAt])
+}
+

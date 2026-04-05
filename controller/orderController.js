@@ -439,9 +439,8 @@ export const placeOrder = async (req, res) => {
 
     // Process order items with warehouse assignment
     const orderItemsToInsert = [];
-    const warehouseAssignments = [];
 
-    for (const { item, productId, quantity, variantId, warehouseInfo } of preparedItems) {
+    for (const { item, quantity, variantId, warehouseInfo } of preparedItems) {
       orderItemsToInsert.push({
         order_id: order.id,
         variant_id: variantId,
@@ -451,21 +450,8 @@ export const placeOrder = async (req, res) => {
         warehouse_name: warehouseInfo?.warehouse_name || null,
       });
 
-      if (warehouseInfo) {
-        warehouseAssignments.push({
-          order_id: order.id,
-          product_id: productId,
-          warehouse_id: warehouseInfo.warehouse_id,
-          quantity: quantity,
-          priority: warehouseInfo.priority,
-          fallback_level: warehouseInfo.fallback_level,
-        });
-
-        // If this item was allocated to a seller, update the whole order to belong to this seller
-        // (Assuming a single order goes to a single seller for now, based on the first mapped item)
-        if (warehouseInfo.seller_id) {
-          await orderDao.update(order.id, { seller_id: warehouseInfo.seller_id });
-        }
+      if (warehouseInfo?.seller_id) {
+        await orderDao.update(order.id, { seller_id: warehouseInfo.seller_id });
       }
     }
 
@@ -473,18 +459,7 @@ export const placeOrder = async (req, res) => {
       await orderItemDao.createMany(orderItemsToInsert);
     }
 
-    // Store warehouse assignments if any (Prisma doesn't have a DAO for this yet, so using raw or insert)
-    // For now, I'll keep it as is if it's using supabase, but I should ideally have a DAO.
-    // If I don't have a DAO for everything, I'll use Prisma directly if the model exists.
-    if (warehouseAssignments.length > 0) {
-      try {
-        await prisma.order_warehouse_assignments.createMany({
-          data: warehouseAssignments
-        });
-      } catch (assignmentError) {
-        console.error("Error storing warehouse assignments:", assignmentError);
-      }
-    }
+    // Warehouse assignments are already stored in order_items.assigned_warehouse_id
 
     // Clear user's cart
     await cartDao.clearCart(user_id);
@@ -1169,7 +1144,24 @@ export const getOrderTracking = async (req, res) => {
         }
     }
 
-    return res.json({ success: true, order: order, tracking: deduped, rider: riderInfo });
+    // Include delivery OTP from confirmed sub-orders
+    const subOrdersWithOtp = await prisma.sub_orders.findMany({
+        where: { parent_order_id: orderId, fulfillment_status: { not: 'cancelled' } },
+        select: { id: true, fulfillment_status: true, pickup_sequence: true },
+    });
+
+    const deliveryOtps = subOrdersWithOtp
+        .filter(so => {
+            const meta = typeof so.pickup_sequence === 'object' && !Array.isArray(so.pickup_sequence)
+                ? so.pickup_sequence : null;
+            return meta?.otp;
+        })
+        .map(so => {
+            const meta = so.pickup_sequence;
+            return { sub_order_id: so.id, otp: meta.otp, status: so.fulfillment_status };
+        });
+
+    return res.json({ success: true, order: order, tracking: deduped, rider: riderInfo, delivery_otps: deliveryOtps });
   } catch (err) {
     console.error("getOrderTracking error:", err);
     return res

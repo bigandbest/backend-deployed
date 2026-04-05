@@ -188,7 +188,7 @@ class SubOrderDAO {
             where: {
                 rider_id: riderId,
                 fulfillment_status: {
-                    in: ['confirmed', 'picked', 'in_transit'],
+                    in: ['confirmed', 'picked', 'in_transit', 'out_for_delivery'],
                 },
             },
             include: {

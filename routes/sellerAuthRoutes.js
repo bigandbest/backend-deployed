@@ -9,6 +9,7 @@ import {
     updateSellerProfile,
     updateSellerKyc,
     updateSellerBankDetails,
+    verifySellerFirebasePhone,
 } from '../controller/sellerAuthController.js';
 import {
     uploadSellerDocument,
@@ -22,6 +23,7 @@ const router = express.Router();
 router.post('/register', registerSeller);
 router.post('/login', loginSeller);
 router.post('/verify-token', verifySellerToken);
+router.post('/firebase-phone', verifySellerFirebasePhone);
 
 // Protected routes
 router.get('/me', authenticateToken, getSellerMe);

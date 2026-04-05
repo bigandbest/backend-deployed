@@ -41,7 +41,8 @@ export const getAssignableOrders = async (req, res) => {
         }
 
         // Find unassigned orders matching these pincodes
-        const orders = await prisma.orders.findMany({
+        // Only show orders where at least one sub-order is confirmed by seller/division
+        const allOrders = await prisma.orders.findMany({
             where: {
                 rider_id: null,
                 delivery_pincode: { in: riderPincodes },
@@ -51,9 +52,16 @@ export const getAssignableOrders = async (req, res) => {
             include: {
                 order_items: true,
                 users: { select: { name: true, phone: true } },
+                sub_orders: { select: { fulfillment_status: true } },
             },
             orderBy: { created_at: 'desc' },
-            take: 50,
+            take: 100,
+        });
+
+        // Filter: only show orders where at least one sub-order is confirmed (seller/division accepted)
+        const orders = allOrders.filter(o => {
+            if (o.sub_orders.length === 0) return true; // no sub-orders yet, still show
+            return o.sub_orders.some(so => so.fulfillment_status === 'confirmed');
         });
 
         // Calculate estimated payout 
@@ -788,10 +796,10 @@ export const markPickupComplete = async (req, res) => {
 };
 
 /**
- * Mark sub-order as delivered
- * POST /api/rider/orders/:sub_order_id/delivered
+ * Mark sub-order as out for delivery
+ * POST /api/rider/orders/:sub_order_id/out-for-delivery
  */
-export const markSubOrderDelivered = async (req, res) => {
+export const markOutForDelivery = async (req, res) => {
     try {
         const { sub_order_id } = req.params;
 
@@ -808,41 +816,70 @@ export const markSubOrderDelivered = async (req, res) => {
         if (!['picked', 'in_transit'].includes(subOrder.fulfillment_status)) {
             return res.status(400).json({
                 success: false,
-                error: `Cannot deliver sub-order in ${subOrder.fulfillment_status} status`,
+                error: `Cannot mark out for delivery from ${subOrder.fulfillment_status} status`,
             });
         }
 
-        // GPS DELIVERY VERIFICATION — rider must be within 100m of delivery address
-        const { rider_latitude, rider_longitude } = req.body;
+        await subOrderDao.updateStatus(sub_order_id, 'out_for_delivery');
+        await fulfillmentEventDao.log(sub_order_id, 'out_for_delivery', {
+            rider_id: rider.id,
+            at: new Date().toISOString(),
+        });
 
-        if (rider_latitude == null || rider_longitude == null) {
+        res.status(200).json({
+            success: true,
+            message: 'Marked as out for delivery',
+            data: { sub_order_id, status: 'out_for_delivery' },
+        });
+    } catch (error) {
+        console.error('markOutForDelivery error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Mark sub-order as delivered
+ * POST /api/rider/orders/:sub_order_id/delivered
+ */
+export const markSubOrderDelivered = async (req, res) => {
+    try {
+        const { sub_order_id } = req.params;
+        const { delivery_otp } = req.body;
+
+        const rider = await prisma.riders.findUnique({ where: { user_id: req.user.id } });
+        if (!rider) return res.status(404).json({ success: false, error: 'Rider profile not found' });
+
+        const subOrder = await subOrderDao.getById(sub_order_id);
+        if (!subOrder) return res.status(404).json({ success: false, error: 'Sub-order not found' });
+
+        if (subOrder.rider_id !== rider.id) {
+            return res.status(403).json({ success: false, error: 'This sub-order is not assigned to you' });
+        }
+
+        if (!['out_for_delivery', 'picked', 'in_transit'].includes(subOrder.fulfillment_status)) {
             return res.status(400).json({
                 success: false,
-                error: 'rider_latitude and rider_longitude are required to mark delivery as complete',
+                error: `Cannot deliver sub-order in ${subOrder.fulfillment_status} status. Mark out for delivery first.`,
             });
+        }
+
+        // Validate delivery OTP
+        const pickupMeta = typeof subOrder.pickup_sequence === 'object' && !Array.isArray(subOrder.pickup_sequence)
+            ? subOrder.pickup_sequence
+            : null;
+        const storedOtp = pickupMeta?.otp;
+
+        if (!delivery_otp) {
+            return res.status(400).json({ success: false, error: 'Delivery OTP is required' });
+        }
+        if (!storedOtp || delivery_otp.toString() !== storedOtp.toString()) {
+            return res.status(400).json({ success: false, error: 'Invalid delivery OTP' });
         }
 
         const parentOrder = await prisma.orders.findUnique({
             where: { id: subOrder.parent_order_id },
-            select: { delivery_latitude: true, delivery_longitude: true, payment_method: true },
+            select: { payment_method: true },
         });
-
-        if (parentOrder?.delivery_latitude && parentOrder?.delivery_longitude) {
-            const distanceToDelivery = calculateDistanceKm(
-                parseFloat(rider_latitude),
-                parseFloat(rider_longitude),
-                Number(parentOrder.delivery_latitude),
-                Number(parentOrder.delivery_longitude)
-            );
-            const DELIVERY_RADIUS_KM = 1.0; // 1 km
-            if (distanceToDelivery > DELIVERY_RADIUS_KM) {
-                return res.status(400).json({
-                    success: false,
-                    error: `You must be within 1km of the delivery address. Current distance: ${Math.round(distanceToDelivery * 1000)}m`,
-                    distance_m: Math.round(distanceToDelivery * 1000),
-                });
-            }
-        }
 
         // Mark delivered
         await subOrderDao.updateStatus(sub_order_id, 'delivered');

@@ -1463,12 +1463,19 @@ export const getSellerSubOrders = async (req, res) => {
                 };
             }));
 
+            // Extract OTP from pickup_sequence metadata if confirmed
+            const pickupMeta = typeof so.pickup_sequence === 'object' && !Array.isArray(so.pickup_sequence)
+                ? so.pickup_sequence
+                : null;
+            const deliveryOtp = pickupMeta?.otp || null;
+
             return {
                 id: so.id,
                 parent_order_id: so.parent_order_id,
                 fulfillment_status: so.fulfillment_status,
                 estimated_delivery_at: so.estimated_delivery_at,
                 created_at: so.created_at,
+                delivery_otp: deliveryOtp,
                 customer: {
                     address: so.parent_order?.address,
                     pincode: so.parent_order?.delivery_pincode,
@@ -1518,11 +1525,17 @@ export const acceptSubOrder = async (req, res) => {
             });
         }
 
-        // Accept + log
-        await subOrderDao.updateStatus(sub_order_id, 'confirmed');
+        // Generate delivery OTP (6-digit)
+        const deliveryOtp = Math.floor(100000 + Math.random() * 900000).toString();
+
+        // Accept + store OTP in pickup_sequence metadata
+        await subOrderDao.updateStatus(sub_order_id, 'confirmed', {
+            pickup_sequence: { otp: deliveryOtp, accepted_at: new Date().toISOString() },
+        });
         await fulfillmentEventDao.log(sub_order_id, 'confirmed', {
             seller_id: seller.id,
             accepted_at: new Date().toISOString(),
+            delivery_otp: deliveryOtp,
         });
 
         // Trigger rider assignment for this sub-order's parent order
@@ -1536,10 +1549,66 @@ export const acceptSubOrder = async (req, res) => {
         res.status(200).json({
             success: true,
             message: 'Sub-order accepted successfully',
-            data: { sub_order_id, status: 'confirmed' },
+            data: { sub_order_id, status: 'confirmed', delivery_otp: deliveryOtp },
         });
     } catch (error) {
         console.error('acceptSubOrder error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Seller verifies OTP and marks sub-order as delivered
+ * POST /api/seller/sub-orders/:sub_order_id/verify-otp
+ */
+export const verifyOtpAndDeliverSeller = async (req, res) => {
+    try {
+        const { sub_order_id } = req.params;
+        const { delivery_otp } = req.body;
+        const seller = await prisma.sellers.findUnique({ where: { user_id: req.user.id } });
+
+        if (!seller) return res.status(404).json({ success: false, error: 'Seller profile not found' });
+
+        const subOrder = await subOrderDao.getById(sub_order_id);
+        if (!subOrder) return res.status(404).json({ success: false, error: 'Sub-order not found' });
+
+        if (subOrder.seller_id !== seller.id) {
+            return res.status(403).json({ success: false, error: 'This sub-order is not assigned to you' });
+        }
+
+        if (!delivery_otp || !delivery_otp.toString().trim()) {
+            return res.status(400).json({ success: false, error: 'OTP is required' });
+        }
+
+        // Get the parent OTP from first confirmed sub-order
+        const parentSubOrders = await prisma.sub_orders.findMany({
+            where: { parent_order_id: subOrder.parent_order_id },
+            select: { pickup_sequence: true },
+            take: 1,
+        });
+
+        const parentOtp = parentSubOrders[0]?.pickup_sequence?.otp;
+
+        // Verify OTP
+        if (!parentOtp || delivery_otp.toString() !== parentOtp.toString()) {
+            return res.status(400).json({ success: false, error: 'Invalid OTP' });
+        }
+
+        // Mark sub-order as delivered
+        await subOrderDao.updateStatus(sub_order_id, 'delivered');
+        await fulfillmentEventDao.log(sub_order_id, 'delivered', {
+            seller_id: seller.id,
+            verified_at: new Date().toISOString(),
+            otp_verified: true,
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Sub-order verified and marked delivered',
+            data: { sub_order_id, status: 'delivered' },
+        });
+    } catch (error) {
+        console.error('verifyOtpAndDeliverSeller error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 };

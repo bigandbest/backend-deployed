@@ -1,4 +1,5 @@
 import TrackingDAO from "../dao/tracking.dao.js";
+import prisma from "../config/prisma.js";
 
 /**
  * Tracking Controller - Routes for order tracking operations
@@ -25,10 +26,28 @@ export const getOrderTracking = async (req, res) => {
         (a, b) => new Date(a.timestamp) - new Date(b.timestamp),
       ) || [];
 
+    // Include delivery OTP from confirmed sub-orders
+    const subOrdersWithOtp = await prisma.sub_orders.findMany({
+      where: { parent_order_id: orderId, fulfillment_status: { not: 'cancelled' } },
+      select: { id: true, fulfillment_status: true, pickup_sequence: true },
+    });
+
+    const deliveryOtps = subOrdersWithOtp
+      .filter(so => {
+        const meta = typeof so.pickup_sequence === 'object' && !Array.isArray(so.pickup_sequence)
+          ? so.pickup_sequence : null;
+        return meta?.otp;
+      })
+      .map(so => {
+        const meta = so.pickup_sequence;
+        return { sub_order_id: so.id, otp: meta.otp, status: so.fulfillment_status };
+      });
+
     res.json({
       success: true,
       order,
       tracking,
+      delivery_otps: deliveryOtps,
     });
   } catch (error) {
     console.error("Error fetching order tracking:", error);

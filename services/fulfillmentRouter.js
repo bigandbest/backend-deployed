@@ -27,8 +27,12 @@ export const routeSubOrders = async (orderId) => {
             if (subOrder.source_type === 'zonal') {
                 const result = await routeZonal(subOrder);
                 results.push(result);
-            } else {
-                // Division or Seller — needs rider
+            } else if (subOrder.source_type === 'division') {
+                // Division orders: keep pending — admin will accept and assign rider
+                const result = await routeDivision(subOrder);
+                results.push(result);
+            } else if (subOrder.source_type === 'seller') {
+                // Seller orders: assign rider immediately
                 const result = await routeWithRider(subOrder, orderId);
                 results.push(result);
             }
@@ -46,28 +50,52 @@ export const routeSubOrders = async (orderId) => {
 };
 
 // ================================================================
+// DIVISION ROUTING (Admin acceptance required, then rider assignment)
+// ================================================================
+
+/**
+ * Route division order: keep pending until admin accepts it.
+ * Admin will then assign a rider when accepting the order.
+ */
+const routeDivision = async (subOrder) => {
+    // Division orders start as pending — admin will accept them
+    // Rider assignment happens after admin acceptance, not during order creation
+
+    await fulfillmentEventDao.log(subOrder.id, 'division_routing', {
+        warehouse_id: subOrder.source_id,
+        warehouse_name: subOrder.warehouse?.name,
+        message: 'Division order created — awaiting admin acceptance',
+    });
+
+    return {
+        sub_order_id: subOrder.id,
+        status: 'pending',
+        rider_needed: true,
+    };
+};
+
+// ================================================================
 // ZONAL ROUTING (No rider needed)
 // ================================================================
 
 /**
- * Route to zonal warehouse in-house delivery system.
- * Sets status and would trigger webhook/event in production.
+ * Route zonal order: keep pending until admin accepts it.
+ * Admin will then transition it to dispatched_to_zonal_delivery status.
+ * Zonal orders don't need rider assignment like division orders.
  */
 const routeZonal = async (subOrder) => {
-    await subOrderDao.updateStatus(subOrder.id, 'dispatched_to_zonal_delivery');
+    // Zonal orders start as pending — admin will accept them
+    // No automatic rider assignment needed for zonal orders
 
-    await fulfillmentEventDao.log(subOrder.id, 'dispatched_to_zonal', {
+    await fulfillmentEventDao.log(subOrder.id, 'zonal_routing', {
         warehouse_id: subOrder.source_id,
         warehouse_name: subOrder.warehouse?.name,
-        message: 'Dispatched to zonal warehouse in-house delivery system',
+        message: 'Zonal order created — awaiting admin acceptance',
     });
-
-    // TODO: In production, trigger webhook to zonal warehouse system
-    // await triggerZonalWebhook(subOrder);
 
     return {
         sub_order_id: subOrder.id,
-        status: 'dispatched_to_zonal_delivery',
+        status: 'pending',
         rider_needed: false,
     };
 };
