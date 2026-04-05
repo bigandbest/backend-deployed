@@ -1846,6 +1846,7 @@ model shopping_lists {
   id         String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id    String                @db.Uuid
   name       String                @db.VarChar(100)
+  description String?              @db.Text
   created_at DateTime              @default(now()) @db.Timestamptz
   updated_at DateTime              @default(now()) @updatedAt @db.Timestamptz
 

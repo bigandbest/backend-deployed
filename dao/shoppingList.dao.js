@@ -15,9 +15,9 @@ class ShoppingListDAO {
   }
 
   // Create a new list
-  async create(userId, name) {
+  async create(userId, name, description = "") {
     return await prisma.shopping_lists.create({
-      data: { user_id: userId, name },
+      data: { user_id: userId, name, description },
       include: { items: true },
     });
   }
@@ -93,6 +93,7 @@ class ShoppingListDAO {
         data: {
           user_id: userId,
           name: cl.name,
+          description: cl.description || "",
           items: {
             create: (cl.items || [])
               .filter((item) => item.productId)

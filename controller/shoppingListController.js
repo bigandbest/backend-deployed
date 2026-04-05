@@ -12,15 +12,14 @@ export const getLists = async (req, res) => {
   }
 };
 
-// POST /api/shopping-lists
 export const createList = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { name } = req.body;
+    const { name, description } = req.body;
     if (!name?.trim()) {
       return res.status(400).json({ success: false, error: "List name is required" });
     }
-    const list = await ShoppingListDAO.create(userId, name.trim());
+    const list = await ShoppingListDAO.create(userId, name.trim(), description?.trim() || "");
     res.status(201).json({ success: true, list });
   } catch (error) {
     console.error("createList error:", error);
