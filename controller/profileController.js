@@ -217,7 +217,19 @@ export const updateUserProfile = async (req, res) => {
       });
     }
 
-    const { name, phone, first_name, last_name } = req.body;
+    const { name, phone, first_name, last_name, email } = req.body;
+
+    if (email !== undefined) {
+      const normalizedEmail = String(email).trim().toLowerCase();
+      const isValidEmail =
+        normalizedEmail === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail);
+      if (!isValidEmail) {
+        return res.status(400).json({
+          success: false,
+          error: "Please provide a valid email address",
+        });
+      }
+    }
 
     // Build update object with only provided fields
     const updateData = {};
@@ -225,6 +237,10 @@ export const updateUserProfile = async (req, res) => {
     if (phone !== undefined) updateData.phone = phone;
     if (first_name !== undefined) updateData.first_name = first_name;
     if (last_name !== undefined) updateData.last_name = last_name;
+    if (email !== undefined) {
+      const normalizedEmail = String(email).trim().toLowerCase();
+      updateData.email = normalizedEmail || null;
+    }
 
     if (Object.keys(updateData).length === 0) {
       return res.status(400).json({

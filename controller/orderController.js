@@ -344,6 +344,19 @@ export const placeOrder = async (req, res) => {
       delivery_longitude: bodyLon,
     } = req.body;
 
+    const userRecord = user_id ? await userControlDao.getUserById(user_id) : null;
+    const resolvedReceiverName =
+      (receiver_name || userRecord?.name || "").toString().trim();
+    const resolvedMobile =
+      (mobile || userRecord?.phone || "").toString().replace(/\D/g, "");
+
+    if (!resolvedReceiverName || resolvedReceiverName.length < 2 || resolvedMobile.length !== 10) {
+      return res.status(400).json({
+        success: false,
+        error: "Please complete profile with valid name and mobile number before placing order",
+      });
+    }
+
     // Use charges from request (snapshot) or fetch current settings as fallback
     let finalChargeSettings = {
       handling_charge: handling_charge !== undefined ? parseFloat(handling_charge) : 0,
@@ -427,8 +440,8 @@ export const placeOrder = async (req, res) => {
       status: "pending",
       coupon_code: coupon_code || null,
       coupon_discount: coupon_discount ? parseFloat(coupon_discount) : 0,
-      mobile: mobile || null,
-      receiver_name: receiver_name || null,
+      mobile: resolvedMobile,
+      receiver_name: resolvedReceiverName,
       // Save GPS coordinates directly if provided by client (mobile app)
       ...(bodyLat != null && bodyLon != null ? {
         delivery_latitude: parseFloat(bodyLat),
@@ -586,6 +599,23 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       mobile,
       receiver_name
     } = req.body;
+
+    const userRecord = user_id ? await userControlDao.getUserById(user_id) : null;
+    const fallbackAddressMobile = detailedAddress?.mobile || detailedAddress?.receiver_phone;
+    const fallbackAddressName = detailedAddress?.receiver_name || detailedAddress?.full_name;
+    const resolvedReceiverName =
+      (receiver_name || fallbackAddressName || userRecord?.name || "").toString().trim();
+    const resolvedMobile =
+      (mobile || fallbackAddressMobile || userRecord?.phone || "")
+        .toString()
+        .replace(/\D/g, "");
+
+    if (!resolvedReceiverName || resolvedReceiverName.length < 2 || resolvedMobile.length !== 10) {
+      return res.status(400).json({
+        success: false,
+        error: "Please complete profile with valid name and mobile number before placing order",
+      });
+    }
 
     // Delivery coordinates are resolved from the delivery address itself — not the
     // device GPS — so orders placed for family/friends at a different location are
@@ -851,8 +881,8 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
           razorpay_order_id,
           razorpay_payment_id,
           razorpay_signature,
-          mobile: mobile || detailedAddress.mobile || null,
-          receiver_name: receiver_name || detailedAddress.receiver_name || null,
+          mobile: resolvedMobile,
+          receiver_name: resolvedReceiverName,
           delivery_pincode: deliverabilityValidation.pincode,
           coupon_code: coupon_code || null,
           coupon_discount: coupon_discount ? parseFloat(coupon_discount) : 0,
