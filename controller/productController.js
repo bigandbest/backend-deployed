@@ -326,33 +326,26 @@ export const getProductById = async (req, res) => {
       return res.status(404).json({ error: "Product not found" });
     }
 
-    // Get delivery information
-    let deliveryInfo = {
-      delivery_type: product.delivery_type || "nationwide",
-      delivery_available: true,
-      delivery_zones: [],
-      delivery_notes: product.delivery_notes || null,
-    };
-
-    if (
-      product.delivery_type === "zonal" &&
-      product.allowed_zone_ids &&
-      product.allowed_zone_ids.length > 0
-    ) {
-      const zones = await deliveryZoneDao.listByIds(product.allowed_zone_ids);
-      deliveryInfo.delivery_zones = zones;
-    }
-
-    // Check pincode-specific delivery if pincode provided
-    if (pincode && /^\d{6}$/.test(pincode)) {
-      const canDeliver = await productDao.canDeliverToPincode(id, pincode);
-      deliveryInfo.can_deliver_to_pincode = canDeliver;
-      deliveryInfo.checked_pincode = pincode;
-    }
+    // Run delivery zone lookup, pincode check, and availability enrichment in parallel
+    const isZonal = product.delivery_type === "zonal" && product.allowed_zone_ids?.length > 0;
+    const hasPincode = pincode && /^\d{6}$/.test(pincode);
 
     let transformedProduct = transformProduct(product);
-    const [enriched] = await enrichWithAvailability(req, [transformedProduct]);
+
+    const [zones, canDeliver, [enriched]] = await Promise.all([
+      isZonal ? deliveryZoneDao.listByIds(product.allowed_zone_ids) : Promise.resolve([]),
+      hasPincode ? productDao.canDeliverToPincode(id, pincode) : Promise.resolve(null),
+      enrichWithAvailability(req, [transformedProduct]),
+    ]);
     transformedProduct = enriched;
+
+    const deliveryInfo = {
+      delivery_type: product.delivery_type || "nationwide",
+      delivery_available: true,
+      delivery_zones: zones,
+      delivery_notes: product.delivery_notes || null,
+      ...(hasPincode && { can_deliver_to_pincode: canDeliver, checked_pincode: pincode }),
+    };
 
     res.status(200).json({
       success: true,

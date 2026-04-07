@@ -1,4 +1,7 @@
 import prisma from "../config/prisma.js";
+import redis from "../config/redis.js";
+
+const PRODUCT_CACHE_TTL = parseInt(process.env.PRODUCT_CACHE_TTL || '60', 10);
 
 class ProductDAO {
     // --- Product Operations ---
@@ -23,7 +26,16 @@ class ProductDAO {
         if (typeof id !== 'string' || !uuidRegex.test(id)) {
             return null;
         }
-        return await prisma.products.findUnique({
+
+        const cacheKey = `product:${id}`;
+        try {
+            const raw = await redis.get(cacheKey);
+            if (raw) return JSON.parse(raw);
+        } catch {
+            // Redis unavailable — fall through to DB
+        }
+
+        const product = await prisma.products.findUnique({
             where: { id },
             include: {
                 variants: {
@@ -57,19 +69,32 @@ class ProductDAO {
                 },
             },
         });
+
+        if (product) {
+            redis.setex(cacheKey, PRODUCT_CACHE_TTL, JSON.stringify(product)).catch(() => {});
+        }
+
+        return product;
+    }
+
+    invalidateProductCache(id) {
+        redis.del(`product:${id}`).catch(() => {});
     }
 
     async updateProduct(id, data) {
-        return await prisma.products.update({
+        const result = await prisma.products.update({
             where: { id },
             data: {
                 ...data,
                 updated_at: new Date(),
             },
         });
+        this.invalidateProductCache(id);
+        return result;
     }
 
     async deleteProduct(id) {
+        this.invalidateProductCache(id);
         return await prisma.products.delete({
             where: { id },
         });
@@ -572,7 +597,10 @@ class ProductDAO {
     }
 
     async getRelatedProductsBySubcategory(productId, limit = 10) {
-        const product = await this.getProductById(productId);
+        const product = await prisma.products.findUnique({
+            where: { id: productId },
+            select: { subcategory_id: true }
+        });
         if (!product || !product.subcategory_id) return [];
 
         return await prisma.products.findMany({

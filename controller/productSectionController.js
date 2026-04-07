@@ -8,6 +8,40 @@ import videoCardDao from "../dao/video-card.dao.js";
 import brandDao from "../dao/brand.dao.js";
 import prisma from '../config/prisma.js';
 import cartAvailabilityDAO from '../dao/cart-availability.dao.js';
+import redis from '../config/redis.js';
+
+const SECTION_CACHE_TTL = parseInt(process.env.SECTION_CACHE_TTL || '300', 10);
+
+// ── Cache key constants ───────────────────────────────────────────────────────
+const CACHE_KEYS = {
+  allSections:    'sections:all',
+  activeSections: 'sections:active',
+  sectionById:    (id) => `sections:meta:${id}`,
+  sectionContent: (id, wh) => `section:${id}:wh${wh || 0}`,
+  sectionProducts:(id) => `section:${id}:products`,
+};
+
+// Invalidate every cache entry tied to a specific section id
+const invalidateSectionCache = async (id) => {
+  // Delete scalar meta/list keys
+  await Promise.allSettled([
+    redis.del(CACHE_KEYS.allSections),
+    redis.del(CACHE_KEYS.activeSections),
+    redis.del(CACHE_KEYS.sectionById(id)),
+  ]);
+  // Scan and delete ALL warehouse-variant keys for this section
+  // (e.g. section:{id}:wh0, section:{id}:wh3, section:{id}:products:wh0, etc.)
+  try {
+    let cursor = '0';
+    do {
+      const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', `section:${id}:*`, 'COUNT', 100);
+      cursor = nextCursor;
+      if (keys.length) await redis.del(...keys);
+    } while (cursor !== '0');
+  } catch {
+    // Redis unavailable — best effort
+  }
+};
 
 // Create a product section
 export const createProductSection = async (req, res) => {
@@ -40,8 +74,13 @@ export const createProductSection = async (req, res) => {
 // Get all product sections
 export const getAllProductSections = async (req, res) => {
   try {
+    const cached = await redis.get(CACHE_KEYS.allSections).catch(() => null);
+    if (cached) return res.status(200).json(JSON.parse(cached));
+
     const data = await productSectionDao.list({ active: undefined });
-    res.status(200).json({ success: true, data });
+    const payload = { success: true, data };
+    redis.setex(CACHE_KEYS.allSections, SECTION_CACHE_TTL, JSON.stringify(payload)).catch(() => {});
+    res.status(200).json(payload);
   } catch (error) {
     console.error("Error fetching product sections:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -51,8 +90,13 @@ export const getAllProductSections = async (req, res) => {
 // Get active product sections only
 export const getActiveProductSections = async (req, res) => {
   try {
+    const cached = await redis.get(CACHE_KEYS.activeSections).catch(() => null);
+    if (cached) return res.status(200).json(JSON.parse(cached));
+
     const data = await productSectionDao.list({ active: true });
-    res.status(200).json({ success: true, data });
+    const payload = { success: true, data };
+    redis.setex(CACHE_KEYS.activeSections, SECTION_CACHE_TTL, JSON.stringify(payload)).catch(() => {});
+    res.status(200).json(payload);
   } catch (error) {
     console.error("Error fetching active product sections:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -74,13 +118,18 @@ export const getSectionCounts = async (req, res) => {
 export const getProductSectionById = async (req, res) => {
   try {
     const { id } = req.params;
-    const data = await productSectionDao.getById(parseInt(id));
+    const sectionId = parseInt(id);
+    const cacheKey = CACHE_KEYS.sectionById(sectionId);
 
-    if (!data) {
-      return res.status(404).json({ error: "Product section not found" });
-    }
+    const cached = await redis.get(cacheKey).catch(() => null);
+    if (cached) return res.status(200).json(JSON.parse(cached));
 
-    res.status(200).json({ success: true, data });
+    const data = await productSectionDao.getById(sectionId);
+    if (!data) return res.status(404).json({ error: "Product section not found" });
+
+    const payload = { success: true, data };
+    redis.setex(cacheKey, SECTION_CACHE_TTL, JSON.stringify(payload)).catch(() => {});
+    res.status(200).json(payload);
   } catch (error) {
     console.error("Error fetching product section:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -118,6 +167,8 @@ export const updateProductSection = async (req, res) => {
 
     const data = await productSectionDao.update(parseInt(id), filteredUpdateData);
 
+    invalidateSectionCache(parseInt(id));
+
     res.status(200).json({
       success: true,
       data,
@@ -142,6 +193,8 @@ export const toggleSectionStatus = async (req, res) => {
     const newStatus = !section.is_active;
     const data = await productSectionDao.update(parseInt(id), { is_active: newStatus });
 
+    invalidateSectionCache(parseInt(id));
+
     res.status(200).json({
       success: true,
       data,
@@ -165,6 +218,10 @@ export const updateSectionOrder = async (req, res) => {
     for (const section of sections) {
       await productSectionDao.update(parseInt(section.id), { display_order: section.display_order });
     }
+
+    // Order change affects the list caches; individual section content is unchanged
+    redis.del(CACHE_KEYS.allSections).catch(() => {});
+    redis.del(CACHE_KEYS.activeSections).catch(() => {});
 
     res.status(200).json({
       success: true,
@@ -201,6 +258,8 @@ export const addProductsToSection = async (req, res) => {
 
     const data = await productSectionProductDao.upsertMany(assignments);
 
+    invalidateSectionCache(parseInt(id)).catch(() => {});
+
     res.status(200).json({
       success: true,
       data,
@@ -218,6 +277,8 @@ export const removeProductFromSection = async (req, res) => {
     const { id, productId } = req.params;
     await productSectionProductDao.deleteBySectionAndProduct(parseInt(id), productId);
 
+    invalidateSectionCache(parseInt(id)).catch(() => {});
+
     res.status(200).json({
       success: true,
       message: "Product removed from section successfully",
@@ -229,14 +290,36 @@ export const removeProductFromSection = async (req, res) => {
 };
 
 // Get all products in a section
-// Get all products in a section
 export const getProductsInSection = async (req, res) => {
   try {
     const { id } = req.params;
     const { page = 1, limit = 50, warehouse_id } = req.query;
+    const sectionId = parseInt(id);
+    const warehouseKey = warehouse_id ? parseInt(warehouse_id) : 0;
+    const cacheKey = `${CACHE_KEYS.sectionProducts(sectionId)}:wh${warehouseKey}`;
 
-    const mappedCategories = await productSectionCategoryDao.listBySection(parseInt(id));
-    const data = await productSectionProductDao.listBySection(parseInt(id));
+    const userPincode = req.headers['x-user-pincode'];
+
+    // Serve base product list from cache, then re-enrich availability per-user
+    const cachedRaw = await redis.get(cacheKey).catch(() => null);
+    if (cachedRaw) {
+      const cached = JSON.parse(cachedRaw);
+      if (userPincode && /^\d{6}$/.test(userPincode) && cached.data?.length > 0) {
+        const items = cached.data.filter(p => p.id).map(p => ({
+          product_id: p.id,
+          variant_id: p.variants?.[0]?.id || p.default_variant_id || null,
+          quantity: 1,
+        }));
+        if (items.length > 0) {
+          const availability = await cartAvailabilityDAO.checkBulkAvailability(items, userPincode).catch(() => ({}));
+          cached.data = cached.data.map(p => ({ ...p, availability: availability[p.id] ?? { available: true } }));
+        }
+      }
+      return res.status(200).json(cached);
+    }
+
+    const mappedCategories = await productSectionCategoryDao.listBySection(sectionId);
+    const data = await productSectionProductDao.listBySection(sectionId);
 
     // Flatten product details
     let products = data.map(item => ({
@@ -273,8 +356,22 @@ export const getProductsInSection = async (req, res) => {
       };
     });
 
-    // Enrich with pincode-based availability
-    const userPincode = req.headers['x-user-pincode'];
+    // Cache the base product list (without per-user availability)
+    const basePayload = {
+      success: true,
+      data: products,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: products.length,
+        totalPages: Math.ceil(products.length / parseInt(limit)),
+      },
+      filtered_by_categories: mappedCategories && mappedCategories.length > 0,
+      mapped_category_count: mappedCategories ? mappedCategories.length : 0,
+    };
+    redis.setex(cacheKey, SECTION_CACHE_TTL, JSON.stringify(basePayload)).catch(() => {});
+
+    // Enrich with pincode-based availability (user-specific, not cached)
     if (userPincode && /^\d{6}$/.test(userPincode) && products.length > 0) {
       try {
         const items = products.filter(p => p.id).map(p => ({
@@ -327,16 +424,14 @@ export const updateProductOrderInSection = async (req, res) => {
     }
 
     for (const product of products) {
-      // Find the assignment record first to get its ID, or add a method to update by section/product
-      // To simplify, we'll assume product contains the assignment id if possible, 
-      // but the original controller used section_id + product_id.
-      // Since upsertMany handles it, we can reuse that for order updates.
       await productSectionProductDao.upsertMany([{
         section_id: parseInt(id),
         product_id: product.product_id,
         display_order: product.display_order
       }]);
     }
+
+    invalidateSectionCache(parseInt(id));
 
     res.status(200).json({
       success: true,
@@ -381,6 +476,8 @@ export const syncCategoriesInSection = async (req, res) => {
 
     await productSectionCategoryDao.sync(parseInt(id), category_ids);
 
+    invalidateSectionCache(parseInt(id)).catch(() => {});
+
     res.status(200).json({
       success: true,
       message: `Section categories synced successfully. ${category_ids.length} categories mapped.`,
@@ -408,6 +505,8 @@ export const addCategoriesToSection = async (req, res) => {
 
     const data = await productSectionCategoryDao.addMany(mappings);
 
+    invalidateSectionCache(parseInt(id));
+
     res.status(200).json({
       success: true,
       data,
@@ -424,6 +523,8 @@ export const removeCategoryFromSection = async (req, res) => {
   try {
     const { id, categoryId } = req.params;
     await productSectionCategoryDao.remove(parseInt(id), categoryId);
+
+    invalidateSectionCache(parseInt(id));
 
     res.status(200).json({
       success: true,
@@ -495,6 +596,36 @@ export const getSectionWithContent = async (req, res) => {
     const { warehouse_id } = req.query;
     const warehouseIdInt = warehouse_id ? parseInt(warehouse_id) : null;
     const sectionId = parseInt(id);
+    const userPincode = req.headers['x-user-pincode'];
+
+    // Cache key excludes pincode — availability is enriched per-item via Redis in checkBulkAvailability
+    const cacheKey = `section:${sectionId}:wh${warehouseIdInt || 0}`;
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        // Re-enrich availability for this specific user pincode if provided
+        if (userPincode && /^\d{6}$/.test(userPincode) && parsed.products?.length > 0) {
+          const items = parsed.products
+            .filter(p => p.id)
+            .map(p => ({
+              product_id: p.id,
+              variant_id: p.variants?.[0]?.id || p.default_variant_id || null,
+              quantity: 1,
+            }));
+          if (items.length > 0) {
+            const availability = await cartAvailabilityDAO.checkBulkAvailability(items, userPincode);
+            parsed.products = parsed.products.map(p => {
+              p.availability = availability[p.id] ?? { available: true };
+              return p;
+            });
+          }
+        }
+        return res.status(200).json({ success: true, data: parsed });
+      }
+    } catch {
+      // Redis unavailable — proceed to DB
+    }
 
     // 1. Fetch Section Metadata
     const section = await productSectionDao.getById(sectionId);
@@ -645,8 +776,12 @@ export const getSectionWithContent = async (req, res) => {
       });
     }
 
-    // 5. Enrich with pincode-based availability (Phase 1)
-    const userPincode = req.headers['x-user-pincode'];
+    // Build base response BEFORE per-user enrichment so we never cache user-specific availability
+    const responseData = { ...section, products, ...mappedContent };
+    redis.setex(cacheKey, SECTION_CACHE_TTL, JSON.stringify(responseData)).catch(() => {});
+
+    // 5. Enrich with pincode-based availability (user-specific, never cached)
+    let enrichedProducts = products;
     if (userPincode && /^\d{6}$/.test(userPincode) && products.length > 0) {
       try {
         const items = products
@@ -659,12 +794,10 @@ export const getSectionWithContent = async (req, res) => {
 
         if (items.length > 0) {
           const availability = await cartAvailabilityDAO.checkBulkAvailability(items, userPincode);
-
-          products = products.map(p => {
-            const avail = availability[p.id];
-            p.availability = avail ?? { available: true }; // optimistic default
-            return p;
-          });
+          enrichedProducts = products.map(p => ({
+            ...p,
+            availability: availability[p.id] ?? { available: true },
+          }));
         }
       } catch (err) {
         // Availability enrichment failure should never break the product response
@@ -674,11 +807,7 @@ export const getSectionWithContent = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: {
-        ...section,
-        products,
-        ...mappedContent
-      }
+      data: { ...responseData, products: enrichedProducts }
     });
 
   } catch (error) {

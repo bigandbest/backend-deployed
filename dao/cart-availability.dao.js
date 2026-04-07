@@ -11,39 +11,36 @@ class CartAvailabilityDAO {
      */
     async getWarehousesByPincode(pincode) {
         try {
-            // 1. Direct Warehouse Mapping
-            const directMappings = await prisma.warehouse_pincodes.findMany({
-                where: {
-                    pincode: pincode,
-                    is_active: true,
-                    warehouse: { is_active: true }
-                },
-                include: {
-                    warehouse: {
-                        select: {
-                            id: true,
-                            name: true,
-                            type: true,
-                            location: true,
-                            parent_warehouse_id: true,
-                            is_active: true
+            // Fetch direct mappings, zone pincodes, and nationwide zones in parallel
+            const [directMappings, zoneMappings, nationwideZones] = await Promise.all([
+                prisma.warehouse_pincodes.findMany({
+                    where: {
+                        pincode: pincode,
+                        is_active: true,
+                        warehouse: { is_active: true }
+                    },
+                    include: {
+                        warehouse: {
+                            select: {
+                                id: true,
+                                name: true,
+                                type: true,
+                                location: true,
+                                parent_warehouse_id: true,
+                                is_active: true
+                            }
                         }
                     }
-                }
-            });
-
-            // 2. Zone-based Mapping
-            // 2a. Find zones for this pincode
-            const zoneMappings = await prisma.zone_pincodes.findMany({
-                where: { pincode: pincode, is_active: true },
-                select: { zone_id: true }
-            });
-
-            // 2b. Find nationwide zones
-            const nationwideZones = await prisma.delivery_zones.findMany({
-                where: { is_nationwide: true, is_active: true },
-                select: { id: true }
-            });
+                }),
+                prisma.zone_pincodes.findMany({
+                    where: { pincode: pincode, is_active: true },
+                    select: { zone_id: true }
+                }),
+                prisma.delivery_zones.findMany({
+                    where: { is_nationwide: true, is_active: true },
+                    select: { id: true }
+                })
+            ]);
 
             const zoneIds = [
                 ...zoneMappings.map(z => z.zone_id),
@@ -52,7 +49,6 @@ class CartAvailabilityDAO {
 
             let zoneWarehouses = [];
             if (zoneIds.length > 0) {
-                // 2c. Find warehouses serving these zones
                 const warehouseZones = await prisma.warehouse_zones.findMany({
                     where: {
                         zone_id: { in: zoneIds },
@@ -73,8 +69,6 @@ class CartAvailabilityDAO {
                     }
                 });
 
-                // Map to same format as direct mappings
-                // Note: Zone mappings don't have per-pincode delivery_days stored, so we use defaults or logic
                 zoneWarehouses = warehouseZones.map(wz => ({
                     warehouse_id: wz.warehouse_id,
                     delivery_days: 3, // Default for zonal delivery
@@ -363,17 +357,17 @@ class CartAvailabilityDAO {
      */
     async getZoneForPincode(pincode) {
         try {
-            const zoneMapping = await prisma.zone_pincodes.findFirst({
-                where: { pincode, is_active: true },
-                select: { zone_id: true }
-            });
+            const [zoneMapping, nationwide] = await Promise.all([
+                prisma.zone_pincodes.findFirst({
+                    where: { pincode, is_active: true },
+                    select: { zone_id: true }
+                }),
+                prisma.delivery_zones.findFirst({
+                    where: { is_nationwide: true, is_active: true },
+                    select: { id: true }
+                })
+            ]);
             if (zoneMapping) return String(zoneMapping.zone_id);
-
-            // Check nationwide zones as fallback
-            const nationwide = await prisma.delivery_zones.findFirst({
-                where: { is_nationwide: true, is_active: true },
-                select: { id: true }
-            });
             return nationwide ? `nationwide_${nationwide.id}` : null;
         } catch (error) {
             console.error('Error getting zone for pincode:', error);
