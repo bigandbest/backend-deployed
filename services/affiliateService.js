@@ -2,12 +2,15 @@ import prisma from "../config/prisma.js";
 import affiliateDAO from "../dao/affiliate.dao.js";
 
 // ─── AFFILIATE CODE GENERATION ──────────────────────────────────────────────
-export const generateAffiliateCode = async (name) => {
-  const prefix = (name || "AFF")
-    .replace(/[^a-zA-Z]/g, "")
-    .toUpperCase()
-    .substring(0, 4)
-    .padEnd(4, "X");
+export const generateAffiliateCode = async (phoneOrName) => {
+  const normalizedPhone = String(phoneOrName || "").replace(/\D/g, "");
+  const prefix = normalizedPhone
+    ? normalizedPhone.slice(-4).padStart(4, "0")
+    : String(phoneOrName || "AFF")
+        .replace(/[^a-zA-Z]/g, "")
+        .toUpperCase()
+        .substring(0, 4)
+        .padEnd(4, "X");
 
   for (let i = 0; i < 10; i++) {
     const digits = String(Math.floor(10000 + Math.random() * 90000));

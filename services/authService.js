@@ -134,13 +134,10 @@ class AuthService {
       const randomPassword = randomBytes(12).toString("base64url").slice(0, 16);
       const hashedPassword = await hashPassword(randomPassword);
 
-      // Generate unique email based on phone if not provided
-      const email = `${phone.replace(/\+/g, "")}@bigbestmart.com`;
-
       const userData = {
-        email,
         password: hashedPassword,
-        name: "User", // Default name
+        email: null,
+        name: null,
         phone,
         role: "USER",
         is_active: true,
@@ -167,7 +164,7 @@ class AuthService {
     const token = this.generateToken(user);
     const refreshToken = generateRefreshToken({
       id: user.id,
-      email: user.email,
+      email: user.email || null,
     });
 
     return {

@@ -171,9 +171,9 @@ export const getUserProfile = async (req, res) => {
       try {
         data = await userDao.createUser({
           id: userId,
-          email: req.user.email || "",
-          name: req.user.name || req.user.user_metadata?.name || "User",
-          phone: req.user.phone || req.user.user_metadata?.phone || "",
+          email: req.user.email || null,
+          name: req.user.name || req.user.user_metadata?.name || null,
+          phone: req.user.phone || req.user.user_metadata?.phone || null,
           role: req.user.role === "authenticated" ? "USER" : req.user.role?.toUpperCase() || "USER",
           is_active: true,
         });
@@ -184,9 +184,9 @@ export const getUserProfile = async (req, res) => {
           success: true,
           user: {
             id: userId,
-            email: req.user.email,
-            name: req.user.name || req.user.user_metadata?.name || "User",
-            phone: req.user.phone || "",
+            email: req.user.email || null,
+            name: req.user.name || req.user.user_metadata?.name || null,
+            phone: req.user.phone || req.user.user_metadata?.phone || null,
             role: "USER",
           },
         });

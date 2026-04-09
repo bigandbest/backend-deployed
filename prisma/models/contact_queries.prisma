@@ -1,7 +1,7 @@
 model contact_queries {
   id         Int       @id @default(autoincrement())
   name       String    @db.VarChar
-  email      String    @db.VarChar
+  email      String?   @db.VarChar
   phone      String?   @db.VarChar
   subject    String?   @db.VarChar
   message    String

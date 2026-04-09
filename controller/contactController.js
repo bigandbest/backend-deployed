@@ -5,16 +5,16 @@ export const submitQuery = async (req, res) => {
     try {
         const { name, email, phone, subject, message } = req.body;
 
-        if (!name || !email || !message) {
+        if (!name || !message) {
             return res.status(400).json({
                 success: false,
-                message: "Name, email, and message are required."
+                message: "Name and message are required."
             });
         }
 
         const data = await contactQueryDAO.create({
             name,
-            email,
+            email: email ? String(email) : null,
             phone,
             subject,
             message,

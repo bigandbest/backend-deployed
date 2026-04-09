@@ -4,7 +4,7 @@ model affiliate_profiles {
   application_id            String    @db.Uuid
   affiliate_code            String    @unique
   display_name              String
-  email                     String
+  email                     String?
   phone                     String?
   pan_number                String?
   tier_name                 String    @default("Bronze")

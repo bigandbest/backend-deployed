@@ -1,7 +1,5 @@
-import { PrismaClient } from '@prisma/client';
 import SellerDAO from '../dao/seller.dao.js';
-
-const prisma = new PrismaClient();
+import prisma from '../config/prisma.js';
 
 /**
  * Get pending seller product requests

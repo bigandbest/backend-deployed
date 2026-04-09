@@ -6,15 +6,18 @@ import prisma from "../config/prisma.js";
 // ============================================================================
 
 /**
- * Generate unique referral code: first 4 letters of name (uppercase) + 4 digits
- * e.g. AMIT1234, JOHN5678
+ * Generate unique referral code from phone when available, otherwise from name.
+ * Examples: 98761234, AMIT1234
  */
-export const generateReferralCode = async (name) => {
-  const prefix = (name || "USER")
-    .replace(/[^a-zA-Z]/g, "")
-    .toUpperCase()
-    .substring(0, 4)
-    .padEnd(4, "X");
+export const generateReferralCode = async (phoneOrName) => {
+  const normalizedPhone = String(phoneOrName || "").replace(/\D/g, "");
+  const prefix = normalizedPhone
+    ? normalizedPhone.slice(-4).padStart(4, "0")
+    : String(phoneOrName || "USER")
+        .replace(/[^a-zA-Z]/g, "")
+        .toUpperCase()
+        .substring(0, 4)
+        .padEnd(4, "X");
 
   let attempts = 0;
   while (attempts < 10) {
@@ -141,7 +144,7 @@ export const applyReferralCode = async (refereeId, refereeData, referralCode, ip
       referrer_profile_id: referrerProfile.id,
       referral_code_used: referralCode.toUpperCase(),
       referee_id: refereeId,
-      referee_email: refereeData.email,
+      referee_email: refereeData.email || null,
       referee_name: refereeData.name,
       referee_phone: refereeData.phone,
       status: "SIGNUP_COMPLETED",
@@ -163,7 +166,7 @@ export const applyReferralCode = async (refereeId, refereeData, referralCode, ip
     },
     create: {
       user_id: refereeId,
-      referral_code: await generateReferralCode(refereeData.name),
+      referral_code: await generateReferralCode(refereeData.phone || refereeData.name),
       was_referred: true,
       referred_by_user_id: referrerProfile.user_id,
       referred_by_code: referralCode.toUpperCase(),

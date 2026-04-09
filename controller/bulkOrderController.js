@@ -27,17 +27,17 @@ export const createBulkOrderEnquiry = async (req, res) => {
     } = req.body;
 
     // Validation
-    if (!companyName || !contactPerson || !email || !phone || !productName || !quantity) {
+    if (!companyName || !contactPerson || !phone || !productName || !quantity) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required fields: companyName, contactPerson, email, phone, productName, quantity'
+        error: 'Missing required fields: companyName, contactPerson, phone, productName, quantity'
       });
     }
 
     const enquiryData = {
       company_name: String(companyName),
       contact_person: String(contactPerson),
-      email: String(email),
+      email: email ? String(email) : null,
       phone: String(phone),
       product_name: String(productName),
       quantity: parseInt(quantity),
@@ -148,17 +148,17 @@ export const createWholesaleBulkOrder = async (req, res) => {
     } = req.body;
 
     // Validation
-    if (!total_price || !email || !contact || !items || items.length === 0) {
+    if (!total_price || !contact || !items || items.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required fields: total_price, email, contact, items'
+        error: 'Missing required fields: total_price, contact, items'
       });
     }
 
     const orderData = {
       user_id: user_id || null,
       total_price: parseFloat(total_price),
-      email: String(email),
+      email: email ? String(email) : null,
       contact: String(contact),
       company_name: company_name ? String(company_name) : null,
       gst_number: gst_number ? String(gst_number) : null,

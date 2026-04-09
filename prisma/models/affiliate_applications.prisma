@@ -1,7 +1,7 @@
 model affiliate_applications {
   id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id              String    @db.Uuid
-  email                String
+  email                String?
   full_name            String
   phone                String
   pan_number           String?

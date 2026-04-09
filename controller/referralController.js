@@ -51,7 +51,7 @@ export const getPublicConfig = async (req, res) => {
 export const getProfile = async (req, res) => {
   try {
     const { user } = req;
-    const profile = await referralService.getOrCreateReferralProfile(user.id, user.name);
+    const profile = await referralService.getOrCreateReferralProfile(user.id, user.phone || user.name);
     res.json({ success: true, profile });
   } catch (error) {
     console.error("Error in getProfile:", error);
@@ -68,7 +68,7 @@ export const generateCode = async (req, res) => {
       return res.json({ success: true, referral_code: profile.referral_code, profile });
     }
 
-    profile = await referralService.getOrCreateReferralProfile(user.id, user.name);
+    profile = await referralService.getOrCreateReferralProfile(user.id, user.phone || user.name);
     res.json({ success: true, referral_code: profile.referral_code, profile });
   } catch (error) {
     console.error("Error in generateCode:", error);
@@ -80,7 +80,7 @@ export const getStats = async (req, res) => {
   try {
     const { user } = req;
     const [profile, wallet, config] = await Promise.all([
-      referralService.getOrCreateReferralProfile(user.id, user.name),
+      referralService.getOrCreateReferralProfile(user.id, user.phone || user.name),
       referralService.getWalletBalance(user.id),
       prisma.referral_configs.findFirst(),
     ]);
@@ -128,6 +128,7 @@ export const getReferralHistory = async (req, res) => {
         select: {
           id: true,
           referee_name: true,
+          referee_phone: true,
           referee_email: true,
           status: true,
           order_amount: true,
@@ -473,7 +474,7 @@ export const onUserRegistered = async (req, res) => {
     if (!user_id) return res.status(400).json({ success: false, error: "user_id required" });
 
     // Always create a referral profile for new users
-    await referralService.getOrCreateReferralProfile(user_id, name);
+    await referralService.getOrCreateReferralProfile(user_id, phone || name);
 
     // Apply referral code if provided
     if (referral_code) {

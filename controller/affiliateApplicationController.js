@@ -26,7 +26,7 @@ export const applyForAffiliate = async (req, res) => {
       account_holder_name, upi_id,
     } = req.body;
 
-    if (!full_name || !email || !phone || !primary_platform || !promotion_strategy) {
+    if (!full_name || !phone || !primary_platform || !promotion_strategy) {
       return res.status(400).json({ success: false, error: "Missing required fields" });
     }
 
@@ -34,7 +34,7 @@ export const applyForAffiliate = async (req, res) => {
 
     const application = await affiliateDAO.createApplication({
       user_id: userId,
-      email,
+      email: email ? String(email) : null,
       full_name,
       phone,
       pan_number,
@@ -128,7 +128,7 @@ export const getApplicationStatus = async (req, res) => {
 
 // Internal helper: create profile from application
 export const _createProfileFromApplication = async (application, displayName) => {
-  const affiliateCode = await generateAffiliateCode(displayName || application.full_name);
+  const affiliateCode = await generateAffiliateCode(application.phone || displayName || application.full_name);
   return affiliateDAO.createProfile({
     user_id: application.user_id,
     application_id: application.id,

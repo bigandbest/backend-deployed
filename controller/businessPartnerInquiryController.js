@@ -17,7 +17,6 @@ export const createInquiry = async (req, res) => {
     // Validation
     if (
       !full_name ||
-      !email ||
       !phone ||
       !address ||
       !city ||
@@ -27,16 +26,7 @@ export const createInquiry = async (req, res) => {
       return res.status(400).json({
         success: false,
         error:
-          "Name, email, phone, address, city, state, and partnership type are required",
-      });
-    }
-
-    // Email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid email format",
+          "Name, phone, address, city, state, and partnership type are required",
       });
     }
 
@@ -51,7 +41,7 @@ export const createInquiry = async (req, res) => {
 
     const inquiry = await businessPartnerInquiryDao.create({
       full_name,
-      email,
+      email: email ? String(email) : null,
       phone,
       address,
       city,

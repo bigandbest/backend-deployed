@@ -33,7 +33,7 @@ export const getDashboard = async (req, res) => {
       prisma.referral_transactions.findMany({
         orderBy: { created_at: "desc" },
         take: 10,
-        select: { id: true, referee_name: true, referral_code_used: true, status: true, created_at: true, referrer_reward_amount: true },
+        select: { id: true, referee_name: true, referee_phone: true, referral_code_used: true, status: true, created_at: true, referrer_reward_amount: true },
       }),
     ]);
 
@@ -309,6 +309,7 @@ export const listTransactions = async (req, res) => {
       where.OR = [
         { referral_code_used: { contains: search, mode: "insensitive" } },
         { referee_name: { contains: search, mode: "insensitive" } },
+        { referee_phone: { contains: search, mode: "insensitive" } },
         { referee_email: { contains: search, mode: "insensitive" } },
         { order_number: { contains: search, mode: "insensitive" } },
       ];

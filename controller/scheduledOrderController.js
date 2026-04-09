@@ -1,8 +1,6 @@
-import { PrismaClient } from "@prisma/client";
+import prisma from "../config/prisma.js";
 import moment from "moment-timezone";
 import crypto from "crypto";
-
-const prisma = new PrismaClient();
 
 /**
  * Format Date object to HH:mm string
