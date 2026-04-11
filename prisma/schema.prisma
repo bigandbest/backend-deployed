@@ -1935,8 +1935,6 @@ model user_referral_profiles {
   status                            String?                 @db.VarChar(50)
   is_blocked                        Boolean                 @default(false)
   current_tier                      String?                 @db.VarChar(50)
-  referral_code_created_at DateTime? @db.Timestamptz
-  status                  String?   @default("ACTIVE") @db.VarChar(50)
   created_at                        DateTime                @default(now()) @db.Timestamptz(6)
   updated_at                        DateTime                @updatedAt @db.Timestamptz(6)
   referral_rewards                  referral_rewards[]
