@@ -3,6 +3,7 @@ import subOrderItemDao from '../dao/sub-order-item.dao.js';
 import fulfillmentEventDao from '../dao/fulfillment-event.dao.js';
 import { checkProductAvailability } from './fulfillmentService.js';
 import prisma from '../config/prisma.js';
+import { updateParentOrderStatusFromSubOrders } from './orderFulfillmentService.js';
 
 /**
  * Sub-Order Service
@@ -118,6 +119,9 @@ export const handleSellerCancellation = async (subOrderId, cancelledSellerId) =>
     // Mark current sub-order as cancelled
     await subOrderDao.updateStatus(subOrderId, 'cancelled');
 
+    // Update parent order status based on all sub-orders' aggregate state
+    await updateParentOrderStatusFromSubOrders(subOrder.parent_order_id);
+
     // Get items that need re-routing
     const itemsToReroute = subOrder.sub_order_items || [];
 
@@ -212,6 +216,9 @@ export const handleStockMismatch = async (subOrderId) => {
 
     // Mark current sub-order as cancelled
     await subOrderDao.updateStatus(subOrderId, 'cancelled');
+
+    // Update parent order status based on all sub-orders' aggregate state
+    await updateParentOrderStatusFromSubOrders(subOrder.parent_order_id);
 
     const items = subOrder.sub_order_items || [];
     const reroutedItems = [];

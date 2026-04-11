@@ -7,7 +7,7 @@ const globalForPrisma = global;
 const prisma =
   globalForPrisma.prisma ||
   new PrismaClient({
-    log: process.env.NODE_ENV === "production" 
+    log: process.env.NODE_ENV === "production"
       ? [{ emit: "stdout", level: "error" }]
       : [
           { emit: "event", level: "query" },
@@ -19,9 +19,6 @@ const prisma =
         url: process.env.DATABASE_URL,
       },
     },
-    // Connection pool configuration for Supabase
-    // Note: When using pgBouncer (connection pooling), these are managed by Supabase
-    // but we can still configure client-side behavior
   });
 
 // Configure query timeout and connection lifecycle

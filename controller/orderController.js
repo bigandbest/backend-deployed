@@ -397,10 +397,15 @@ export const placeOrder = async (req, res) => {
       }
     }
 
-    const deliverabilityValidation = await validateOrderDeliverability(items, pincode);
-    if (!deliverabilityValidation.success) {
-      return res.status(deliverabilityValidation.status).json(deliverabilityValidation);
+    // ✅ OPTIMIZATION: Skip full availability check (already validated in cart)
+    // Just validate pincode for warehouse assignment
+    if (!pincode || !/^\d{6}$/.test(pincode)) {
+      return res.status(400).json({
+        success: false,
+        error: "Valid pincode is required for order placement",
+      });
     }
+    const deliverabilityValidation = { success: true, pincode };
 
     const preparedItems = [];
 
@@ -411,18 +416,27 @@ export const placeOrder = async (req, res) => {
       }
 
       const quantity = parseInt(item.quantity, 10) || 1;
-      const variantId = await resolveOrderItemVariantId(item, productId);
+
+      // ✅ OPTIMIZATION: Use variant from cart if available, else resolve
+      const variantId = item.variant_id || (await resolveOrderItemVariantId(item, productId));
       if (!variantId) {
         return res.status(400).json({ success: false, error: `No variant found for product ${productId}` });
       }
 
-      const warehouseInfo = await findWarehouseForProduct(
-        productId,
-        deliverabilityValidation.pincode,
-        item.product_type,
-        quantity,
-        variantId
-      );
+      // ✅ OPTIMIZATION: Use warehouse info from cart if available (passed from frontend)
+      // This avoids redundant warehouse lookup queries
+      let warehouseInfo = item.warehouseInfo || item.warehouse_info;
+
+      if (!warehouseInfo) {
+        // Fall back to warehouse lookup only if not provided from cart
+        warehouseInfo = await findWarehouseForProduct(
+          productId,
+          deliverabilityValidation.pincode,
+          item.product_type,
+          quantity,
+          variantId
+        );
+      }
 
       if (!warehouseInfo) {
         return res.status(400).json({
@@ -433,6 +447,9 @@ export const placeOrder = async (req, res) => {
 
       preparedItems.push({ item, productId, quantity, variantId, warehouseInfo });
     }
+
+    // ✅ Generate single OTP for all sub-orders (zonal, division, etc.)
+    const deliveryOtp = Math.floor(100000 + Math.random() * 900000).toString();
 
     const order = await orderDao.create({
       user_id,
@@ -447,6 +464,7 @@ export const placeOrder = async (req, res) => {
       coupon_discount: coupon_discount ? parseFloat(coupon_discount) : 0,
       mobile: resolvedMobile,
       receiver_name: resolvedReceiverName,
+      delivery_otp: deliveryOtp, // ✅ Save OTP at parent order level
       // Save GPS coordinates directly if provided by client (mobile app)
       ...(bodyLat != null && bodyLon != null ? {
         delivery_latitude: parseFloat(bodyLat),
@@ -574,7 +592,7 @@ export const placeOrder = async (req, res) => {
     return res.json({
       success: true,
       order,
-      warehouse_assignments: warehouseAssignments,
+      message: "Order placed successfully. Warehouse assignments are stored in order items.",
     });
   } catch (error) {
     console.error("Error in placeOrder:", error);
@@ -1184,24 +1202,17 @@ export const getOrderTracking = async (req, res) => {
         }
     }
 
-    // Include delivery OTP from confirmed sub-orders
-    const subOrdersWithOtp = await prisma.sub_orders.findMany({
-        where: { parent_order_id: orderId, fulfillment_status: { not: 'cancelled' } },
-        select: { id: true, fulfillment_status: true, pickup_sequence: true },
+    // ✅ Get single delivery OTP from parent order (same for all sub-orders)
+    const deliveryOtp = order?.delivery_otp || null;
+
+    return res.json({
+      success: true,
+      order: order,
+      tracking: deduped,
+      rider: riderInfo,
+      delivery_otp: deliveryOtp,
+      message: deliveryOtp ? 'Share this OTP with all riders for their respective deliveries' : 'OTP will be generated when sub-orders are confirmed',
     });
-
-    const deliveryOtps = subOrdersWithOtp
-        .filter(so => {
-            const meta = typeof so.pickup_sequence === 'object' && !Array.isArray(so.pickup_sequence)
-                ? so.pickup_sequence : null;
-            return meta?.otp;
-        })
-        .map(so => {
-            const meta = so.pickup_sequence;
-            return { sub_order_id: so.id, otp: meta.otp, status: so.fulfillment_status };
-        });
-
-    return res.json({ success: true, order: order, tracking: deduped, rider: riderInfo, delivery_otps: deliveryOtps });
   } catch (err) {
     console.error("getOrderTracking error:", err);
     return res

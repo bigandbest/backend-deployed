@@ -1,6 +1,7 @@
 import prisma from '../config/prisma.js';
 import { calculateDistanceKm } from '../utils/distanceUtils.js';
 import { calculateAndCreatePayout } from '../services/payoutService.js';
+import { updateParentOrderStatusFromSubOrders } from '../services/orderFulfillmentService.js';
 
 // ============ GET ASSIGNABLE ORDERS ============
 export const getAssignableOrders = async (req, res) => {
@@ -821,6 +822,9 @@ export const markPickupComplete = async (req, res) => {
             picked_at: new Date().toISOString(),
         });
 
+        // Update parent order status based on all sub-orders' aggregate state
+        await updateParentOrderStatusFromSubOrders(subOrder.parent_order_id);
+
         // Update rider assignment stop if exists
         const assignment = await riderAssignmentDao.getActiveByOrderId(subOrder.parent_order_id);
         if (assignment) {
@@ -872,6 +876,9 @@ export const markOutForDelivery = async (req, res) => {
             rider_id: rider.id,
             at: new Date().toISOString(),
         });
+
+        // Update parent order status based on all sub-orders' aggregate state
+        await updateParentOrderStatusFromSubOrders(subOrder.parent_order_id);
 
         res.status(200).json({
             success: true,
@@ -996,6 +1003,9 @@ export const markSubOrderDelivered = async (req, res) => {
             });
         }
 
+        // Update parent order status based on all sub-orders' aggregate state
+        await updateParentOrderStatusFromSubOrders(subOrder.parent_order_id);
+
         // Check if all sub-orders for this order are delivered
         const allSubOrders = await subOrderDao.listByOrderId(subOrder.parent_order_id);
         const allDelivered = allSubOrders.every(
@@ -1003,12 +1013,6 @@ export const markSubOrderDelivered = async (req, res) => {
         );
 
         if (allDelivered) {
-            // Update master order status
-            await prisma.orders.update({
-                where: { id: subOrder.parent_order_id },
-                data: { status: 'Delivered', updated_at: new Date() },
-            });
-
             // Complete rider assignment
             const assignment = await riderAssignmentDao.getActiveByOrderId(subOrder.parent_order_id);
             if (assignment) {

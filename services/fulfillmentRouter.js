@@ -2,6 +2,7 @@ import subOrderDao from '../dao/sub-order.dao.js';
 import fulfillmentEventDao from '../dao/fulfillment-event.dao.js';
 import riderAssignmentDao from '../dao/rider-assignment.dao.js';
 import prisma from '../config/prisma.js';
+import { updateParentOrderStatusFromSubOrders } from './orderFulfillmentService.js';
 
 /**
  * Fulfillment Router
@@ -45,6 +46,9 @@ export const routeSubOrders = async (orderId) => {
             });
         }
     }
+
+    // Update parent order status based on all sub-orders' aggregate state
+    await updateParentOrderStatusFromSubOrders(orderId);
 
     return results;
 };

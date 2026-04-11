@@ -3,6 +3,7 @@ import subOrderDao from '../dao/sub-order.dao.js';
 import fulfillmentEventDao from '../dao/fulfillment-event.dao.js';
 import { getSLAInfo } from '../services/slaTrackingService.js';
 import prisma from '../config/prisma.js';
+import { updateParentOrderStatusFromSubOrders } from '../services/orderFulfillmentService.js';
 
 /**
  * Fulfillment Controller
@@ -238,6 +239,9 @@ export const handleZonalCallback = async (req, res) => {
             mapped_status: mappedStatus,
             ...metadata,
         });
+
+        // Update parent order status based on all sub-orders' aggregate state
+        await updateParentOrderStatusFromSubOrders(subOrder.parent_order_id);
 
         // If delivery failed, handle retry or escalation
         if (status === 'delivery_failed') {

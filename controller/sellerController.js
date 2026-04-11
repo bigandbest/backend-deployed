@@ -2,6 +2,7 @@ import SellerDAO from '../dao/seller.dao.js';
 import ProductDAO from '../dao/product.dao.js';
 import prisma from '../config/prisma.js';
 import { resolveApplicablePlatformFee, batchResolvePlatformFees } from '../services/platformFeeService.js';
+import { updateParentOrderStatusFromSubOrders } from '../services/orderFulfillmentService.js';
 
 const ensureSellerOwnedProductsInInventory = async (sellerId) => {
     // Seller products can be approved (active=true) but still miss seller_products rows.
@@ -1525,10 +1526,22 @@ export const acceptSubOrder = async (req, res) => {
             });
         }
 
-        // Generate delivery OTP (6-digit)
-        const deliveryOtp = Math.floor(100000 + Math.random() * 900000).toString();
+        // ✅ OPTIMIZATION: Use parent order's OTP (same for all sub-orders)
+        const parentOrder = await prisma.orders.findUnique({
+            where: { id: subOrder.parent_order_id },
+            select: { delivery_otp: true },
+        });
 
-        // Accept + store OTP in pickup_sequence metadata
+        if (!parentOrder?.delivery_otp) {
+            return res.status(400).json({
+                success: false,
+                error: 'Parent order OTP not found. Please contact support.',
+            });
+        }
+
+        const deliveryOtp = parentOrder.delivery_otp;
+
+        // Accept + store parent OTP in pickup_sequence metadata
         await subOrderDao.updateStatus(sub_order_id, 'confirmed', {
             pickup_sequence: { otp: deliveryOtp, accepted_at: new Date().toISOString() },
         });
@@ -1537,6 +1550,9 @@ export const acceptSubOrder = async (req, res) => {
             accepted_at: new Date().toISOString(),
             delivery_otp: deliveryOtp,
         });
+
+        // Update parent order status based on all sub-orders' aggregate state
+        await updateParentOrderStatusFromSubOrders(subOrder.parent_order_id);
 
         // Trigger rider assignment for this sub-order's parent order
         try {

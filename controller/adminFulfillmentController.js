@@ -1,5 +1,6 @@
 import prisma from '../config/prisma.js';
 import { handleStockMismatch } from '../services/subOrderService.js';
+import { updateParentOrderStatusFromSubOrders } from '../services/orderFulfillmentService.js';
 
 // Helper function to assign a rider to a division order
 const assignRiderToDivisionOrder = async (subOrderId, orderId) => {
@@ -246,7 +247,7 @@ export const updateAdminSubOrderStatus = async (req, res) => {
         }
 
         const result = await prisma.$transaction(async (tx) => {
-            const subOrder = await tx.sub_orders.findUnique({ where: { id }, select: { id: true, fulfillment_status: true } });
+            const subOrder = await tx.sub_orders.findUnique({ where: { id }, select: { id: true, fulfillment_status: true, parent_order_id: true } });
             if (!subOrder) return null;
 
             await Promise.all([
@@ -260,10 +261,14 @@ export const updateAdminSubOrderStatus = async (req, res) => {
                 }),
             ]);
 
-            return { id, status };
+            return { id, status, parent_order_id: subOrder.parent_order_id };
         });
 
         if (!result) return res.status(404).json({ success: false, error: 'Sub-order not found' });
+
+        // Update parent order status based on all sub-orders' aggregate state
+        await updateParentOrderStatusFromSubOrders(result.parent_order_id);
+
         return res.json({ success: true, message: `Sub-order status updated to ${status}`, data: result });
     } catch (error) {
         console.error('updateAdminSubOrderStatus error:', error);
@@ -358,6 +363,9 @@ export const acceptAdminSubOrder = async (req, res) => {
                 },
             },
         });
+
+        // Update parent order status based on all sub-orders' aggregate state
+        await updateParentOrderStatusFromSubOrders(subOrder.parent_order_id);
 
         res.status(200).json({
             success: true,

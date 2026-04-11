@@ -7,7 +7,7 @@ class BulkProductSettingsDAO {
             .select('*')
             .eq('product_id', productId);
 
-        if (variant_id) {
+        if (variantId) {
             query = query.eq('variant_id', variantId);
         } else {
             query = query.is('variant_id', null);

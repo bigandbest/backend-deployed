@@ -19,7 +19,7 @@ export const createList = async (req, res) => {
     if (!name?.trim()) {
       return res.status(400).json({ success: false, error: "List name is required" });
     }
-    const list = await ShoppingListDAO.create(userId, name.trim(), description?.trim() || "");
+    const list = await ShoppingListDAO.create(userId, name.trim(), description?.trim() || null);
     res.status(201).json({ success: true, list });
   } catch (error) {
     console.error("createList error:", error);
