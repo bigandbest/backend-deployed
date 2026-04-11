@@ -134,9 +134,12 @@ class AuthService {
       const randomPassword = randomBytes(12).toString("base64url").slice(0, 16);
       const hashedPassword = await hashPassword(randomPassword);
 
+      // email is non-nullable in schema; generate a unique placeholder for phone-only users
+      const placeholderEmail = `phone_${phone.replace(/[^0-9]/g, '')}@bbm.local`;
+
       const userData = {
         password: hashedPassword,
-        email: null,
+        email: placeholderEmail,
         name: null,
         phone,
         role: "USER",
