@@ -117,7 +117,7 @@ export const generateLink = async (req, res) => {
         select: { id: true, name: true },
       });
       if (!product) return res.status(404).json({ success: false, error: "Product not found" });
-      destinationUrl = `${frontendBase}/pages/products/${product_id}`;
+      destinationUrl = `${frontendBase}/pages/singleproduct/${product_id}`;
       productName = product.name;
     } else if (destination_type === "CATEGORY" && category_id) {
       const cat = await prisma.categories.findUnique({
@@ -125,14 +125,15 @@ export const generateLink = async (req, res) => {
         select: { id: true, name: true },
       });
       if (!cat) return res.status(404).json({ success: false, error: "Category not found" });
-      destinationUrl = `${frontendBase}/pages/products?category=${category_id}`;
+      destinationUrl = `${frontendBase}/pages/categories?category=${encodeURIComponent(cat.name)}`;
       categoryName = cat.name;
     } else if (destination_type === "SEARCH" && search_query) {
-      destinationUrl = `${frontendBase}/pages/products?search=${encodeURIComponent(search_query)}`;
+      destinationUrl = `${frontendBase}/pages/categories?subcategory=${encodeURIComponent(search_query)}`;
     }
 
     const linkCode = await generateLinkCode();
-    const fullUrl = `${frontendBase}/api/affiliate/track/${linkCode}`;
+    const separator = destinationUrl.includes("?") ? "&" : "?";
+    const fullUrl = `${destinationUrl}${separator}ref=${profile.affiliate_code}`;
 
     const link = await affiliateDAO.createLink({
       affiliate_id: profile.id,

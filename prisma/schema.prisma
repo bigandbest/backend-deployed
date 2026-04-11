@@ -3,16 +3,11 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
-// --------------------------------------
-// THIS FILE IS AUTO-GENERATED. DO NOT EDIT.
-// --------------------------------------
-
-// --- Model: about_us_content.prisma ---
 model about_us_content {
   id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   banner_image_url String?
@@ -25,43 +20,34 @@ model about_us_content {
   values           String?
   vision           String?
   why_choose_us    String?
-  updated_at       DateTime? @default(now()) @db.Timestamptz
+  updated_at       DateTime? @default(now()) @db.Timestamptz(6)
 }
 
-
-// --- Model: add_banner.prisma ---
 model add_banner {
-  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name               String
-  image_url          String?
-  banner_type        String?
-  description        String?             @db.VarChar
-  link               String?
-  active             Boolean?            @default(true)
-  position           String?
-  is_mobile          Boolean?            @default(false)
-  updated_at         DateTime?           @default(now()) @db.Timestamptz
-
-  // Relations
-  daily_deals        daily_deals[]
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  image_url   String?
+  banner_type String?
+  description String?       @db.VarChar
+  link        String?
+  active      Boolean?      @default(true)
+  position    String?
+  is_mobile   Boolean?      @default(false)
+  updated_at  DateTime?     @default(now()) @db.Timestamptz(6)
+  daily_deals daily_deals[]
 }
 
-
-// --- Model: attendance_logs.prisma ---
 model attendance_logs {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  rider_id        String    @db.Uuid
-  check_in_time   DateTime  @db.Timestamptz
-  check_out_time  DateTime? @db.Timestamptz
-  total_hours     Decimal?  @db.Decimal(5, 2)
-  auto_checkout   Boolean   @default(false)
-  date            DateTime  @db.Date
-
-  created_at      DateTime  @default(now()) @db.Timestamptz
-  updated_at      DateTime  @default(now()) @db.Timestamptz
-
-  // Relations
-  riders          riders    @relation(fields: [rider_id], references: [id], onDelete: Cascade)
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rider_id       String    @db.Uuid
+  check_in_time  DateTime  @db.Timestamptz(6)
+  check_out_time DateTime? @db.Timestamptz(6)
+  total_hours    Decimal?  @db.Decimal(5, 2)
+  auto_checkout  Boolean   @default(false)
+  date           DateTime  @db.Date
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @default(now()) @db.Timestamptz(6)
+  riders         riders    @relation(fields: [rider_id], references: [id], onDelete: Cascade)
 
   @@index([rider_id])
   @@index([date])
@@ -69,105 +55,80 @@ model attendance_logs {
   @@index([check_out_time])
 }
 
-
-// --- Model: bank_account_settings.prisma ---
-// Bank account settings for COD deposit receipts.
-// Stores company account details for riders to pay COD collections into.
-
 model bank_account_settings {
-  id                    Int       @id @default(autoincrement())
-  account_holder_name   String    @db.VarChar(255)
-  account_number        String    @unique @db.VarChar(255)
-  bank_name             String    @db.VarChar(255)
-  ifsc_code             String    @db.VarChar(20)
-  upi_id                String?   @db.VarChar(255)  // Optional UPI for faster transfers
-  instructions          String?   @db.Text          // Payment instructions for riders
-  admin_name            String?   @db.VarChar(255)  // Admin name for settlement support
-  admin_phone           String?   @db.VarChar(20)   // Admin phone for settlement support
+  id                  Int      @id @default(autoincrement())
+  account_holder_name String   @db.VarChar(255)
+  account_number      String   @unique @db.VarChar(255)
+  bank_name           String   @db.VarChar(255)
+  ifsc_code           String   @db.VarChar(20)
+  upi_id              String?  @db.VarChar(255)
+  instructions        String?
+  is_active           Boolean  @default(true)
+  created_at          DateTime @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime @default(now()) @db.Timestamptz(6)
+  admin_name          String?  @db.VarChar(255)
+  admin_phone         String?  @db.VarChar(20)
 
-  is_active             Boolean   @default(true)
-
-  created_at            DateTime  @default(now()) @db.Timestamptz
-  updated_at            DateTime  @default(now()) @db.Timestamptz
-
-  @@index([is_active])
+  @@index([is_active], map: "idx_bank_account_settings_is_active")
 }
 
-// --- Model: banners.prisma ---
 model banners {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  title         String    @db.VarChar
-  subtitle      String?   @db.VarChar
-  description   String?   @db.VarChar
-  image_url     String?
-  link          String?   @db.VarChar
-  banner_type   String?   @db.VarChar // e.g., 'hero', 'promo', 'sidebar'
-  position      String?   @db.VarChar
-  bg_color      String?   @db.VarChar
-  button_text   String?   @db.VarChar
-  discount_text String?   @db.VarChar
-  active        Boolean?  @default(true)
-  is_mobile     Boolean?  @default(false)
-  display_order Int?      @default(0)
-  created_at    DateTime? @default(now()) @db.Timestamptz
-  updated_at    DateTime? @default(now()) @db.Timestamptz
-
-  // Relations
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title             String              @db.VarChar
+  subtitle          String?             @db.VarChar
+  description       String?             @db.VarChar
+  image_url         String?
+  link              String?             @db.VarChar
+  banner_type       String?             @db.VarChar
+  position          String?             @db.VarChar
+  bg_color          String?             @db.VarChar
+  button_text       String?             @db.VarChar
+  discount_text     String?             @db.VarChar
+  active            Boolean?            @default(true)
+  is_mobile         Boolean?            @default(false)
+  display_order     Int?                @default(0)
+  created_at        DateTime?           @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime?           @default(now()) @db.Timestamptz(6)
   recommended_store recommended_store[]
 }
 
-
-// --- Model: brand.prisma ---
 model brand {
-  id        String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name      String
-  image_url String?
-
-  // Relations
+  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String
+  image_url     String?
   product_brand product_brand[]
 }
 
-
-// --- Model: cart_items.prisma ---
 model cart_items {
-  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id        String            @db.Uuid
-  variant_id     String            @db.Uuid
-  quantity       Int               @default(1)
-  added_at       DateTime          @default(now()) @db.Timestamptz
-  is_bid_product Boolean?          @default(false)
-  locked_bid_id  Int?
-  bid_unit_price Decimal?          @db.Decimal
-
-  // Relations
-  users            users             @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  product_variants product_variants  @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id          String           @db.Uuid
+  variant_id       String           @db.Uuid
+  quantity         Int              @default(1)
+  added_at         DateTime         @default(now()) @db.Timestamptz(6)
+  is_bid_product   Boolean?         @default(false)
+  locked_bid_id    Int?
+  bid_unit_price   Decimal?         @db.Decimal
+  users            users            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  product_variants product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
   @@index([variant_id])
 }
 
-
-// --- Model: categories.prisma ---
 model categories {
-  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name          String
-  description   String?
-  image_url     String?
-  featured      Boolean?        @default(false)
-  icon          String?
-  active        Boolean?        @default(true)
-  has_fee       Boolean?        @default(false)
-  
-  // Relations
-  subcategories subcategories[]
-  
+  id                         String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                       String
+  description                String?
+  image_url                  String?
+  featured                   Boolean?                     @default(false)
+  icon                       String?
+  active                     Boolean?                     @default(true)
+  has_fee                    Boolean?                     @default(false)
   product_section_categories product_section_categories[]
-  products      products[]
+  products                   products[]
+  subcategories              subcategories[]
 }
 
-
-// --- Model: certifications.prisma ---
 model certifications {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name        String    @db.VarChar
@@ -175,60 +136,39 @@ model certifications {
   description String?
   active      Boolean?  @default(true)
   sort_order  Int?      @default(0)
-  created_at  DateTime? @default(now()) @db.Timestamptz
-  updated_at  DateTime? @default(now()) @db.Timestamptz
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime? @default(now()) @db.Timestamptz(6)
 }
 
-
-// --- Model: charge_settings.prisma ---
 model charge_settings {
-  id                Int      @id @default(1)
-  handling_charge   Decimal  @default(0) @db.Decimal
-  surge_charge      Decimal  @default(0) @db.Decimal
-  discount_charge   Decimal  @default(0) @db.Decimal
-  platform_charge   Decimal  @default(0) @db.Decimal
-  refund_percentage Decimal  @default(0) @db.Decimal
-  updated_at        DateTime? @default(now()) @db.Timestamptz
+  id                Int       @id @default(1)
+  handling_charge   Decimal   @default(0) @db.Decimal
+  surge_charge      Decimal   @default(0) @db.Decimal
+  discount_charge   Decimal   @default(0) @db.Decimal
+  platform_charge   Decimal   @default(0) @db.Decimal
+  updated_at        DateTime? @default(now()) @db.Timestamptz(6)
+  refund_percentage Decimal   @default(0) @db.Decimal
 }
-
-
-// --- Model: cod_collections.prisma ---
-// COD (Cash on Delivery) collection records.
-// Created when a rider accepts a COD order.
-// Admin verifies the cash deposit before unlocking the rider's wallet.
 
 model cod_collections {
   id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   rider_id         String    @db.Uuid
-  order_id         String    @unique @db.Uuid   // idempotency — one record per order
-
-  amount_collected Decimal   @db.Decimal(10, 2) // order.total at time of delivery
-
-  // PENDING_DEPOSIT  – rider accepted COD order, wallet locked
-  // DEPOSIT_CLAIMED  – rider claims they transferred to company account
-  // APPROVED         – admin confirmed receipt, wallet unlocked
-  // REJECTED         – admin rejected proof, wallet remains locked
+  order_id         String    @unique @db.Uuid
+  amount_collected Decimal   @db.Decimal(10, 2)
   status           String    @default("PENDING_DEPOSIT") @db.VarChar(30)
-
-  payment_proof    String?   // URL of uploaded proof (bank receipt, screenshot, etc.)
+  payment_proof    String?
   claimed_at       DateTime? @db.Timestamptz(6)
-  approved_by      String?   @db.Uuid           // admin user_id
+  approved_by      String?   @db.Uuid
   approved_at      DateTime? @db.Timestamptz(6)
   rejected_reason  String?
   notes            String?
-
   created_at       DateTime  @default(now()) @db.Timestamptz(6)
   updated_at       DateTime  @default(now()) @db.Timestamptz(6)
 
-  // Relations
-  riders           riders    @relation(fields: [rider_id], references: [id])
-  orders           orders    @relation(fields: [order_id], references: [id])
-
-  @@index([rider_id])
-  @@index([status])
+  @@index([rider_id], map: "idx_cod_collections_rider_id")
+  @@index([status], map: "idx_cod_collections_status")
 }
 
-// --- Model: contact_queries.prisma ---
 model contact_queries {
   id         Int       @id @default(autoincrement())
   name       String    @db.VarChar
@@ -237,13 +177,11 @@ model contact_queries {
   subject    String?   @db.VarChar
   message    String
   status     String?   @default("Pending") @db.VarChar
-  created_at DateTime? @default(now()) @db.Timestamptz
-  updated_at DateTime? @default(now()) @db.Timestamptz
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
   quantity   String?
 }
 
-
-// --- Model: coupon_usage.prisma ---
 model coupon_usage {
   id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   coupon_id        String    @db.Uuid
@@ -254,21 +192,17 @@ model coupon_usage {
   final_amount     Decimal   @db.Decimal
   idempotency_key  String    @unique @db.VarChar
   status           String?   @default("APPLIED") @db.VarChar
-  reserved_at      DateTime? @db.Timestamptz
-  applied_at       DateTime? @default(now()) @db.Timestamptz
-  refunded_at      DateTime? @db.Timestamptz
-  cancelled_at     DateTime? @db.Timestamptz
-  created_at       DateTime? @default(now()) @db.Timestamptz
-  updated_at       DateTime? @default(now()) @db.Timestamptz
-
-  // Relations
+  reserved_at      DateTime? @db.Timestamptz(6)
+  applied_at       DateTime? @default(now()) @db.Timestamptz(6)
+  refunded_at      DateTime? @db.Timestamptz(6)
+  cancelled_at     DateTime? @db.Timestamptz(6)
+  created_at       DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime? @default(now()) @db.Timestamptz(6)
   coupons          coupons   @relation(fields: [coupon_id], references: [id])
   orders           orders    @relation(fields: [order_id], references: [id])
   users            users     @relation(fields: [user_id], references: [id])
 }
 
-
-// --- Model: coupons.prisma ---
 model coupons {
   id                   String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   code                 String         @unique @db.VarChar
@@ -280,26 +214,22 @@ model coupons {
   new_user_only        Boolean?       @default(false)
   usage_limit_total    Int?
   usage_limit_per_user Int?           @default(1)
-  valid_from           DateTime       @db.Timestamptz
-  valid_to             DateTime       @db.Timestamptz
+  valid_from           DateTime       @db.Timestamptz(6)
+  valid_to             DateTime       @db.Timestamptz(6)
   timezone             String?        @default("UTC") @db.VarChar
   status               String?        @default("ACTIVE") @db.VarChar
   description          String?
   terms_conditions     String?
   created_by           String?        @db.Uuid
-  created_at           DateTime?      @default(now()) @db.Timestamptz
-  updated_at           DateTime?      @default(now()) @db.Timestamptz
-
-  // Relations
+  created_at           DateTime?      @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime?      @default(now()) @db.Timestamptz(6)
   usages               coupon_usage[]
 }
 
-
-// --- Model: customer_addresses.prisma ---
 model customer_addresses {
   id                    Int       @id @default(autoincrement())
   user_id               String    @db.Uuid
-  label                 String?   @db.VarChar(50)   // 'Home' | 'Work' | 'Other'
+  label                 String?   @db.VarChar(50)
   address_line1         String    @db.VarChar(255)
   address_line2         String?   @db.VarChar(255)
   city                  String?   @db.VarChar(100)
@@ -307,23 +237,18 @@ model customer_addresses {
   pincode               String?   @db.VarChar(20)
   latitude              Decimal?  @db.Decimal(10, 7)
   longitude             Decimal?  @db.Decimal(10, 7)
-  geocode_source        String?   @db.VarChar(20)   // 'nominatim' | 'photon'
+  geocode_source        String?   @db.VarChar(20)
   geocode_status        String?   @default("PENDING") @db.VarChar(20)
-  // PENDING | SUCCESS | FAILED
-  geocoded_at           DateTime? @db.Timestamptz
-  geocoded_display_name String?   @db.Text
+  geocoded_at           DateTime? @db.Timestamptz(6)
+  geocoded_display_name String?
   is_default            Boolean   @default(false)
-  created_at            DateTime  @default(now()) @db.Timestamptz
-  updated_at            DateTime  @default(now()) @db.Timestamptz
-
-  users                 users     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  created_at            DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime  @default(now()) @db.Timestamptz(6)
 
   @@index([user_id])
   @@index([is_default])
 }
 
-
-// --- Model: customer_testimonials.prisma ---
 model customer_testimonials {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name       String    @db.VarChar
@@ -332,47 +257,34 @@ model customer_testimonials {
   comment    String
   active     Boolean?  @default(true)
   sort_order Int?      @default(0)
-  created_at DateTime? @default(now()) @db.Timestamptz
-  updated_at DateTime? @default(now()) @db.Timestamptz
-
-  // Note: Check constraints like "rating >= 1 AND rating <= 5" are not directly supported in Prisma schema DSL
-  // but will be enforced by the database if added via raw SQL migration.
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
 }
 
-
-// --- Model: daily_deals.prisma ---
 model daily_deals {
-  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  title       String?   @db.VarChar
-  image_url   String?
-  discount    String?   @db.VarChar
-  badge       String?   @db.VarChar
-  sort_order  Int?      @default(0)
-  active      Boolean?  @default(true)
-  banner_id   String?   @db.Uuid
-  created_at  DateTime? @default(now()) @db.Timestamptz
-  updated_at  DateTime? @default(now()) @db.Timestamptz
-
-  // Relations
+  id                  String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title               String?               @db.VarChar
+  image_url           String?
+  discount            String?               @db.VarChar
+  badge               String?               @db.VarChar
+  sort_order          Int?                  @default(0)
+  active              Boolean?              @default(true)
+  banner_id           String?               @db.Uuid
+  created_at          DateTime?             @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime?             @default(now()) @db.Timestamptz(6)
   banner              add_banner?           @relation(fields: [banner_id], references: [id])
   daily_deals_product daily_deals_product[]
 }
 
-
-// --- Model: daily_deals_product.prisma ---
 model daily_deals_product {
-  daily_deal_id String @db.Uuid
-  product_id    String @db.Uuid
-
-  // Relations
+  daily_deal_id String      @db.Uuid
+  product_id    String      @db.Uuid
   daily_deals   daily_deals @relation(fields: [daily_deal_id], references: [id], onDelete: Cascade)
   products      products    @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   @@id([daily_deal_id, product_id])
 }
 
-
-// --- Model: delivery_charge_milestones.prisma ---
 model delivery_charge_milestones {
   id              Int       @id @default(autoincrement())
   min_order_value Decimal   @unique @db.Decimal
@@ -385,26 +297,20 @@ model delivery_charge_milestones {
   updated_at      DateTime? @default(now()) @db.Timestamptz(6)
 }
 
-
-// --- Model: delivery_zones.prisma ---
 model delivery_zones {
-  id            Int               @id @default(autoincrement())
-  name          String            @unique @db.VarChar
-  display_name  String?           @db.VarChar
-  is_nationwide Boolean?          @default(false)
-  is_active     Boolean?          @default(true)
-  description   String?
-  created_at    DateTime?         @default(now()) @db.Timestamptz
-  updated_at    DateTime?         @default(now()) @db.Timestamptz
-  created_by    Int?
-
-  // Relations
+  id              Int               @id @default(autoincrement())
+  name            String            @unique @db.VarChar
+  display_name    String?           @db.VarChar
+  is_nationwide   Boolean?          @default(false)
+  is_active       Boolean?          @default(true)
+  description     String?
+  created_at      DateTime?         @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime?         @default(now()) @db.Timestamptz(6)
+  created_by      Int?
   warehouse_zones warehouse_zones[]
   zone_pincodes   zone_pincodes[]
 }
 
-
-// --- Model: enquiries.prisma ---
 model enquiries {
   id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id          String?   @db.Uuid
@@ -427,46 +333,36 @@ model enquiries {
   users            users?    @relation(fields: [user_id], references: [id])
 }
 
-
-// --- Model: enquiry_bids.prisma ---
 model enquiry_bids {
-  id             Int               @id @default(autoincrement())
-  enquiry_id     Int
-  bid_type       String?           @default("SINGLE_PRODUCT") @db.VarChar
-  base_price     Decimal?          @db.Decimal
-  quantity       Int?
-  validity_hours Int?              @default(24)
-  created_at     DateTime?         @default(now()) @db.Timestamp
-  expires_at     DateTime?         @db.Timestamp
-  status         String?           @default("ACTIVE") @db.VarChar
-  created_by     String?           @db.Uuid
-  terms          String?
-  notes          String?
-
-  // Relations
+  id                Int               @id @default(autoincrement())
+  enquiry_id        Int
+  bid_type          String?           @default("SINGLE_PRODUCT") @db.VarChar
+  base_price        Decimal?          @db.Decimal
+  quantity          Int?
+  validity_hours    Int?              @default(24)
+  created_at        DateTime?         @default(now()) @db.Timestamp(6)
+  expires_at        DateTime?         @db.Timestamp(6)
+  status            String?           @default("ACTIVE") @db.VarChar
+  created_by        String?           @db.Uuid
+  terms             String?
+  notes             String?
   product_enquiries product_enquiries @relation(fields: [enquiry_id], references: [id])
 }
 
-
-// --- Model: enquiry_messages.prisma ---
 model enquiry_messages {
-  id              Int               @id @default(autoincrement())
-  enquiry_id      Int
-  sender_type     String            @db.VarChar
-  sender_id       String            @db.Uuid
-  sender_name     String?           @db.VarChar
-  message         String
-  is_read         Boolean?          @default(false)
-  created_at      DateTime?         @default(now()) @db.Timestamp
-  attachment_url  String?
-  attachment_type String?           @db.VarChar
-
-  // Relations
+  id                Int               @id @default(autoincrement())
+  enquiry_id        Int
+  sender_type       String            @db.VarChar
+  sender_id         String            @db.Uuid
+  sender_name       String?           @db.VarChar
+  message           String
+  is_read           Boolean?          @default(false)
+  created_at        DateTime?         @default(now()) @db.Timestamp(6)
+  attachment_url    String?
+  attachment_type   String?           @db.VarChar
   product_enquiries product_enquiries @relation(fields: [enquiry_id], references: [id])
 }
 
-
-// --- Model: event_elevate.prisma ---
 model event_elevate {
   id            Int       @id @default(autoincrement())
   title         String    @db.VarChar
@@ -479,133 +375,105 @@ model event_elevate {
   position      String?   @default("grid") @db.VarChar
   display_order Int?      @default(0)
   active        Boolean?  @default(true)
-  created_at    DateTime? @default(now()) @db.Timestamp
-  updated_at    DateTime? @default(now()) @db.Timestamp
+  created_at    DateTime? @default(now()) @db.Timestamp(6)
+  updated_at    DateTime? @default(now()) @db.Timestamp(6)
 }
 
-
-// --- Model: faq_templates.prisma ---
-// --- Model: faq_templates.prisma ---
 model faq_templates {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   title       String
-  faqs        Json     // Array of { question: string, answer: string }
+  faqs        Json
   category_id String?  @db.Uuid
   is_active   Boolean? @default(true)
-  created_at  DateTime @default(now()) @db.Timestamptz
-  updated_at  DateTime @updatedAt @db.Timestamptz
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime @updatedAt @db.Timestamptz(6)
 
   @@index([category_id])
 }
 
-
-// --- Model: fulfillment_events.prisma ---
 model fulfillment_events {
-  id              Int          @id @default(autoincrement())
-  sub_order_id    String       @db.Uuid
-  event_type      String       @db.VarChar
-  // e.g. "created", "confirmed", "picked", "in_transit", "delivered",
-  // "dispatched_to_zonal", "rider_assigned", "rider_reassigned",
-  // "seller_rejected", "rerouted", "stock_mismatch", "cancelled",
-  // "return_to_source", "delivery_failed", "sla_at_risk"
-  payload         Json?        @default("{}")
-  created_at      DateTime     @default(now()) @db.Timestamptz
-
-  // Relations
-  sub_order       sub_orders   @relation(fields: [sub_order_id], references: [id], onDelete: Cascade)
+  id           Int        @id @default(autoincrement())
+  sub_order_id String     @db.Uuid
+  event_type   String     @db.VarChar
+  payload      Json?      @default("{}")
+  created_at   DateTime   @default(now()) @db.Timestamptz(6)
+  sub_order    sub_orders @relation(fields: [sub_order_id], references: [id], onDelete: Cascade)
 
   @@index([sub_order_id])
   @@index([event_type])
   @@index([created_at])
 }
 
-
-// --- Model: geocode_retry_queue.prisma ---
 model geocode_retry_queue {
   id             Int      @id @default(autoincrement())
   entity_type    String   @db.VarChar(30)
-  // 'SELLER' | 'CUSTOMER_ADDRESS' | 'WAREHOUSE'
-  entity_id      String   @db.VarChar(50)  // String to support both Int and UUID IDs
-  address_string String   @db.Text
+  entity_id      String   @db.VarChar(50)
+  address_string String
   attempts       Int      @default(0)
   resolved       Boolean  @default(false)
-  created_at     DateTime @default(now()) @db.Timestamptz
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
 
-  @@index([resolved, attempts])
-  @@index([entity_type])
+  @@index([resolved, attempts], map: "idx_geocode_retry_pending")
+  @@index([entity_type], map: "idx_geocode_retry_type")
 }
 
-
-// --- Model: groups.prisma ---
 model groups {
-  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name           String        @db.VarChar
-  description    String?
-  icon           String?       @db.VarChar
-  image_url      String?
-  subcategory_id String        @db.Uuid
-  featured       Boolean?      @default(false)
-  active         Boolean?      @default(true)
-  has_fee        Boolean?      @default(false)
-  sort_order     Int?          @default(0)
-  created_at     DateTime?     @default(now()) @db.Timestamptz
-  updated_at     DateTime?     @default(now()) @db.Timestamptz
-
-  // Relations
-  subcategories  subcategories @relation(fields: [subcategory_id], references: [id])
-  products       products[]
+  id                     String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                   String                   @db.VarChar
+  description            String?
+  icon                   String?                  @db.VarChar
+  image_url              String?
+  subcategory_id         String                   @db.Uuid
+  featured               Boolean?                 @default(false)
+  active                 Boolean?                 @default(true)
+  sort_order             Int?                     @default(0)
+  created_at             DateTime?                @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime?                @default(now()) @db.Timestamptz(6)
+  has_fee                Boolean?                 @default(false)
+  subcategories          subcategories            @relation(fields: [subcategory_id], references: [id])
   product_section_groups product_section_groups[]
+  products               products[]
 }
 
-
-// --- Model: inventory.prisma ---
 model inventory {
-  id                   Int              @id @default(autoincrement())
-  variant_id           String           @db.Uuid
-  stock_qty            Int              @default(0)
-  reserved_qty         Int              @default(0)
-  bulk_stock_threshold Int?             @default(0)
-  bulk_reserved_qty    Int?             @default(0)
-  warehouse_id         Int
-  updated_at           DateTime         @db.Timestamptz(6)
-  created_at           DateTime         @default(now()) @db.Timestamptz(6)
-  admin_stock              Int              @default(0)
-  seller_stock             Int              @default(0)
-  soft_reserved_qty        Int              @default(0)
-  soft_reserve_expires_at  DateTime?        @db.Timestamptz(6)
-
-  // Relations — plural names matching production schema
-  product_variants     product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
-  warehouses           warehouses       @relation(fields: [warehouse_id], references: [id])
+  id                      Int              @id @default(autoincrement())
+  variant_id              String           @db.Uuid
+  stock_qty               Int              @default(0)
+  reserved_qty            Int              @default(0)
+  seller_stock            Int              @default(0)
+  admin_stock             Int              @default(0)
+  bulk_stock_threshold    Int?             @default(0)
+  bulk_reserved_qty       Int?             @default(0)
+  warehouse_id            Int
+  updated_at              DateTime         @db.Timestamptz(6)
+  created_at              DateTime         @default(now()) @db.Timestamptz(6)
+  soft_reserved_qty       Int              @default(0)
+  soft_reserve_expires_at DateTime?        @db.Timestamptz(6)
+  product_variants        product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+  warehouses              warehouses       @relation(fields: [warehouse_id], references: [id])
 
   @@unique([variant_id, warehouse_id])
   @@index([stock_qty])
   @@index([warehouse_id])
 }
 
-
-// --- Model: order_execution_logs.prisma ---
 model order_execution_logs {
-  id                     String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  scheduled_order_id     String            @db.Uuid
+  id                     String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scheduled_order_id     String               @db.Uuid
   attempt_number         Int
-  executed_at            DateTime?         @default(now()) @db.Timestamptz
-  status                 String            @db.VarChar
-  inventory_check_passed Boolean?          @default(false)
-  payment_check_passed   Boolean?          @default(false)
+  executed_at            DateTime?            @default(now()) @db.Timestamptz(6)
+  status                 String               @db.VarChar
+  inventory_check_passed Boolean?             @default(false)
+  payment_check_passed   Boolean?             @default(false)
   error_message          String?
-  error_code             String?           @db.VarChar
+  error_code             String?              @db.VarChar
   execution_duration_ms  Int?
-  worker_id              String?           @db.VarChar
-  metadata               Json?             @default("{}")
-
-  // Relations
+  worker_id              String?              @db.VarChar
+  metadata               Json?                @default("{}")
   scheduled_orders       scheduled_orders     @relation(fields: [scheduled_order_id], references: [id])
   payment_retry_logs     payment_retry_logs[]
 }
 
-
-// --- Model: order_items.prisma ---
 model order_items {
   id                    String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   order_id              String               @db.Uuid
@@ -617,8 +485,6 @@ model order_items {
   original_price        Decimal?             @db.Decimal
   assigned_warehouse_id Int?
   warehouse_name        String?              @db.VarChar
-
-  // Relations — plural names matching production schema
   warehouses            warehouses?          @relation(fields: [assigned_warehouse_id], references: [id])
   orders                orders               @relation(fields: [order_id], references: [id], onDelete: Cascade)
   product_variants      product_variants     @relation(fields: [variant_id], references: [id])
@@ -629,109 +495,90 @@ model order_items {
   @@index([variant_id])
 }
 
-
-// --- Model: order_tracking.prisma ---
 model order_tracking {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   order_id    String?   @db.Uuid
   status      String    @db.VarChar
   location    String?   @db.VarChar
   description String?
-  timestamp   DateTime? @default(now()) @db.Timestamp
-
-  // Relations
+  timestamp   DateTime? @default(now()) @db.Timestamp(6)
   orders      orders?   @relation(fields: [order_id], references: [id])
 }
 
-
-// --- Model: orders.prisma ---
 model orders {
-  id                   String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id              String?          @db.Uuid
-  subtotal             Decimal          @db.Decimal
-  shipping             Decimal          @db.Decimal
-  total                Decimal          @db.Decimal
+  id                   String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id              String?             @db.Uuid
+  subtotal             Decimal             @db.Decimal
+  shipping             Decimal             @db.Decimal
+  total                Decimal             @db.Decimal
   address              String?
-  payment_method       String?          @default("prepaid")
-  status               String?          @default("Pending")
-  created_at           DateTime?        @default(now()) @db.Timestamp(6)
-  updated_at           DateTime?        @db.Timestamptz(6)
-  razorpay_order_id    String?          @db.VarChar
-  razorpay_payment_id  String?          @db.VarChar
-  tracking_number      String?          @db.VarChar
-  estimated_delivery   DateTime?        @db.Timestamp(6)
-  is_bulk_order        Boolean?         @default(false)
-  company_name         String?          @db.VarChar
-  gst_number           String?          @db.VarChar
-  is_deleted           Boolean?         @default(false)
-  handling_charge      Decimal?         @default(0) @db.Decimal
-  surge_charge         Decimal?         @default(0) @db.Decimal
-  platform_charge      Decimal?         @default(0) @db.Decimal
-  delivery_pincode     String?          @db.VarChar
-  rider_id             String?          @db.Uuid
-  coupon_code          String?          @db.VarChar
-  coupon_discount      Decimal?         @default(0) @db.Decimal
-  discount_charge      Decimal?         @default(0) @db.Decimal
-  mobile               String?          @db.VarChar
-  razorpay_signature   String?          @db.VarChar
-  receiver_name        String?          @db.VarChar
-  delivery_distance_km   Decimal?         @default(0) @db.Decimal
-  rider_payout_amount    Decimal?         @default(0) @db.Decimal
-  delivery_latitude      Decimal?         @db.Decimal(10, 7)
-  delivery_longitude     Decimal?         @db.Decimal(10, 7)
-  customer_address_id    Int?
-  idempotency_key        String?          @db.VarChar
-  delivery_otp           String?          @db.VarChar(6)
-
-  // Relations — matching backup schema exactly
+  payment_method       String?             @default("prepaid")
+  status               String?             @default("Pending")
+  created_at           DateTime?           @default(now()) @db.Timestamp(6)
+  updated_at           DateTime?           @db.Timestamptz(6)
+  razorpay_order_id    String?             @db.VarChar
+  razorpay_payment_id  String?             @db.VarChar
+  tracking_number      String?             @db.VarChar
+  estimated_delivery   DateTime?           @db.Timestamp(6)
+  is_bulk_order        Boolean?            @default(false)
+  company_name         String?             @db.VarChar
+  gst_number           String?             @db.VarChar
+  is_deleted           Boolean?            @default(false)
+  mobile               String?             @db.VarChar
+  receiver_name        String?             @db.VarChar
+  coupon_code          String?             @db.VarChar
+  coupon_discount      Decimal?            @default(0) @db.Decimal
+  discount_charge      Decimal?            @default(0) @db.Decimal
+  razorpay_signature   String?             @db.VarChar
+  rider_id             String?             @db.Uuid
+  delivery_pincode     String?             @db.VarChar
+  delivery_distance_km Decimal?            @default(0) @db.Decimal
+  handling_charge      Decimal?            @default(0) @db.Decimal
+  surge_charge         Decimal?            @default(0) @db.Decimal
+  platform_charge      Decimal?            @default(0) @db.Decimal
+  rider_payout_amount  Decimal?            @default(0) @db.Decimal
+  idempotency_key      String?             @db.VarChar
+  delivery_latitude    Decimal?            @db.Decimal(10, 7)
+  delivery_longitude   Decimal?            @db.Decimal(10, 7)
+  customer_address_id  Int?
   coupon_usage         coupon_usage?
   order_items          order_items[]
   order_tracking       order_tracking[]
-  users                users?           @relation(fields: [user_id], references: [id])
+  users                users?              @relation(fields: [user_id], references: [id])
   return_orders        return_orders[]
-  refund_requests      refund_requests[]
-  sub_orders           sub_orders[]
   rider_assignments    rider_assignments[]
-  cod_collections      cod_collections?
+  sub_orders           sub_orders[]
 
   @@index([delivery_pincode])
   @@index([rider_id])
 }
 
-
-// --- Model: partners.prisma ---
 model partners {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name       String    @db.VarChar
   image_url  String
   active     Boolean?  @default(true)
   sort_order Int?      @default(0)
-  created_at DateTime? @default(now()) @db.Timestamptz
-  updated_at DateTime? @default(now()) @db.Timestamptz
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
 }
 
-
-// --- Model: payment_retry_logs.prisma ---
 model payment_retry_logs {
-  id                 String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  scheduled_order_id String                @db.Uuid
-  execution_log_id   String?               @db.Uuid
-  retry_number       Int
-  attempted_at       DateTime?             @default(now()) @db.Timestamptz
-  payment_method     String?               @db.VarChar
-  amount             Decimal?              @db.Decimal
-  status             String?               @db.VarChar
-  error_code         String?               @db.VarChar
-  error_message      String?
-  next_retry_at      DateTime?             @db.Timestamptz
-
-  // Relations
+  id                   String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scheduled_order_id   String                @db.Uuid
+  execution_log_id     String?               @db.Uuid
+  retry_number         Int
+  attempted_at         DateTime?             @default(now()) @db.Timestamptz(6)
+  payment_method       String?               @db.VarChar
+  amount               Decimal?              @db.Decimal
+  status               String?               @db.VarChar
+  error_code           String?               @db.VarChar
+  error_message        String?
+  next_retry_at        DateTime?             @db.Timestamptz(6)
   order_execution_logs order_execution_logs? @relation(fields: [execution_log_id], references: [id])
   scheduled_orders     scheduled_orders      @relation(fields: [scheduled_order_id], references: [id])
 }
 
-
-// --- Model: payout_audit_log.prisma ---
 model payout_audit_log {
   id          Int      @id @default(autoincrement())
   changed_by  String?  @db.Uuid
@@ -739,81 +586,65 @@ model payout_audit_log {
   entity_id   Int
   old_value   Json?
   new_value   Json?
-  changed_at  DateTime @default(now()) @db.Timestamptz
+  changed_at  DateTime @default(now()) @db.Timestamptz(6)
 
-  @@index([entity_type, entity_id])
-  @@index([changed_at])
+  @@index([changed_at], map: "idx_payout_audit_changed")
+  @@index([entity_type, entity_id], map: "idx_payout_audit_entity")
 }
 
-
-// --- Model: payout_disputes.prisma ---
 model payout_disputes {
   id              Int       @id @default(autoincrement())
   payout_id       Int
-  rider_id        String    @db.Uuid                // denormalised for fast lookup
+  rider_id        String    @db.Uuid
   reason          String    @db.VarChar(50)
-  // WRONG_DISTANCE | WRONG_AMOUNT | NOT_RECEIVED | OTHER
-  note            String?   @db.Text
+  note            String?
   status          String    @default("OPEN") @db.VarChar(20)
-  // OPEN | RESOLVED
-  resolution_note String?   @db.Text
-  raised_at       DateTime  @default(now()) @db.Timestamptz
-  resolved_at     DateTime? @db.Timestamptz
+  resolution_note String?
+  raised_at       DateTime  @default(now()) @db.Timestamptz(6)
+  resolved_at     DateTime? @db.Timestamptz(6)
 
-  payout          rider_payouts @relation(fields: [payout_id], references: [id])
-
-  @@index([payout_id])
-  @@index([rider_id])
-  @@index([status])
+  @@index([payout_id], map: "idx_payout_disputes_payout")
+  @@index([rider_id], map: "idx_payout_disputes_rider")
+  @@index([status], map: "idx_payout_disputes_status")
 }
 
-
-// --- Model: payout_slabs.prisma ---
 model payout_slabs {
   id             Int       @id @default(autoincrement())
   min_km         Decimal   @db.Decimal(5, 2)
-  max_km         Decimal?  @db.Decimal(5, 2)       // NULL = open-ended (last slab)
-  payout_amount  Decimal   @db.Decimal(10, 2)      // fixed amount in rupees
+  max_km         Decimal?  @db.Decimal(5, 2)
+  payout_amount  Decimal   @db.Decimal(10, 2)
   is_active      Boolean   @default(true)
-  effective_from DateTime  @default(now()) @db.Timestamptz
-  effective_to   DateTime? @db.Timestamptz
-  created_by     String?   @db.Uuid                // references users.id (no formal relation)
-  created_at     DateTime  @default(now()) @db.Timestamptz
-  updated_at     DateTime  @default(now()) @db.Timestamptz
+  effective_from DateTime  @default(now()) @db.Timestamptz(6)
+  effective_to   DateTime? @db.Timestamptz(6)
+  created_by     String?   @db.Uuid
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @default(now()) @db.Timestamptz(6)
 
-  rider_payouts  rider_payouts[]
-
-  @@index([is_active])
-  @@index([min_km])
+  @@index([is_active], map: "idx_payout_slabs_active")
+  @@index([min_km], map: "idx_payout_slabs_min_km")
 }
 
-
-// --- Model: pincode_locations.prisma ---
 model pincode_locations {
-  created_at DateTime @default(now()) @db.Timestamptz
+  created_at DateTime @default(now()) @db.Timestamptz(6)
   pincode    String   @id @db.VarChar
-  latitude   Float?   @db.DoublePrecision
-  longitude  Float?   @db.DoublePrecision
+  latitude   Float?
+  longitude  Float?
 }
 
-
-// --- Model: platform_fee_configurations.prisma ---
 model platform_fee_configurations {
   id             Int       @id @default(autoincrement())
-  entity_type    String    @db.VarChar // category | subcategory | group
+  entity_type    String    @db.VarChar
   entity_id      String    @db.Uuid
   fee_percentage Decimal   @db.Decimal(5, 2)
   is_active      Boolean?  @default(true)
   created_by     String?   @db.Uuid
-  created_at     DateTime? @default(now()) @db.Timestamptz
-  updated_at     DateTime? @default(now()) @db.Timestamptz
+  created_at     DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime? @default(now()) @db.Timestamptz(6)
 
   @@unique([entity_type, entity_id])
   @@index([entity_type, entity_id])
 }
 
-
-// --- Model: platform_fee_group_entities.prisma ---
 model platform_fee_group_entities {
   id           Int                 @id @default(autoincrement())
   fee_group_id String              @db.Uuid
@@ -827,8 +658,6 @@ model platform_fee_group_entities {
   @@index([entity_type, entity_id])
 }
 
-
-// --- Model: platform_fee_groups.prisma ---
 model platform_fee_groups {
   id             String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name           String                        @db.VarChar
@@ -843,8 +672,6 @@ model platform_fee_groups {
   @@index([entity_type])
 }
 
-
-// --- Model: post.prisma ---
 model Post {
   id        Int     @id @default(autoincrement())
   title     String
@@ -854,62 +681,49 @@ model Post {
   users     users?  @relation(fields: [authorId], references: [id])
 }
 
-
-// --- Model: product_brand.prisma ---
 model product_brand {
-  product_id String @db.Uuid
-  brand_id   String @db.Uuid
-
-  // Relations
+  product_id String   @db.Uuid
+  brand_id   String   @db.Uuid
   brand      brand    @relation(fields: [brand_id], references: [id])
   products   products @relation(fields: [product_id], references: [id])
 
   @@id([product_id, brand_id])
 }
 
-
-// --- Model: product_enquiries.prisma ---
 model product_enquiries {
-  id             Int       @id @default(autoincrement())
-  user_id        String    @db.Uuid // References auth.users(id)
-  product_id     String    @db.Uuid
-  variant_id     String?   @db.Uuid
-  quantity       Int
-  message        String?
-  expected_price Decimal?  @db.Decimal
-  status         String?   @default("OPEN") @db.VarChar
-  admin_notes    String?
-  created_at     DateTime? @default(now()) @db.Timestamp
-  updated_at     DateTime? @default(now()) @db.Timestamp
-  expires_at        DateTime? @default(dbgenerated("CURRENT_TIMESTAMP + interval '7 days'")) @db.Timestamp
-  closed_reason     String?   @db.VarChar
-  closed_by         String?   @db.VarChar
-  company_name      String?   @db.VarChar
-  gst_number        String?   @db.VarChar
-  phone             String?   @db.VarChar
-  delivery_timeline String?   @db.VarChar
-
-  // Relations
+  id                Int                @id @default(autoincrement())
+  user_id           String             @db.Uuid
+  product_id        String             @db.Uuid
+  variant_id        String?            @db.Uuid
+  quantity          Int
+  message           String?
+  expected_price    Decimal?           @db.Decimal
+  status            String?            @default("OPEN") @db.VarChar
+  admin_notes       String?
+  created_at        DateTime?          @default(now()) @db.Timestamp(6)
+  updated_at        DateTime?          @default(now()) @db.Timestamp(6)
+  expires_at        DateTime?          @default(dbgenerated("(CURRENT_TIMESTAMP + '7 days'::interval)")) @db.Timestamp(6)
+  closed_reason     String?            @db.VarChar
+  closed_by         String?            @db.VarChar
+  company_name      String?            @db.VarChar
+  gst_number        String?            @db.VarChar
+  phone             String?            @db.VarChar
+  delivery_timeline String?            @db.VarChar
   enquiry_bids      enquiry_bids[]
   enquiry_messages  enquiry_messages[]
-  products          products          @relation(fields: [product_id], references: [id])
+  products          products           @relation(fields: [product_id], references: [id])
 }
 
-
-// --- Model: product_media.prisma ---
 model product_media {
-  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  product_id  String    @db.Uuid
-  variant_id  String?   @db.Uuid
-
-  media_type  MediaType
-  url         String
-  thumbnail   String?
-  is_primary  Boolean   @default(false)
-  sort_order  Int       @default(0)
-
-  created_at  DateTime  @default(now()) @db.Timestamptz
-
+  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id       String            @db.Uuid
+  variant_id       String?           @db.Uuid
+  media_type       MediaType
+  url              String
+  thumbnail        String?
+  is_primary       Boolean           @default(false)
+  sort_order       Int               @default(0)
+  created_at       DateTime          @default(now()) @db.Timestamptz(6)
   products         products          @relation(fields: [product_id], references: [id], onDelete: Cascade)
   product_variants product_variants? @relation(fields: [variant_id], references: [id])
 
@@ -917,109 +731,84 @@ model product_media {
   @@index([variant_id])
 }
 
-// --- Model: product_recommended_store.prisma ---
 model product_recommended_store {
-  product_id            String            @db.Uuid
-  recommended_store_id  String            @db.Uuid
-
-  // Relations
-  products              products          @relation(fields: [product_id], references: [id])
-  recommended_store     recommended_store @relation(fields: [recommended_store_id], references: [id])
+  product_id           String            @db.Uuid
+  recommended_store_id String            @db.Uuid
+  products             products          @relation(fields: [product_id], references: [id])
+  recommended_store    recommended_store @relation(fields: [recommended_store_id], references: [id])
 
   @@id([product_id, recommended_store_id])
 }
 
-
-// --- Model: product_reviews.prisma ---
 model product_reviews {
   id                   Int       @id @default(autoincrement())
   product_id           String    @db.Uuid
-  user_id              String?   @db.Uuid // References auth.users(id)
+  user_id              String?   @db.Uuid
   user_name            String    @db.VarChar
   user_email           String?   @db.VarChar
   rating               Int
   comment              String
   is_verified_purchase Boolean?  @default(false)
   helpful_count        Int?      @default(0)
-  created_at           DateTime? @default(now()) @db.Timestamptz
-  updated_at           DateTime? @default(now()) @db.Timestamptz
-
-  // Relations
+  created_at           DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime? @default(now()) @db.Timestamptz(6)
   products             products  @relation(fields: [product_id], references: [id])
 }
 
-
-// --- Model: product_section_categories.prisma ---
 model product_section_categories {
-  id          Int       @id @default(autoincrement())
-  section_id  Int
-  category_id String    @db.Uuid
-  created_at  DateTime? @default(now()) @db.Timestamptz(6)
-  
-  // Relations
-  product_sections product_sections @relation(fields: [section_id], references: [id], onDelete: Cascade)
+  id               Int              @id @default(autoincrement())
+  section_id       Int
+  category_id      String           @db.Uuid
+  created_at       DateTime?        @default(now()) @db.Timestamptz(6)
   categories       categories       @relation(fields: [category_id], references: [id], onDelete: Cascade)
+  product_sections product_sections @relation(fields: [section_id], references: [id], onDelete: Cascade)
 
   @@unique([section_id, category_id])
 }
 
-
-// --- Model: product_section_groups.prisma ---
 model product_section_groups {
-  id          Int       @id @default(autoincrement())
-  section_id  Int
-  group_id    String    @db.Uuid
-  is_active   Boolean?  @default(true)
-  created_at  DateTime? @default(now()) @db.Timestamptz(6)
-  
-  // Relations
-  product_sections product_sections @relation(fields: [section_id], references: [id], onDelete: Cascade)
+  id               Int              @id @default(autoincrement())
+  section_id       Int
+  group_id         String           @db.Uuid
+  is_active        Boolean?         @default(true)
+  created_at       DateTime?        @default(now()) @db.Timestamptz(6)
   groups           groups           @relation(fields: [group_id], references: [id], onDelete: Cascade)
+  product_sections product_sections @relation(fields: [section_id], references: [id], onDelete: Cascade)
 
   @@unique([section_id, group_id])
 }
 
-
-// --- Model: product_section_products.prisma ---
 model product_section_products {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  product_id    String    @db.Uuid
-  section_id    Int
-  display_order Int?      @default(0)
-  created_at    DateTime? @default(now()) @db.Timestamptz
-  updated_at    DateTime? @default(now()) @db.Timestamptz
-
-  // Relations
-  product              products         @relation(fields: [product_id], references: [id])
-  product_sections     product_sections @relation(fields: [section_id], references: [id])
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id       String           @db.Uuid
+  section_id       Int
+  display_order    Int?             @default(0)
+  created_at       DateTime?        @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime?        @default(now()) @db.Timestamptz(6)
+  product          products         @relation(fields: [product_id], references: [id])
+  product_sections product_sections @relation(fields: [section_id], references: [id])
 }
 
-
-// --- Model: product_sections.prisma ---
 model product_sections {
-  id             Int       @id @default(autoincrement())
-  section_key    String    @unique @db.VarChar
-  section_name   String    @db.VarChar
-  is_active      Boolean?  @default(true)
-  display_order  Int?      @default(0)
-  component_name String    @db.VarChar
-  description    String?
-  created_at     DateTime? @default(now()) @db.Timestamp
-  updated_at     DateTime? @default(now()) @db.Timestamp
+  id                         Int                            @id @default(autoincrement())
+  section_key                String                         @unique @db.VarChar
+  section_name               String                         @db.VarChar
+  is_active                  Boolean?                       @default(true)
+  display_order              Int?                           @default(0)
+  component_name             String                         @db.VarChar
+  description                String?
+  created_at                 DateTime?                      @default(now()) @db.Timestamp(6)
+  updated_at                 DateTime?                      @default(now()) @db.Timestamp(6)
   is_marketing               Boolean?                       @default(false)
   allow_group_mapping        Boolean?                       @default(false)
   allow_category_mapping     Boolean?                       @default(false)
-
-  // Relations
-  section_products     product_section_products[]
-  subcategory_mappings section_subcategory_mappings[]
   product_section_categories product_section_categories[]
   product_section_groups     product_section_groups[]
+  section_products           product_section_products[]
+  subcategory_mappings       section_subcategory_mappings[]
   store_section_mappings     store_section_mappings[]
 }
 
-
-// --- Model: product_variants.prisma ---
 model product_variants {
   id                       String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   product_id               String                    @db.Uuid
@@ -1043,8 +832,6 @@ model product_variants {
   bulk_discount_percentage Int?                      @default(0)
   created_at               DateTime                  @default(now()) @db.Timestamptz(6)
   updated_at               DateTime                  @db.Timestamptz(6)
-
-  // Relations — matching backup schema exactly
   cart_items               cart_items[]
   inventory                inventory[]
   order_items              order_items[]
@@ -1053,62 +840,35 @@ model product_variants {
   warehouse_stock          product_warehouse_stock[]
   seller_products          seller_products[]
   service_bookings         service_bookings[]
-  variant_attributes       variant_attributes[]
   sub_order_items          sub_order_items[]
+  variant_attributes       variant_attributes[]
 
   @@index([active])
   @@index([product_id])
   @@index([sku])
 }
 
-
-// --- Model: product_warehouse_stock.prisma ---
-// --- Model: product_warehouse_stock.prisma ---
 model product_warehouse_stock {
-  id                  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  product_id          String             @db.Uuid
-  variant_id          String?            @db.Uuid
-  warehouse_id        Int
-
-  stock_quantity      Int                @default(0)
-  reserved_quantity   Int                @default(0)
-  
-  cost_per_unit       Decimal?           @db.Decimal
-  minimum_threshold   Int?               @default(0)
-  reorder_point       Int?               @default(0)
-  
-  is_active           Boolean?           @default(true)
-  created_at          DateTime?          @default(now()) @db.Timestamptz
-  updated_at          DateTime?          @default(now()) @db.Timestamptz
-  last_restocked_at   DateTime?          @db.Timestamptz
-
-  // Relations
-  products         products          @relation(fields: [product_id], references: [id])
-  warehouses       warehouses        @relation(fields: [warehouse_id], references: [id])
-  product_variants product_variants? @relation(fields: [variant_id], references: [id])
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id        String            @db.Uuid
+  variant_id        String?           @db.Uuid
+  warehouse_id      Int
+  stock_quantity    Int               @default(0)
+  reserved_quantity Int               @default(0)
+  cost_per_unit     Decimal?          @db.Decimal
+  minimum_threshold Int?              @default(0)
+  reorder_point     Int?              @default(0)
+  is_active         Boolean?          @default(true)
+  created_at        DateTime?         @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime?         @default(now()) @db.Timestamptz(6)
+  last_restocked_at DateTime?         @db.Timestamptz(6)
+  products          products          @relation(fields: [product_id], references: [id])
+  product_variants  product_variants? @relation(fields: [variant_id], references: [id])
+  warehouses        warehouses        @relation(fields: [warehouse_id], references: [id])
 
   @@index([product_id])
   @@index([warehouse_id])
   @@index([variant_id])
-}
-
-
-// --- Model: products.prisma ---
-enum Vertical {
-  qwik
-  eato
-  bazar
-  star
-}
-
-enum MediaType {
-  image
-  video
-}
-
-enum ProductSourceType {
-  WAREHOUSE
-  DROP_SHIP
 }
 
 model products {
@@ -1130,13 +890,11 @@ model products {
   active                    Boolean?                    @default(true)
   has_variants              Boolean?                    @default(false)
   faq                       Json?
-  created_at                DateTime?                   @default(now()) @db.Timestamptz(6)
-  updated_at                DateTime?                   @db.Timestamptz(6)
   created_by                String?                     @default("admin")
   seller_id                 String?                     @db.Uuid
+  created_at                DateTime?                   @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime?                   @db.Timestamptz(6)
   source_type               ProductSourceType           @default(WAREHOUSE)
-
-  // Relations — matching backup schema exactly
   daily_deals_product       daily_deals_product[]
   brands                    product_brand[]
   product_enquiries         product_enquiries[]
@@ -1156,16 +914,15 @@ model products {
   stock_movements           stock_movements[]
   stock_notify_requests     stock_notify_requests[]
   store_section_mappings    store_section_mappings[]
+  sub_order_items           sub_order_items[]
   wishlist_items            wishlist_items[]
   you_may_like              you_may_like[]
-  sub_order_items           sub_order_items[]
 
   @@index([active])
   @@index([category_id])
   @@index([vertical])
 }
 
-// --- Model: promo_banners.prisma ---
 model promo_banners {
   id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   title         String    @db.VarChar
@@ -1180,84 +937,64 @@ model promo_banners {
   link          String?   @db.VarChar
   active        Boolean?  @default(true)
   display_order Int?      @default(0)
-  created_at    DateTime? @default(now()) @db.Timestamp
-  updated_at    DateTime? @default(now()) @db.Timestamp
+  created_at    DateTime? @default(now()) @db.Timestamp(6)
+  updated_at    DateTime? @default(now()) @db.Timestamp(6)
 }
 
-
-// --- Model: promotional_media.prisma ---
 model promotional_media {
   id              Int       @id @default(autoincrement())
-  media_type      String    @db.VarChar // 'image' or 'video'
+  media_type      String    @db.VarChar
   title           String?   @db.VarChar
   description     String?
   image_url       String?
   video_url       String?
   thumbnail_url   String?
   link            String?
-  link_type       String?   @default("external") // 'external', 'category', 'product'
+  link_type       String?   @default("external")
   resource_id     String?
   sub_resource_id String?
   position        Int?      @default(0)
   active          Boolean?  @default(true)
-  created_at      DateTime? @default(now()) @db.Timestamptz
-  updated_at      DateTime? @default(now()) @db.Timestamptz
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime? @default(now()) @db.Timestamptz(6)
 }
 
-
-// --- Model: quick_pick.prisma ---
 model quick_pick {
-  id         String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name       String
-  image_url  String?
-
-  // Relations
-  groups     quick_pick_group[]
+  id        String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  image_url String?
+  groups    quick_pick_group[]
 }
 
-
-// --- Model: quick_pick_group.prisma ---
 model quick_pick_group {
-  id             String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name           String?
-  image_url      String?
-  quick_pick_id  String?                   @db.Uuid
-
-  // Relations
-  quick_pick     quick_pick?               @relation(fields: [quick_pick_id], references: [id])
+  id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                    String?
+  image_url               String?
+  quick_pick_id           String?                   @db.Uuid
+  quick_pick              quick_pick?               @relation(fields: [quick_pick_id], references: [id])
   quickpick_group_product quickpick_group_product[]
 }
 
-
-// --- Model: quickpick_group_product.prisma ---
 model quickpick_group_product {
   id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   quick_pick_group_id String           @db.Uuid
   product_id          String           @db.Uuid
-
-  // Relations
   products            products         @relation(fields: [product_id], references: [id])
   quick_pick_group    quick_pick_group @relation(fields: [quick_pick_group_id], references: [id])
 }
 
-
-// --- Model: recommended_store.prisma ---
 model recommended_store {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String?
-  image_url   String?
-  description String?
-  is_active   Boolean? @default(false)
-  banner_id   String?  @db.Uuid
-
-  // Relations
+  id                        String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                      String?
+  image_url                 String?
+  description               String?
+  is_active                 Boolean?                    @default(false)
+  banner_id                 String?                     @db.Uuid
   product_recommended_store product_recommended_store[]
-  banner                     banners?                     @relation(fields: [banner_id], references: [id])
-  store_section_mappings     store_section_mappings[]
+  banner                    banners?                    @relation(fields: [banner_id], references: [id])
+  store_section_mappings    store_section_mappings[]
 }
 
-
-// --- Model: refund_requests.prisma ---
 model refund_requests {
   id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   order_id                 String    @db.Uuid
@@ -1279,27 +1016,18 @@ model refund_requests {
   created_at               DateTime? @default(now()) @db.Timestamp(6)
   updated_at               DateTime? @default(now()) @db.Timestamp(6)
 
-  // Relations
-  orders                              orders  @relation(fields: [order_id], references: [id])
-  users_refund_requests_user_idTousers users   @relation("refund_requests_user_idTousers", fields: [user_id], references: [id])
-  users_refund_requests_processed_by  users?  @relation("refund_requests_processed_byTousers", fields: [processed_by], references: [id])
-
   @@index([order_id])
   @@index([user_id])
   @@index([status])
 }
 
-
-// --- Model: return_order_items.prisma ---
 model return_order_items {
-  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  return_order_id String      @db.Uuid
-  order_item_id   String      @db.Uuid
-  quantity        Int         @default(1)
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  return_order_id String        @db.Uuid
+  order_item_id   String        @db.Uuid
+  quantity        Int           @default(1)
   return_reason   String?
-  created_at      DateTime?   @default(now()) @db.Timestamp
-
-  // Relations
+  created_at      DateTime?     @default(now()) @db.Timestamp(6)
   order_items     order_items   @relation(fields: [order_item_id], references: [id])
   return_orders   return_orders @relation(fields: [return_order_id], references: [id], onDelete: Cascade)
 
@@ -1307,8 +1035,6 @@ model return_order_items {
   @@index([order_item_id])
 }
 
-
-// --- Model: return_orders.prisma ---
 model return_orders {
   id                                  String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   order_id                            String               @db.Uuid
@@ -1321,15 +1047,13 @@ model return_orders {
   bank_ifsc_code                      String?              @db.VarChar
   bank_name                           String?              @db.VarChar
   refund_amount                       Decimal              @db.Decimal
-  refund_mode                         String?              @default("bank_transfer") @db.VarChar
   status                              String?              @default("pending") @db.VarChar
   admin_notes                         String?
   admin_id                            String?              @db.Uuid
   processed_at                        DateTime?            @db.Timestamp(6)
   created_at                          DateTime?            @default(now()) @db.Timestamp(6)
   updated_at                          DateTime?            @default(now()) @db.Timestamp(6)
-
-  // Relations — matching production schema named aliases
+  refund_mode                         String?              @default("bank_transfer") @db.VarChar
   return_order_items                  return_order_items[]
   users_return_orders_admin_idTousers users?               @relation("return_orders_admin_idTousers", fields: [admin_id], references: [id])
   orders                              orders               @relation(fields: [order_id], references: [id])
@@ -1339,43 +1063,21 @@ model return_orders {
   @@index([user_id])
 }
 
-
-// --- Model: rider_assignments.prisma ---
 model rider_assignments {
-  id                Int       @id @default(autoincrement())
-  rider_id          String    @db.Uuid
-  order_id          String    @db.Uuid
-  pickup_sequence   Json?     @default("[]")
-  // Array of { source_type, source_id, warehouse_name, address, picked_up: bool }
-  pickup_status     Json?     @default("{}")
-  // Tracks which stops are done, so new rider can resume mid-trip
-  status            String    @default("assigned") @db.VarChar
-  // assigned → in_progress → completed | cancelled | reassigned
-  assigned_at       DateTime  @default(now()) @db.Timestamptz
-  completed_at      DateTime? @db.Timestamptz
-
-  // Relations
-  order             orders    @relation(fields: [order_id], references: [id], onDelete: Cascade)
-  rider             riders    @relation(fields: [rider_id], references: [id])
+  id              Int       @id @default(autoincrement())
+  rider_id        String    @db.Uuid
+  order_id        String    @db.Uuid
+  pickup_sequence Json?     @default("[]")
+  pickup_status   Json?     @default("{}")
+  status          String    @default("assigned") @db.VarChar
+  assigned_at     DateTime  @default(now()) @db.Timestamptz(6)
+  completed_at    DateTime? @db.Timestamptz(6)
+  order           orders    @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  rider           riders    @relation(fields: [rider_id], references: [id])
 
   @@index([rider_id])
   @@index([order_id])
   @@index([status])
-}
-
-
-// --- Model: rider_documents.prisma ---
-enum DocumentType {
-  DRIVERS_LICENSE
-  ID_PROOF
-  VEHICLE_REGISTRATION
-  PHOTO
-}
-
-enum DocumentStatus {
-  PENDING
-  APPROVED
-  REJECTED
 }
 
 model rider_documents {
@@ -1386,37 +1088,28 @@ model rider_documents {
   status           DocumentStatus @default(PENDING)
   rejection_reason String?
   reviewed_by      String?        @db.Uuid
-  reviewed_at      DateTime?      @db.Timestamptz
-
-  created_at       DateTime       @default(now()) @db.Timestamptz
-  updated_at       DateTime       @default(now()) @db.Timestamptz
-
-  // Relations
+  reviewed_at      DateTime?      @db.Timestamptz(6)
+  created_at       DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime       @default(now()) @db.Timestamptz(6)
   riders           riders         @relation(fields: [rider_id], references: [id], onDelete: Cascade)
 
+  @@unique([rider_id, document_type])
   @@index([rider_id])
   @@index([status])
-  @@unique([rider_id, document_type])
 }
 
-
-// --- Model: rider_locations.prisma ---
 model rider_locations {
   id          Int      @id @default(autoincrement())
   rider_id    String   @db.Uuid
   latitude    Decimal  @db.Decimal(10, 7)
   longitude   Decimal  @db.Decimal(10, 7)
   is_online   Boolean  @default(true)
-  recorded_at DateTime @default(now()) @db.Timestamptz
+  recorded_at DateTime @default(now()) @db.Timestamptz(6)
 
-  riders      riders   @relation(fields: [rider_id], references: [id], onDelete: Cascade)
-
-  @@index([rider_id])
-  @@index([recorded_at])
+  @@index([recorded_at], map: "idx_rider_locations_recorded_at")
+  @@index([rider_id], map: "idx_rider_locations_rider_id")
 }
 
-
-// --- Model: rider_payout_milestones.prisma ---
 model rider_payout_milestones {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   min_order_value Decimal   @db.Decimal
@@ -1426,214 +1119,144 @@ model rider_payout_milestones {
   updated_at      DateTime? @default(now()) @db.Timestamptz(6)
 }
 
-
-// --- Model: rider_payouts.prisma ---
 model rider_payouts {
-  id                  Int       @id @default(autoincrement())
-  rider_id            String    @db.Uuid
-  sub_order_id        String    @db.Uuid
-  parent_order_id     String    @db.Uuid
-  route_type          String    @db.VarChar(10)     // 'SELLER' | 'WAREHOUSE'
+  id                 Int       @id @default(autoincrement())
+  rider_id           String    @db.Uuid
+  sub_order_id       String    @unique @db.Uuid
+  parent_order_id    String    @db.Uuid
+  route_type         String    @db.VarChar(10)
+  pickup_latitude    Decimal?  @db.Decimal(10, 7)
+  pickup_longitude   Decimal?  @db.Decimal(10, 7)
+  source_latitude    Decimal?  @db.Decimal(10, 7)
+  source_longitude   Decimal?  @db.Decimal(10, 7)
+  delivery_latitude  Decimal?  @db.Decimal(10, 7)
+  delivery_longitude Decimal?  @db.Decimal(10, 7)
+  leg1_km            Decimal?  @db.Decimal(5, 2)
+  leg2_km            Decimal?  @db.Decimal(5, 2)
+  total_km           Decimal?  @db.Decimal(5, 2)
+  slab_id            Int?
+  payout_amount      Decimal?  @db.Decimal(10, 2)
+  status             String    @default("PENDING") @db.VarChar(20)
+  calculated_at      DateTime? @db.Timestamptz(6)
+  paid_at            DateTime? @db.Timestamptz(6)
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime  @default(now()) @db.Timestamptz(6)
 
-  // GPS coordinates
-  pickup_latitude     Decimal?  @db.Decimal(10, 7)  // rider location at pickup moment
-  pickup_longitude    Decimal?  @db.Decimal(10, 7)
-  source_latitude     Decimal?  @db.Decimal(10, 7)  // seller or warehouse lat
-  source_longitude    Decimal?  @db.Decimal(10, 7)
-  delivery_latitude   Decimal?  @db.Decimal(10, 7)  // customer lat
-  delivery_longitude  Decimal?  @db.Decimal(10, 7)
-
-  // Distance breakdown
-  leg1_km             Decimal?  @db.Decimal(5, 2)   // rider → source
-  leg2_km             Decimal?  @db.Decimal(5, 2)   // source → customer
-  total_km            Decimal?  @db.Decimal(5, 2)
-
-  // Payout
-  slab_id             Int?
-  payout_amount       Decimal?  @db.Decimal(10, 2)
-  status              String    @default("PENDING") @db.VarChar(20)
-  // PENDING | APPROVED | PAID | DISPUTED | MANUAL_REVIEW
-
-  calculated_at       DateTime? @db.Timestamptz
-  paid_at             DateTime? @db.Timestamptz
-  created_at          DateTime  @default(now()) @db.Timestamptz
-  updated_at          DateTime  @default(now()) @db.Timestamptz
-
-  // Relations
-  rider               riders          @relation(fields: [rider_id], references: [id])
-  sub_order           sub_orders      @relation(fields: [sub_order_id], references: [id])
-  slab                payout_slabs?   @relation(fields: [slab_id], references: [id])
-  payout_disputes     payout_disputes[]
-
-  @@unique([sub_order_id])  // idempotency: one payout per sub-order
-  @@index([rider_id])
-  @@index([status])
-  @@index([parent_order_id])
+  @@index([parent_order_id], map: "idx_rider_payouts_parent")
+  @@index([rider_id], map: "idx_rider_payouts_rider")
+  @@index([status], map: "idx_rider_payouts_status")
 }
 
-
-// --- Model: rider_wage_logs.prisma ---
 model rider_wage_logs {
-  id                          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  rider_id                    String   @db.Uuid
-  date                        DateTime @db.Date
-  total_hours                 Decimal  @db.Decimal(5, 2)
-  segments_count              Int      @default(1)
-  is_eligible_for_minimum_wage Boolean @default(false)
-
-  created_at                  DateTime @default(now()) @db.Timestamptz
-  updated_at                  DateTime @default(now()) @db.Timestamptz
-
-  // Relations
-  riders                      riders   @relation(fields: [rider_id], references: [id], onDelete: Cascade)
+  id                           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rider_id                     String   @db.Uuid
+  date                         DateTime @db.Date
+  total_hours                  Decimal  @db.Decimal(5, 2)
+  segments_count               Int      @default(1)
+  is_eligible_for_minimum_wage Boolean  @default(false)
+  created_at                   DateTime @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime @default(now()) @db.Timestamptz(6)
+  riders                       riders   @relation(fields: [rider_id], references: [id], onDelete: Cascade)
 
   @@unique([rider_id, date])
   @@index([rider_id])
   @@index([date])
 }
 
-
-// --- Model: riders.prisma ---
-enum RiderVerificationStatus {
-  PENDING_VERIFICATION
-  VERIFIED
-  ACTION_REQUIRED
-  SUSPENDED
-}
-
 model riders {
-  id                    String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id               String                   @unique @db.Uuid
-  
-  // Personal details
-  vehicle_type          String?                  @db.VarChar // "bike", "scooter", "bicycle", "van"
-  vehicle_number        String?                  @db.VarChar
-  license_number        String?                  @db.VarChar
-  emergency_contact     String?                  @db.VarChar
-  
-  // Verification & Status
-  verification_status   RiderVerificationStatus  @default(PENDING_VERIFICATION)
-  is_active             Boolean                  @default(true)
-  is_verified           Boolean                  @default(false)
-  is_available          Boolean                  @default(true)
-  
-  // Active shift tracking (guards against double check-in)
-  current_shift_id      String?                  @unique @db.Uuid
-  
-  approved_at           DateTime?                @db.Timestamptz
-  approved_by           String?                  @db.Uuid
-
-  created_at            DateTime                 @default(now()) @db.Timestamptz
-  updated_at            DateTime                 @default(now()) @db.Timestamptz
-
-  // Relations
-  users                 users                    @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  warehouse_riders      warehouse_riders[]
-  rider_documents       rider_documents[]
-  attendance_logs       attendance_logs[]
-  rider_wage_logs       rider_wage_logs[]
-  rider_assignments     rider_assignments[]
-  rider_locations       rider_locations[]
-  rider_payouts         rider_payouts[]
-  cod_collections       cod_collections[]
+  id                  String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id             String                  @unique @db.Uuid
+  vehicle_type        String?                 @db.VarChar
+  vehicle_number      String?                 @db.VarChar
+  license_number      String?                 @db.VarChar
+  emergency_contact   String?                 @db.VarChar
+  verification_status RiderVerificationStatus @default(PENDING_VERIFICATION)
+  is_active           Boolean                 @default(true)
+  is_verified         Boolean                 @default(false)
+  is_available        Boolean                 @default(true)
+  current_shift_id    String?                 @unique @db.Uuid
+  approved_at         DateTime?               @db.Timestamptz(6)
+  approved_by         String?                 @db.Uuid
+  created_at          DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime                @default(now()) @db.Timestamptz(6)
+  attendance_logs     attendance_logs[]
+  rider_assignments   rider_assignments[]
+  rider_documents     rider_documents[]
+  rider_wage_logs     rider_wage_logs[]
+  users               users                   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  warehouse_riders    warehouse_riders[]
 
   @@index([user_id])
   @@index([is_available])
   @@index([verification_status])
 }
 
-
-// --- Model: scheduled_order_slots.prisma ---
 model scheduled_order_slots {
-  id             Int                   @id @default(autoincrement())
-  warehouse_id   Int
-  slot_id        Int
-  scheduled_date DateTime              @db.Date
-  current_count  Int?                  @default(0)
-  created_at     DateTime?             @default(now()) @db.Timestamptz
-  updated_at     DateTime?             @default(now()) @db.Timestamptz
-
-  // Relations
-  warehouses            warehouses            @relation(fields: [warehouse_id], references: [id])
+  id                    Int                   @id @default(autoincrement())
+  warehouse_id          Int
+  slot_id               Int
+  scheduled_date        DateTime              @db.Date
+  current_count         Int?                  @default(0)
+  created_at            DateTime?             @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime?             @default(now()) @db.Timestamptz(6)
   scheduling_time_slots scheduling_time_slots @relation(fields: [slot_id], references: [id])
+  warehouses            warehouses            @relation(fields: [warehouse_id], references: [id])
 }
 
-
-// --- Model: scheduled_orders.prisma ---
 model scheduled_orders {
-  id                     String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id                String                  @db.Uuid
+  id                     String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                String                 @db.Uuid
   cart_items             Json
-  address_id             String?                 @db.Uuid
-  scheduled_at           DateTime                @db.Timestamptz
-  timezone               String                  @default("UTC") @db.VarChar
-  created_at             DateTime?               @default(now()) @db.Timestamptz
-  updated_at             DateTime?               @default(now()) @db.Timestamptz
-  status                 String                  @default("SCHEDULED") @db.VarChar
-  payment_method         String                  @db.VarChar
-  payment_intent_id      String?                 @db.VarChar
-  payment_status         String?                 @default("PENDING") @db.VarChar
-  total_amount           Decimal                 @db.Decimal
-  execution_attempts     Int?                    @default(0)
-  last_execution_attempt DateTime?               @db.Timestamptz
-  idempotency_key        String                  @unique @db.VarChar
-  lock_token             String?                 @db.VarChar
-  lock_expires_at        DateTime?               @db.Timestamptz
-  placed_order_id        String?                 @db.Uuid
+  address_id             String?                @db.Uuid
+  scheduled_at           DateTime               @db.Timestamptz(6)
+  timezone               String                 @default("UTC") @db.VarChar
+  created_at             DateTime?              @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime?              @default(now()) @db.Timestamptz(6)
+  status                 String                 @default("SCHEDULED") @db.VarChar
+  payment_method         String                 @db.VarChar
+  payment_intent_id      String?                @db.VarChar
+  payment_status         String?                @default("PENDING") @db.VarChar
+  total_amount           Decimal                @db.Decimal
+  execution_attempts     Int?                   @default(0)
+  last_execution_attempt DateTime?              @db.Timestamptz(6)
+  idempotency_key        String                 @unique @db.VarChar
+  lock_token             String?                @db.VarChar
+  lock_expires_at        DateTime?              @db.Timestamptz(6)
+  placed_order_id        String?                @db.Uuid
   failure_reason         String?
-  metadata               Json?                   @default("{}")
+  metadata               Json?                  @default("{}")
   warehouse_id           Int?
   slot_id                Int?
-  scheduled_date         DateTime?               @db.Date
-
-  // Relations
-  warehouses             warehouses?             @relation(fields: [warehouse_id], references: [id])
-  scheduling_time_slots  scheduling_time_slots?  @relation(fields: [slot_id], references: [id])
+  scheduled_date         DateTime?              @db.Date
   order_execution_logs   order_execution_logs[]
   payment_retry_logs     payment_retry_logs[]
+  scheduling_time_slots  scheduling_time_slots? @relation(fields: [slot_id], references: [id])
+  warehouses             warehouses?            @relation(fields: [warehouse_id], references: [id])
 }
 
-
-// --- Model: scheduling_time_slots.prisma ---
 model scheduling_time_slots {
-  id           Int       @id @default(autoincrement())
-  start_time   DateTime  @db.Time
-  end_time     DateTime  @db.Time
-  display_name String    @db.VarChar
-  is_active    Boolean?  @default(true)
-  created_at   DateTime? @default(now()) @db.Timestamptz
-  updated_at   DateTime? @default(now()) @db.Timestamptz
-
-  // Relations
-  warehouse_configs warehouse_scheduling_config[]
+  id                Int                           @id @default(autoincrement())
+  start_time        DateTime                      @db.Time(6)
+  end_time          DateTime                      @db.Time(6)
+  display_name      String                        @db.VarChar
+  is_active         Boolean?                      @default(true)
+  created_at        DateTime?                     @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime?                     @default(now()) @db.Timestamptz(6)
   order_slots       scheduled_order_slots[]
   scheduled_orders  scheduled_orders[]
+  warehouse_configs warehouse_scheduling_config[]
 }
 
-
-// --- Model: section_subcategory_mappings.prisma ---
 model section_subcategory_mappings {
-  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  section_id     Int
-  subcategory_id String           @db.Uuid
-  display_order  Int?             @default(0)
-  is_active      Boolean?         @default(true)
-  created_at     DateTime?        @default(now()) @db.Timestamptz
-  updated_at     DateTime?        @default(now()) @db.Timestamptz
-
-  // Relations
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  section_id       Int
+  subcategory_id   String           @db.Uuid
+  display_order    Int?             @default(0)
+  is_active        Boolean?         @default(true)
+  created_at       DateTime?        @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime?        @default(now()) @db.Timestamptz(6)
   product_sections product_sections @relation(fields: [section_id], references: [id])
   subcategory      subcategories    @relation(fields: [subcategory_id], references: [id])
-}
-
-
-// --- Model: seller_documents.prisma ---
-enum SellerDocumentType {
-  GSTIN_CERTIFICATE
-  PAN_CARD
-  BUSINESS_LICENSE
-  ID_PROOF
-  ADDRESS_PROOF
 }
 
 model seller_documents {
@@ -1644,9 +1267,9 @@ model seller_documents {
   status           DocumentStatus     @default(PENDING)
   rejection_reason String?
   reviewed_by      String?            @db.Uuid
-  reviewed_at      DateTime?          @db.Timestamptz
-  created_at       DateTime           @default(now()) @db.Timestamptz
-  updated_at       DateTime           @default(now()) @db.Timestamptz
+  reviewed_at      DateTime?          @db.Timestamptz(6)
+  created_at       DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime           @default(now()) @db.Timestamptz(6)
   sellers          sellers            @relation(fields: [seller_id], references: [id], onDelete: Cascade)
 
   @@unique([seller_id, document_type])
@@ -1654,43 +1277,27 @@ model seller_documents {
   @@index([status])
 }
 
-
-// --- Model: seller_negotiations.prisma ---
 model seller_negotiations {
-  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  seller_id             String    @db.Uuid
-  product_id            String    @db.Uuid
-  variant_id            String?   @db.Uuid
-  
-  // Quantities
-  proposed_quantity     Int       @default(0)
-  
-  // Pricing negotiation
-  seller_proposed_price Decimal   @db.Decimal  // Vendor's initial price
-  admin_counter_price   Decimal?  @db.Decimal  // Admin's counter-offer
-  final_agreed_price    Decimal?  @db.Decimal  // Locked-in price
-  
-  // Status 
-  status                String    @default("PENDING_APPROVAL") @db.VarChar
-  // PENDING_APPROVAL, COUNTER_OFFERED, ACCEPTED, DECLINED, EXPIRED
-  
-  // Notes
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  seller_id             String   @db.Uuid
+  product_id            String   @db.Uuid
+  variant_id            String?  @db.Uuid
+  proposed_quantity     Int      @default(0)
+  seller_proposed_price Decimal  @db.Decimal
+  admin_counter_price   Decimal? @db.Decimal
+  final_agreed_price    Decimal? @db.Decimal
+  status                String   @default("PENDING_APPROVAL") @db.VarChar
   seller_notes          String?
   admin_notes           String?
-  
-  created_at            DateTime  @default(now()) @db.Timestamptz
-  updated_at            DateTime  @default(now()) @db.Timestamptz
-
-  // Relations
-  products              products  @relation(fields: [product_id], references: [id])
-  sellers               sellers   @relation(fields: [seller_id], references: [id], onDelete: Cascade)
+  created_at            DateTime @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime @default(now()) @db.Timestamptz(6)
+  products              products @relation(fields: [product_id], references: [id])
+  sellers               sellers  @relation(fields: [seller_id], references: [id], onDelete: Cascade)
 
   @@index([seller_id])
   @@index([status])
 }
 
-
-// --- Model: seller_pincode_requests.prisma ---
 model seller_pincode_requests {
   id               Int       @id @default(autoincrement())
   seller_id        String    @db.Uuid
@@ -1707,92 +1314,62 @@ model seller_pincode_requests {
   @@index([status])
 }
 
-
-// --- Model: seller_products.prisma ---
 model seller_products {
   id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   seller_id           String            @db.Uuid
   product_id          String            @db.Uuid
   variant_id          String?           @db.Uuid
   warehouse_id        Int
-
-  // Stock
   stock_quantity      Int               @default(0)
   reserved_quantity   Int               @default(0)
-
-  // Pricing
   seller_offer_price  Decimal?          @db.Decimal
   admin_selling_price Decimal?          @db.Decimal
   mrp                 Decimal?          @db.Decimal
-
-  // Status
   status              String            @default("PENDING_APPROVAL") @db.VarChar
   is_active           Boolean           @default(true)
-  created_at          DateTime          @default(now()) @db.Timestamptz
-  updated_at          DateTime          @default(now()) @db.Timestamptz
-
-  // Relations — plural names matching production schema
+  created_at          DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime          @default(now()) @db.Timestamptz(6)
   products            products          @relation(fields: [product_id], references: [id])
   sellers             sellers           @relation(fields: [seller_id], references: [id], onDelete: Cascade)
   product_variants    product_variants? @relation(fields: [variant_id], references: [id])
   warehouses          warehouses        @relation(fields: [warehouse_id], references: [id])
 
+  @@unique([seller_id, product_id, variant_id, warehouse_id])
   @@index([seller_id])
   @@index([product_id])
   @@index([warehouse_id])
   @@index([status])
-  @@unique([seller_id, product_id, variant_id, warehouse_id])
-}
-
-
-// --- Model: sellers.prisma ---
-enum SellerVerificationStatus {
-  PENDING_VERIFICATION
-  VERIFIED
-  ACTION_REQUIRED
-  SUSPENDED
 }
 
 model sellers {
-  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id           String    @unique @db.Uuid
-  business_name     String?   @db.VarChar
-  business_type     String?   @db.VarChar
-  seller_type       String    @default("SELLER") @db.VarChar
-
-  // Business details
-  gstin             String?   @db.VarChar
-  pan               String?   @db.VarChar
-  bank_account_no   String?   @db.VarChar
-  bank_ifsc         String?   @db.VarChar
-  bank_name         String?   @db.VarChar
-
-  // Address
-  address           String?
-  city              String?   @db.VarChar
-  state             String?   @db.VarChar
-  pincode           String?   @db.VarChar
-
-  // Location (geocoded from address)
-  latitude              Decimal?  @db.Decimal(10, 7)
-  longitude             Decimal?  @db.Decimal(10, 7)
-  geocode_source        String?   @db.VarChar(20)
-  geocode_status        String?   @default("PENDING") @db.VarChar(20)
-  geocoded_at           DateTime? @db.Timestamptz
-  geocoded_display_name String?   @db.Text
-
-  // Status
-  is_active         Boolean   @default(true)
-  is_verified       Boolean   @default(false)
-  is_open           Boolean   @default(true)
-  verification_status SellerVerificationStatus @default(PENDING_VERIFICATION)
-  approved_at       DateTime? @db.Timestamptz
-  approved_by       String?   @db.Uuid
-
-  created_at        DateTime  @default(now()) @db.Timestamptz
-  updated_at        DateTime  @default(now()) @db.Timestamptz
-
-  // Relations
+  id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                 String                    @unique @db.Uuid
+  business_name           String?                   @db.VarChar
+  business_type           String?                   @db.VarChar
+  seller_type             String                    @default("SELLER") @db.VarChar
+  gstin                   String?                   @db.VarChar
+  pan                     String?                   @db.VarChar
+  bank_account_no         String?                   @db.VarChar
+  bank_ifsc               String?                   @db.VarChar
+  bank_name               String?                   @db.VarChar
+  address                 String?
+  city                    String?                   @db.VarChar
+  state                   String?                   @db.VarChar
+  pincode                 String?                   @db.VarChar
+  is_active               Boolean                   @default(true)
+  is_verified             Boolean                   @default(false)
+  approved_at             DateTime?                 @db.Timestamptz(6)
+  approved_by             String?                   @db.Uuid
+  created_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  is_open                 Boolean                   @default(true)
+  verification_status     SellerVerificationStatus  @default(PENDING_VERIFICATION)
+  latitude                Decimal?                  @db.Decimal(10, 7)
+  longitude               Decimal?                  @db.Decimal(10, 7)
+  geocode_source          String?                   @db.VarChar(20)
+  geocode_status          String?                   @default("PENDING") @db.VarChar(20)
+  geocoded_at             DateTime?                 @db.Timestamptz(6)
+  geocoded_display_name   String?
   seller_documents        seller_documents[]
   seller_negotiations     seller_negotiations[]
   seller_pincode_requests seller_pincode_requests[]
@@ -1803,16 +1380,6 @@ model sellers {
   @@index([user_id])
   @@index([seller_type])
   @@index([verification_status])
-}
-
-
-// --- Model: service_bookings.prisma ---
-enum ServiceStatus {
-  pending
-  assigned
-  in_progress
-  completed
-  cancelled
 }
 
 model service_bookings {
@@ -1827,8 +1394,6 @@ model service_bookings {
   notes            String?
   created_at       DateTime         @default(now()) @db.Timestamptz(6)
   updated_at       DateTime         @db.Timestamptz(6)
-
-  // Relations — plural names matching production schema
   user_addresses   user_addresses?  @relation(fields: [address_id], references: [id])
   order_items      order_items?     @relation(fields: [order_item_id], references: [id])
   users            users            @relation(fields: [user_id], references: [id])
@@ -1840,20 +1405,15 @@ model service_bookings {
   @@index([user_id])
 }
 
-
-
-// --- Model: shopping_lists.prisma ---
 model shopping_lists {
-  id         String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id    String                @db.Uuid
-  name       String                @db.VarChar(100)
-  description String?              @db.Text
-  created_at DateTime              @default(now()) @db.Timestamptz
-  updated_at DateTime              @default(now()) @updatedAt @db.Timestamptz
-
-  // Relations
-  users      users                 @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  items      shopping_list_items[]
+  id          String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String                @db.Uuid
+  name        String                @db.VarChar(100)
+  created_at  DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime              @default(now()) @updatedAt @db.Timestamptz(6)
+  description String?
+  items       shopping_list_items[]
+  users       users                 @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
 }
@@ -1870,31 +1430,26 @@ model shopping_list_items {
   brand      String?        @db.VarChar(100)
   weight     String?        @db.VarChar(50)
   quantity   Int            @default(1)
-  added_at   DateTime       @default(now()) @db.Timestamptz
-
-  // Relations
+  added_at   DateTime       @default(now()) @db.Timestamptz(6)
   list       shopping_lists @relation(fields: [list_id], references: [id], onDelete: Cascade)
 
   @@index([list_id])
   @@index([product_id])
 }
 
-// --- Model: small_promo_cards.prisma ---
 model small_promo_cards {
   id              Int       @id @default(autoincrement())
   image_url       String
   link            String?
   display_order   Int?      @default(0)
   is_active       Boolean?  @default(true)
-  created_at      DateTime? @default(now()) @db.Timestamptz
-  updated_at      DateTime? @default(now()) @db.Timestamptz
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime? @default(now()) @db.Timestamptz(6)
   link_type       String?   @default("external")
   resource_id     String?
   sub_resource_id String?
 }
 
-
-// --- Model: stock_movements.prisma ---
 model stock_movements {
   id             Int        @id @default(autoincrement())
   product_id     String     @db.Uuid
@@ -1910,14 +1465,10 @@ model stock_movements {
   performed_at   DateTime?  @default(now()) @db.Timestamptz(6)
   notes          String?
   created_at     DateTime?  @default(now()) @db.Timestamptz(6)
-
-  // Relations — matching production schema
   product        products   @relation(fields: [product_id], references: [id])
   warehouses     warehouses @relation(fields: [warehouse_id], references: [id])
 }
 
-
-// --- Model: stock_notify_requests.prisma ---
 model stock_notify_requests {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id     String    @db.Uuid
@@ -1934,80 +1485,60 @@ model stock_notify_requests {
   @@index([user_id], map: "idx_snr_user")
 }
 
-
-// --- Model: store_section_mappings.prisma ---
 model store_section_mappings {
-  id           Int       @id @default(autoincrement())
-  store_id     String?   @db.Uuid
-  section_id   Int?
-  product_id   String?   @db.Uuid
-  mapping_type String?   @db.VarChar
-  is_active    Boolean?  @default(true)
-  created_at   DateTime? @default(now()) @db.Timestamp
-
-  // Relations
-  recommended_store recommended_store? @relation(fields: [store_id], references: [id])
-  product_sections  product_sections?  @relation(fields: [section_id], references: [id])
+  id                Int                @id @default(autoincrement())
+  store_id          String?            @db.Uuid
+  section_id        Int?
+  product_id        String?            @db.Uuid
+  mapping_type      String?            @db.VarChar
+  is_active         Boolean?           @default(true)
+  created_at        DateTime?          @default(now()) @db.Timestamp(6)
   products          products?          @relation(fields: [product_id], references: [id])
+  product_sections  product_sections?  @relation(fields: [section_id], references: [id])
+  recommended_store recommended_store? @relation(fields: [store_id], references: [id])
 }
 
-
-// --- Model: stores.prisma ---
 model stores {
-  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name       String?
   link       String?
   image      String?
-  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  created_at DateTime?  @default(now()) @db.Timestamptz(6)
   products   products[]
 }
 
-
-// --- Model: sub_order_items.prisma ---
 model sub_order_items {
-  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  sub_order_id    String           @db.Uuid
-  product_id      String           @db.Uuid
-  variant_id      String           @db.Uuid
-  quantity        Int
-  unit_price      Decimal          @db.Decimal
-
-  // Relations
-  sub_order       sub_orders       @relation(fields: [sub_order_id], references: [id], onDelete: Cascade)
-  product         products         @relation(fields: [product_id], references: [id])
-  variant         product_variants @relation(fields: [variant_id], references: [id])
+  id           String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sub_order_id String           @db.Uuid
+  product_id   String           @db.Uuid
+  variant_id   String           @db.Uuid
+  quantity     Int
+  unit_price   Decimal          @db.Decimal
+  product      products         @relation(fields: [product_id], references: [id])
+  sub_order    sub_orders       @relation(fields: [sub_order_id], references: [id], onDelete: Cascade)
+  variant      product_variants @relation(fields: [variant_id], references: [id])
 
   @@index([sub_order_id])
   @@index([product_id])
   @@index([variant_id])
 }
 
-
-// --- Model: sub_orders.prisma ---
 model sub_orders {
-  id                    String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  parent_order_id       String              @db.Uuid
-  source_type           String              @db.VarChar // "division" | "zonal" | "seller"
-  source_id             Int                 // warehouse_id
-  seller_id             String?             @db.Uuid    // only set when source_type = "seller"
-
-  fulfillment_status    String              @default("pending") @db.VarChar
-  // pending → confirmed → picked → in_transit → delivered
-  // also: dispatched_to_zonal_delivery, rider_pending, cancelled, return_to_source
-
-  rider_id              String?             @db.Uuid
-  pickup_sequence       Json?               @default("[]")
-  estimated_delivery_at DateTime?           @db.Timestamptz
-
-  created_at            DateTime            @default(now()) @db.Timestamptz
-  updated_at            DateTime            @default(now()) @db.Timestamptz
-
-  // Relations
-  parent_order          orders              @relation(fields: [parent_order_id], references: [id], onDelete: Cascade)
-  warehouse             warehouses          @relation(fields: [source_id], references: [id])
-  sub_order_items       sub_order_items[]
+  id                    String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  parent_order_id       String               @db.Uuid
+  source_type           String               @db.VarChar
+  source_id             Int
+  seller_id             String?              @db.Uuid
+  fulfillment_status    String               @default("pending") @db.VarChar
+  rider_id              String?              @db.Uuid
+  pickup_sequence       Json?                @default("[]")
+  estimated_delivery_at DateTime?            @db.Timestamptz(6)
+  created_at            DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime             @default(now()) @db.Timestamptz(6)
   fulfillment_events    fulfillment_events[]
-  rider_payouts         rider_payouts[]
+  sub_order_items       sub_order_items[]
+  parent_order          orders               @relation(fields: [parent_order_id], references: [id], onDelete: Cascade)
+  warehouse             warehouses           @relation(fields: [source_id], references: [id])
 
   @@index([parent_order_id])
   @@index([source_type])
@@ -2017,48 +1548,32 @@ model sub_orders {
   @@index([rider_id])
 }
 
-
-// --- Model: subcategories.prisma ---
 model subcategories {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String   @db.VarChar
-  description String?
-  icon        String?  @db.VarChar
-  image_url   String?
-  category_id String   @db.Uuid
-  featured    Boolean? @default(false)
-  active      Boolean? @default(true)
-  has_fee     Boolean? @default(false)
-  sort_order  Int?     @default(0)
-  created_at  DateTime? @default(now()) @db.Timestamptz
-  updated_at  DateTime? @default(now()) @db.Timestamptz
-
-  // Relations
-  categories categories @relation(fields: [category_id], references: [id])
-  groups      groups[]
-  products    products[]
+  id               String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String                         @db.VarChar
+  description      String?
+  icon             String?                        @db.VarChar
+  image_url        String?
+  category_id      String                         @db.Uuid
+  featured         Boolean?                       @default(false)
+  active           Boolean?                       @default(true)
+  sort_order       Int?                           @default(0)
+  created_at       DateTime?                      @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime?                      @default(now()) @db.Timestamptz(6)
+  has_fee          Boolean?                       @default(false)
+  groups           groups[]
+  products         products[]
   section_mappings section_subcategory_mappings[]
+  categories       categories                     @relation(fields: [category_id], references: [id])
 }
 
-
-// --- Model: team_members.prisma ---
 model team_members {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name        String    @db.VarChar
   designation String    @db.VarChar
   image_url   String?
-  created_at  DateTime? @default(now()) @db.Timestamptz
-  updated_at  DateTime? @default(now()) @db.Timestamptz
-}
-
-
-// --- Model: user.prisma ---
-enum UserRole {
-  USER
-  ADMIN
-  SELLER
-  VENDOR
-  RIDER
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime? @default(now()) @db.Timestamptz(6)
 }
 
 model users {
@@ -2093,8 +1608,6 @@ model users {
   last_name                                                 String?
   business_type                                             String?
   user_image                                                String?
-
-  // Relations — exact production schema names and aliases
   Post                                                      Post[]
   cart_items                                                cart_items[]
   coupon_usage                                              coupon_usage[]
@@ -2102,11 +1615,10 @@ model users {
   orders                                                    orders[]
   return_orders_return_orders_admin_idTousers               return_orders[]         @relation("return_orders_admin_idTousers")
   return_orders_return_orders_user_idTousers                return_orders[]         @relation("return_orders_user_idTousers")
-  refund_requests_refund_requests_user_idTousers            refund_requests[]       @relation("refund_requests_user_idTousers")
-  refund_requests_refund_requests_processed_byTousers       refund_requests[]       @relation("refund_requests_processed_byTousers")
   riders                                                    riders?
   sellers                                                   sellers?
   service_bookings                                          service_bookings[]
+  shopping_lists                                            shopping_lists[]
   stock_notify_requests                                     stock_notify_requests[]
   user_addresses                                            user_addresses[]
   user_notifications                                        user_notifications[]
@@ -2116,39 +1628,31 @@ model users {
   wallets_wallets_frozen_byTousers                          wallets[]               @relation("wallets_frozen_byTousers")
   wallets_wallets_user_idTousers                            wallets?                @relation("wallets_user_idTousers")
   wishlist_items                                            wishlist_items[]
-  customer_addresses                                        customer_addresses[]
-  shopping_lists                                            shopping_lists[]
 }
 
-
-// --- Model: user_addresses.prisma ---
 model user_addresses {
-  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id          String               @db.Uuid
-  address_name     String               @db.VarChar
-  full_name        String?              @db.VarChar
-  mobile           String?              @db.VarChar
-  is_default       Boolean?             @default(false)
-  street_address   String               @db.VarChar
-  suite_unit_floor String?              @db.VarChar
-  house_number     String?              @db.VarChar
-  locality         String?              @db.VarChar
-  city             String               @db.VarChar
-  state            String               @db.VarChar
-  postal_code      String               @db.VarChar
-  country          String?              @default("India") @db.VarChar
-  landmark         String?              @db.VarChar
-  gstin            String?              @db.VarChar
-  created_at       DateTime?            @default(now()) @db.Timestamptz
-  updated_at       DateTime?            @default(now()) @db.Timestamptz
-
-  // Relations
-  users            users                @relation(fields: [user_id], references: [id])
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id          String             @db.Uuid
+  address_name     String             @db.VarChar
+  is_default       Boolean?           @default(false)
+  street_address   String             @db.VarChar
+  suite_unit_floor String?            @db.VarChar
+  house_number     String?            @db.VarChar
+  locality         String?            @db.VarChar
+  city             String             @db.VarChar
+  state            String             @db.VarChar
+  postal_code      String             @db.VarChar
+  country          String?            @default("India") @db.VarChar
+  landmark         String?            @db.VarChar
+  gstin            String?            @db.VarChar
+  created_at       DateTime?          @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime?          @default(now()) @db.Timestamptz(6)
+  full_name        String?            @db.VarChar
+  mobile           String?            @db.VarChar
   service_bookings service_bookings[]
+  users            users              @relation(fields: [user_id], references: [id])
 }
 
-
-// --- Model: user_notifications.prisma ---
 model user_notifications {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id      String?   @db.Uuid
@@ -2158,31 +1662,24 @@ model user_notifications {
   related_id   String?   @db.Uuid
   related_type String?   @db.VarChar
   is_read      Boolean?  @default(false)
-  created_at   DateTime? @default(now()) @db.Timestamp
-  read_at      DateTime? @db.Timestamp
-
-  // Relations
+  created_at   DateTime? @default(now()) @db.Timestamp(6)
+  read_at      DateTime? @db.Timestamp(6)
   users        users?    @relation(fields: [user_id], references: [id])
 }
 
-
-// --- Model: variant_attributes.prisma ---
 model variant_attributes {
-  id              String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  variant_id      String @db.Uuid
-
-  attribute_name  String
-  attribute_value String
-  price           Decimal? @db.Decimal
-  old_price       Decimal? @db.Decimal
-
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  variant_id       String           @db.Uuid
+  attribute_name   String
+  attribute_value  String
+  price            Decimal?         @db.Decimal
+  old_price        Decimal?         @db.Decimal
   product_variants product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
 
   @@index([variant_id])
   @@index([attribute_name])
 }
 
-// --- Model: video_cards.prisma ---
 model video_cards {
   id            Int       @id @default(autoincrement())
   title         String
@@ -2191,12 +1688,10 @@ model video_cards {
   thumbnail_url String?
   active        Boolean?  @default(true)
   position      Int?      @default(0)
-  created_at    DateTime? @default(now()) @db.Timestamptz
-  updated_at    DateTime? @default(now()) @db.Timestamptz
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime? @default(now()) @db.Timestamptz(6)
 }
 
-
-// --- Model: wallet_audit_logs.prisma ---
 model wallet_audit_logs {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   wallet_id   String    @db.Uuid
@@ -2206,14 +1701,10 @@ model wallet_audit_logs {
   new_data    Json?
   description String?
   created_at  DateTime? @default(now()) @db.Timestamptz(6)
-
-  // Relations — matching production (no alias for users relation)
   users       users     @relation(fields: [admin_id], references: [id])
   wallets     wallets   @relation(fields: [wallet_id], references: [id])
 }
 
-
-// --- Model: wallet_transactions.prisma ---
 model wallet_transactions {
   id                                          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   wallet_id                                   String    @db.Uuid
@@ -2232,15 +1723,11 @@ model wallet_transactions {
   idempotency_key                             String?   @unique @db.VarChar
   created_by                                  String?   @db.Uuid
   created_at                                  DateTime? @default(now()) @db.Timestamptz(6)
-
-  // Relations — exact production schema names and aliases
   users_wallet_transactions_created_byTousers users?    @relation("wallet_transactions_created_byTousers", fields: [created_by], references: [id])
   users_wallet_transactions_user_idTousers    users     @relation("wallet_transactions_user_idTousers", fields: [user_id], references: [id])
   wallets                                     wallets   @relation(fields: [wallet_id], references: [id])
 }
 
-
-// --- Model: wallets.prisma ---
 model wallets {
   id                             String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id                        String                @unique @db.Uuid
@@ -2252,51 +1739,39 @@ model wallets {
   created_at                     DateTime?             @default(now()) @db.Timestamptz(6)
   updated_at                     DateTime?             @default(now()) @db.Timestamptz(6)
   version                        Int?                  @default(1)
-
-  // Relations — exact production schema names and aliases
   wallet_audit_logs              wallet_audit_logs[]
   wallet_transactions            wallet_transactions[]
   users_wallets_frozen_byTousers users?                @relation("wallets_frozen_byTousers", fields: [frozen_by], references: [id])
   users_wallets_user_idTousers   users                 @relation("wallets_user_idTousers", fields: [user_id], references: [id])
 }
 
-
-// --- Model: warehouse_pincodes.prisma ---
 model warehouse_pincodes {
-  id           Int        @id @default(autoincrement())
-  warehouse_id Int
-  pincode      String     @db.VarChar
-  city         String?    @db.VarChar
-  state        String?    @db.VarChar
-  delivery_days Int?      @default(3)
-  is_active    Boolean?   @default(true)
-  created_at   DateTime?  @default(now()) @db.Timestamptz
-  updated_at   DateTime?  @default(now()) @db.Timestamptz
-
-  // Relations
-  warehouse    warehouses @relation(fields: [warehouse_id], references: [id])
+  id            Int        @id @default(autoincrement())
+  warehouse_id  Int
+  pincode       String     @db.VarChar
+  city          String?    @db.VarChar
+  state         String?    @db.VarChar
+  delivery_days Int?       @default(3)
+  is_active     Boolean?   @default(true)
+  created_at    DateTime?  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime?  @default(now()) @db.Timestamptz(6)
+  warehouse     warehouses @relation(fields: [warehouse_id], references: [id])
 }
 
-
-// --- Model: warehouse_riders.prisma ---
 model warehouse_riders {
-  id            Int       @id @default(autoincrement())
-  warehouse_id  Int
-  rider_id      String    @db.Uuid
-  is_active     Boolean   @default(true)
-  assigned_at   DateTime  @default(now()) @db.Timestamptz
-
-  // Relations
-  riders        riders     @relation(fields: [rider_id], references: [id], onDelete: Cascade)
-  warehouses    warehouses @relation(fields: [warehouse_id], references: [id], onDelete: Cascade)
+  id           Int        @id @default(autoincrement())
+  warehouse_id Int
+  rider_id     String     @db.Uuid
+  is_active    Boolean    @default(true)
+  assigned_at  DateTime   @default(now()) @db.Timestamptz(6)
+  riders       riders     @relation(fields: [rider_id], references: [id], onDelete: Cascade)
+  warehouses   warehouses @relation(fields: [warehouse_id], references: [id], onDelete: Cascade)
 
   @@unique([warehouse_id, rider_id])
   @@index([warehouse_id])
   @@index([rider_id])
 }
 
-
-// --- Model: warehouse_scheduling_config.prisma ---
 model warehouse_scheduling_config {
   id                      Int                   @id @default(autoincrement())
   warehouse_id            Int
@@ -2304,50 +1779,38 @@ model warehouse_scheduling_config {
   max_capacity            Int                   @default(20)
   scheduling_window_hours Int                   @default(24)
   is_active               Boolean?              @default(true)
-  days_of_week            Json?                 @default("[\"monday\",\"tuesday\",\"wednesday\",\"thursday\",\"friday\",\"saturday\",\"sunday\"]")
-  created_at              DateTime?             @default(now()) @db.Timestamptz
-  updated_at              DateTime?             @default(now()) @db.Timestamptz
-
-  // Relations
+  days_of_week            Json?                 @default("[\"monday\", \"tuesday\", \"wednesday\", \"thursday\", \"friday\", \"saturday\", \"sunday\"]")
+  created_at              DateTime?             @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime?             @default(now()) @db.Timestamptz(6)
   scheduling_time_slots   scheduling_time_slots @relation(fields: [slot_id], references: [id])
   warehouses              warehouses            @relation(fields: [warehouse_id], references: [id])
 }
 
-
-// --- Model: warehouse_sellers.prisma ---
 model warehouse_sellers {
-  id            Int       @id @default(autoincrement())
-  warehouse_id  Int
-  seller_id     String    @db.Uuid
-  is_active     Boolean   @default(true)
-  assigned_at   DateTime  @default(now()) @db.Timestamptz
-
-  // Relations — using plural names to match production schema
-  warehouses    warehouses @relation(fields: [warehouse_id], references: [id], onDelete: Cascade)
-  sellers       sellers    @relation(fields: [seller_id], references: [id], onDelete: Cascade)
+  id           Int        @id @default(autoincrement())
+  warehouse_id Int
+  seller_id    String     @db.Uuid
+  is_active    Boolean    @default(true)
+  assigned_at  DateTime   @default(now()) @db.Timestamptz(6)
+  sellers      sellers    @relation(fields: [seller_id], references: [id], onDelete: Cascade)
+  warehouses   warehouses @relation(fields: [warehouse_id], references: [id], onDelete: Cascade)
 
   @@unique([warehouse_id, seller_id])
   @@index([warehouse_id])
   @@index([seller_id])
 }
 
-
-// --- Model: warehouse_zones.prisma ---
 model warehouse_zones {
   id             Int            @id @default(autoincrement())
   warehouse_id   Int
   zone_id        Int
   priority       Int?           @default(1)
   is_active      Boolean?       @default(true)
-  created_at     DateTime?      @default(now()) @db.Timestamptz
-
-  // Relations — matching production schema
+  created_at     DateTime?      @default(now()) @db.Timestamptz(6)
   warehouses     warehouses     @relation(fields: [warehouse_id], references: [id])
   delivery_zones delivery_zones @relation(fields: [zone_id], references: [id])
 }
 
-
-// --- Model: warehouses.prisma ---
 model warehouses {
   id                          Int                           @id @default(autoincrement())
   name                        String                        @unique @db.VarChar
@@ -2370,8 +1833,6 @@ model warehouses {
   latitude                    Decimal?                      @db.Decimal(10, 7)
   longitude                   Decimal?                      @db.Decimal(10, 7)
   geocode_status              String?                       @default("PENDING") @db.VarChar(20)
-
-  // Relations — matching backup schema exactly
   inventory                   inventory[]
   order_items                 order_items[]
   product_warehouse_stock     product_warehouse_stock[]
@@ -2379,6 +1840,7 @@ model warehouses {
   scheduled_orders            scheduled_orders[]
   seller_products             seller_products[]
   stock_movements             stock_movements[]
+  sub_orders                  sub_orders[]
   warehouse_pincodes          warehouse_pincodes[]
   warehouse_riders            warehouse_riders[]
   warehouse_scheduling_config warehouse_scheduling_config[]
@@ -2386,221 +1848,199 @@ model warehouses {
   warehouse_zones             warehouse_zones[]
   parent_warehouse            warehouses?                   @relation("warehouse_hierarchy", fields: [parent_warehouse_id], references: [id])
   child_warehouses            warehouses[]                  @relation("warehouse_hierarchy")
-  sub_orders                  sub_orders[]
 }
 
-
-// --- Model: wishlist_items.prisma ---
 model wishlist_items {
-  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id    String    @db.Uuid
-  product_id String    @db.Uuid
-  added_at   DateTime  @default(now()) @db.Timestamptz
-
-  // Relations
-  products   products  @relation(fields: [product_id], references: [id], onDelete: Cascade)
-  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String   @db.Uuid
+  product_id String   @db.Uuid
+  added_at   DateTime @default(now()) @db.Timestamptz(6)
+  products   products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@unique([user_id, product_id])
   @@index([user_id])
   @@index([product_id])
 }
 
-
-// --- Model: you_may_like.prisma ---
 model you_may_like {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   product_id String?   @db.Uuid
-
-  // Relations
   products   products? @relation(fields: [product_id], references: [id])
 }
 
-
-// --- Model: zone_pincodes.prisma ---
 model zone_pincodes {
-  id            Int             @id @default(autoincrement())
-  zone_id       Int
-  pincode       String          @db.VarChar
-  city          String?         @db.VarChar
-  state         String?         @db.VarChar
-  is_active     Boolean?        @default(true)
-  created_at    DateTime?       @default(now()) @db.Timestamptz
-  district      String?         @db.VarChar
-  location_name String?         @db.VarChar
-  village       String?         @db.VarChar
-  others        String?
-
-  // Relations
-  delivery_zones delivery_zones  @relation(fields: [zone_id], references: [id], onDelete: Cascade)
+  id             Int            @id @default(autoincrement())
+  zone_id        Int
+  pincode        String         @db.VarChar
+  city           String?        @db.VarChar
+  state          String?        @db.VarChar
+  is_active      Boolean?       @default(true)
+  created_at     DateTime?      @default(now()) @db.Timestamptz(6)
+  district       String?        @db.VarChar
+  location_name  String?        @db.VarChar
+  village        String?        @db.VarChar
+  others         String?
+  delivery_zones delivery_zones @relation(fields: [zone_id], references: [id], onDelete: Cascade)
 }
 
-// --- Referral System Models ---
-
 model referral_configs {
-  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  is_enabled               Boolean   @default(true)
-  program_name             String?   @default("Refer & Earn") @db.VarChar
-  referrer_reward_amount   Decimal   @default(75) @db.Decimal(14, 2)
-  referee_reward_amount    Decimal   @default(75) @db.Decimal(14, 2)
-  min_order_value          Decimal   @default(200) @db.Decimal(14, 2)
-  reward_validity_days     Int       @default(7)
-  min_withdrawal_amount    Decimal   @default(100) @db.Decimal(14, 2)
+  id                        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  is_enabled                Boolean  @default(true)
+  program_name              String?  @default("Refer & Earn") @db.VarChar
+  referrer_reward_amount    Decimal  @default(75) @db.Decimal(14, 2)
+  referee_reward_amount     Decimal  @default(75) @db.Decimal(14, 2)
+  max_earning_per_user      Decimal  @default(1000) @db.Decimal(10, 2)
+  reward_validity_days      Int      @default(7)
+  min_order_value           Decimal  @default(200) @db.Decimal(14, 2)
+  applicable_first_order    Boolean? @default(true)
+  return_window_days        Int      @default(7)
+  min_withdrawal_amount     Decimal  @default(100) @db.Decimal(14, 2)
   max_withdrawals_per_month Int      @default(10)
-  withdrawal_enabled       Boolean   @default(true)
-  return_window_days       Int       @default(7)
-  max_earning_per_user     Decimal   @default(1000) @db.Decimal(14, 2)
-  tiered_rewards_enabled   Boolean   @default(false)
-  tiered_rewards_config    Json?
-  enable_ip_tracking       Boolean   @default(true)
-  max_referrals_per_ip     Int       @default(3)
-  cooldown_hours           Int       @default(24)
-  applicable_first_order    Boolean?  @default(true)
-  enable_device_tracking    Boolean?  @default(false)
-  enable_notifications      Boolean?  @default(true)
-  reminder_before_expiry    Int?      @default(3)
-  updated_by                String?   @db.Uuid
-  created_at               DateTime  @default(now()) @db.Timestamptz
-  updated_at               DateTime  @updatedAt @db.Timestamptz
+  tiered_rewards_enabled    Boolean  @default(false)
+  tiered_rewards_config     Json?
+  enable_device_tracking    Boolean? @default(true)
+  enable_ip_tracking        Boolean  @default(true)
+  max_referrals_per_ip      Int      @default(3)
+  cooldown_hours            Int      @default(24)
+  enable_notifications      Boolean? @default(true)
+  reminder_before_expiry    Int?     @default(2)
+  created_at                DateTime @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime @updatedAt @db.Timestamptz(6)
+  updated_by                String?  @db.Uuid
+  withdrawal_enabled        Boolean  @default(true)
 }
 
 model user_referral_profiles {
-  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id                 String    @unique @db.Uuid
-  referral_code           String    @unique @db.VarChar(20)
-  referral_code_active    Boolean   @default(true)
-  is_blocked              Boolean   @default(false)
-  total_referrals         Int       @default(0)
-  successful_referrals    Int       @default(0)
-  pending_referrals       Int       @default(0)
-  failed_referrals        Int       @default(0)
-  total_earnings          Decimal   @default(0) @db.Decimal(14, 2)
-  available_balance       Decimal   @default(0) @db.Decimal(14, 2)
-  pending_balance         Decimal   @default(0) @db.Decimal(14, 2)
-  withdrawn_amount        Decimal   @default(0) @db.Decimal(14, 2)
-  expired_amount          Decimal   @default(0) @db.Decimal(14, 2)
-  used_for_purchase       Decimal   @default(0) @db.Decimal(14, 2)
-  was_referred            Boolean   @default(false)
-  referred_by_user_id     String?   @db.Uuid
-  referred_by_code        String?   @db.VarChar(20)
-  referred_at             DateTime? @db.Timestamptz
-  referral_bonus_received Boolean   @default(false)
-  current_tier            String?   @db.VarChar(50)
+  id                                String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                           String                  @unique @db.Uuid
+  referral_code                     String                  @unique @db.VarChar(20)
+  referral_code_active              Boolean                 @default(true)
+  referral_code_created_at          DateTime?               @db.Timestamptz(6)
+  total_referrals                   Int                     @default(0)
+  successful_referrals              Int                     @default(0)
+  pending_referrals                 Int                     @default(0)
+  failed_referrals                  Int                     @default(0)
+  total_earnings                    Decimal                 @default(0) @db.Decimal(14, 2)
+  available_balance                 Decimal                 @default(0) @db.Decimal(14, 2)
+  pending_balance                   Decimal                 @default(0) @db.Decimal(14, 2)
+  withdrawn_amount                  Decimal                 @default(0) @db.Decimal(14, 2)
+  expired_amount                    Decimal                 @default(0) @db.Decimal(14, 2)
+  used_for_purchase                 Decimal                 @default(0) @db.Decimal(14, 2)
+  was_referred                      Boolean                 @default(false)
+  referred_by_user_id               String?                 @db.Uuid
+  referred_by_code                  String?                 @db.VarChar(20)
+  referred_at                       DateTime?               @db.Timestamptz(6)
+  referral_bonus_received           Boolean                 @default(false)
+  status                            String?                 @db.VarChar(50)
+  is_blocked                        Boolean                 @default(false)
+  current_tier                      String?                 @db.VarChar(50)
   referral_code_created_at DateTime? @db.Timestamptz
   status                  String?   @default("ACTIVE") @db.VarChar(50)
-  created_at              DateTime  @default(now()) @db.Timestamptz
-  updated_at              DateTime  @updatedAt @db.Timestamptz
-
-  // Relations
-  referral_transactions_as_referrer referral_transactions[] @relation("ReferrerProfile")
+  created_at                        DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at                        DateTime                @updatedAt @db.Timestamptz(6)
   referral_rewards                  referral_rewards[]
+  referral_transactions_as_referrer referral_transactions[] @relation("ReferrerProfile")
   referral_withdrawals              referral_withdrawals[]
 }
 
 model referral_transactions {
-  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  referrer_id             String    @db.Uuid
-  referrer_profile_id     String    @db.Uuid
-  referral_code_used      String    @db.VarChar(20)
-  referee_id              String    @db.Uuid
-  referee_email           String?   @db.VarChar
-  referee_name            String?   @db.VarChar
-  referee_phone           String?   @db.VarChar
-  status                  String    @default("PENDING") @db.VarChar(50)
-  status_history          Json      @default("[]")
-  order_id                String?   @db.Uuid
-  order_number            String?   @db.VarChar
-  order_amount            Decimal?  @db.Decimal(10, 2)
-  order_date              DateTime? @db.Timestamptz
-  delivered_at            DateTime? @db.Timestamptz
-  return_window_starts_at DateTime? @db.Timestamptz
-  return_window_ends_at   DateTime? @db.Timestamptz
-  is_returned             Boolean   @default(false)
-  return_type             String?   @db.VarChar(20)
-  return_amount           Decimal?  @db.Decimal(10, 2)
-  returned_at             DateTime? @db.Timestamptz
-  referrer_reward_amount  Decimal?  @db.Decimal(10, 2)
-  referee_reward_amount   Decimal?  @db.Decimal(10, 2)
-  referrer_reward_id      String?   @db.Uuid
-  referee_reward_id       String?   @db.Uuid
-  reward_credited_at      DateTime? @db.Timestamptz
-  failure_reason          String?   @db.VarChar
-  failed_at               DateTime? @db.Timestamptz
-  ip_address              String?   @db.VarChar
+  id                      String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  referrer_id             String                 @db.Uuid
+  referrer_profile_id     String                 @db.Uuid
+  referral_code_used      String                 @db.VarChar(20)
+  referee_id              String                 @db.Uuid
+  referee_email           String?                @db.VarChar
+  referee_name            String?                @db.VarChar
+  referee_phone           String?                @db.VarChar
+  status                  String                 @default("PENDING") @db.VarChar(50)
+  status_history          Json                   @default("[]")
+  order_id                String?                @db.Uuid
+  order_number            String?                @db.VarChar
+  order_amount            Decimal?               @db.Decimal(10, 2)
+  order_date              DateTime?              @db.Timestamptz(6)
+  delivered_at            DateTime?              @db.Timestamptz(6)
+  return_window_starts_at DateTime?              @db.Timestamptz(6)
+  return_window_ends_at   DateTime?              @db.Timestamptz(6)
+  is_returned             Boolean                @default(false)
+  return_type             String?                @db.VarChar(20)
+  return_amount           Decimal?               @db.Decimal(10, 2)
+  returned_at             DateTime?              @db.Timestamptz(6)
+  referrer_reward_amount  Decimal?               @db.Decimal(10, 2)
+  referee_reward_amount   Decimal?               @db.Decimal(10, 2)
+  referrer_reward_id      String?                @db.Uuid
+  referee_reward_id       String?                @db.Uuid
+  reward_credited_at      DateTime?              @db.Timestamptz(6)
+  failure_reason          String?                @db.VarChar
+  failed_at               DateTime?              @db.Timestamptz(6)
+  ip_address              String?                @db.VarChar
   user_agent              String?
-  created_at              DateTime  @default(now()) @db.Timestamptz
-  updated_at              DateTime  @updatedAt @db.Timestamptz
-
-  // Relations
-  referrer_profile user_referral_profiles @relation("ReferrerProfile", fields: [referrer_profile_id], references: [id])
+  is_fraud_suspected      Boolean?               @default(false)
+  created_at              DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime               @updatedAt @db.Timestamptz(6)
+  referrer_profile        user_referral_profiles @relation("ReferrerProfile", fields: [referrer_profile_id], references: [id])
 }
 
 model referral_rewards {
-  id                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id                   String    @db.Uuid
-  user_profile_id           String    @db.Uuid
-  referral_transaction_id   String?   @db.Uuid
-  amount                    Decimal   @db.Decimal(10, 2)
-  original_amount           Decimal   @db.Decimal(10, 2)
-  remaining_amount          Decimal   @db.Decimal(10, 2)
-  used_amount               Decimal   @default(0) @db.Decimal(10, 2)
-  reward_type               String    @db.VarChar(50)
-  source_type               String?   @db.VarChar(50)
-  source_description        String?   @db.VarChar
-  status                    String    @default("ACTIVE") @db.VarChar(50)
-  credited_at               DateTime  @default(now()) @db.Timestamptz
-  expires_at                DateTime? @db.Timestamptz
-  expired_at                DateTime? @db.Timestamptz
-  expiry_reminder_sent      Boolean   @default(false)
-  expiry_reminder_sent_at   DateTime? @db.Timestamptz
-  urgent_reminder_sent      Boolean   @default(false)
-  urgent_reminder_sent_at   DateTime? @db.Timestamptz
-  created_at                DateTime  @default(now()) @db.Timestamptz
-  updated_at                DateTime  @updatedAt @db.Timestamptz
-
-  // Relations
-  profile user_referral_profiles @relation(fields: [user_profile_id], references: [id])
-  referral_reward_usages referral_reward_usages[]
+  id                      String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                 String                   @db.Uuid
+  user_profile_id         String                   @db.Uuid
+  amount                  Decimal                  @db.Decimal(10, 2)
+  original_amount         Decimal                  @db.Decimal(10, 2)
+  reward_type             String                   @db.VarChar(50)
+  referral_transaction_id String?                  @db.Uuid
+  source_type             String?                  @db.VarChar(50)
+  source_description      String?                  @db.VarChar
+  credited_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  expires_at              DateTime?                @db.Timestamptz(6)
+  status                  String                   @default("ACTIVE") @db.VarChar(50)
+  used_amount             Decimal                  @default(0) @db.Decimal(10, 2)
+  remaining_amount        Decimal                  @db.Decimal(10, 2)
+  expiry_reminder_sent    Boolean                  @default(false)
+  expiry_reminder_sent_at DateTime?                @db.Timestamptz(6)
+  urgent_reminder_sent    Boolean                  @default(false)
+  urgent_reminder_sent_at DateTime?                @db.Timestamptz(6)
+  expired_at              DateTime?                @db.Timestamptz(6)
+  created_at              DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                 @updatedAt @db.Timestamptz(6)
+  referral_reward_usages  referral_reward_usages[]
+  profile                 user_referral_profiles   @relation(fields: [user_profile_id], references: [id])
 }
 
 model referral_reward_usages {
-  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  reward_id             String    @db.Uuid
-  user_id               String    @db.Uuid
-  amount_used           Decimal   @db.Decimal(10, 2)
-  usage_type            String    @db.VarChar(50)
-  order_id              String?   @db.Uuid
-  order_number          String?   @db.VarChar
-  reward_balance_after  Decimal   @db.Decimal(10, 2)
-  note                  String?   @db.VarChar
-  created_at            DateTime  @default(now()) @db.Timestamptz
-
-  // Relations
-  referral_rewards referral_rewards @relation(fields: [reward_id], references: [id])
+  id                   String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reward_id            String           @db.Uuid
+  user_id              String           @db.Uuid
+  amount_used          Decimal          @db.Decimal(10, 2)
+  usage_type           String           @db.VarChar(50)
+  order_id             String?          @db.Uuid
+  order_number         String?          @db.VarChar
+  reward_balance_after Decimal          @db.Decimal(10, 2)
+  note                 String?          @db.VarChar
+  created_at           DateTime         @default(now()) @db.Timestamptz(6)
+  referral_rewards     referral_rewards @relation(fields: [reward_id], references: [id])
 }
 
 model referral_withdrawals {
-  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id              String    @db.Uuid
-  user_profile_id      String    @db.Uuid
-  requested_amount     Decimal   @db.Decimal(10, 2)
-  processed_amount     Decimal?  @db.Decimal(10, 2)
-  payment_method       String    @db.VarChar(50)
-  status               String    @default("PENDING") @db.VarChar(50)
-  status_history       Json      @default("[]")
-  bank_name            String?   @db.VarChar
-  bank_account_number  String?   @db.VarChar
-  bank_ifsc_code       String?   @db.VarChar
-  account_holder_name  String?   @db.VarChar
-  upi_id               String?   @db.VarChar
-  failure_reason       String?   @db.VarChar
-  rejection_reason     String?   @db.VarChar
-  processed_at         DateTime? @db.Timestamptz
-  created_at           DateTime  @default(now()) @db.Timestamptz
-  updated_at           DateTime  @updatedAt @db.Timestamptz
-
-  // Relations
-  profile user_referral_profiles @relation(fields: [user_profile_id], references: [id])
+  id                  String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id             String                 @db.Uuid
+  user_profile_id     String                 @db.Uuid
+  requested_amount    Decimal                @db.Decimal(10, 2)
+  processed_amount    Decimal?               @db.Decimal(10, 2)
+  payment_method      String                 @db.VarChar(50)
+  bank_name           String?                @db.VarChar
+  bank_account_number String?                @db.VarChar
+  bank_ifsc_code      String?                @db.VarChar
+  account_holder_name String?                @db.VarChar
+  upi_id              String?                @db.VarChar
+  status              String                 @default("PENDING") @db.VarChar(50)
+  status_history      Json                   @default("[]")
+  processed_at        DateTime?              @db.Timestamptz(6)
+  failure_reason      String?                @db.VarChar
+  rejection_reason    String?                @db.VarChar
+  created_at          DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime               @updatedAt @db.Timestamptz(6)
+  profile             user_referral_profiles @relation(fields: [user_profile_id], references: [id])
 }
 
 model referral_notifications {
@@ -2610,282 +2050,87 @@ model referral_notifications {
   title      String    @db.VarChar
   message    String
   data       Json      @default("{}")
-  channels   Json      @default("[\"in_app\"]")
   is_read    Boolean   @default(false)
-  read_at    DateTime? @db.Timestamptz
-  created_at DateTime  @default(now()) @db.Timestamptz
+  read_at    DateTime? @db.Timestamptz(6)
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  channels   Json      @default("[\"in_app\"]")
 }
 
 model referral_fraud_logs {
-  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id                  String?   @db.Uuid
-  referral_code            String?   @db.VarChar(20)
-  referral_transaction_id  String?   @db.Uuid
-  fraud_type               String    @db.VarChar(100)
-  severity                 String    @db.VarChar(20)
-  description              String?
-  ip_address               String?   @db.VarChar
-  user_agent               String?
-  detected_by              String?   @db.VarChar(50)
-  resolved                 Boolean   @default(false)
-  resolved_at              DateTime? @db.Timestamptz
-  resolved_by              String?   @db.VarChar
-  resolution_note          String?
-  created_at               DateTime  @default(now()) @db.Timestamptz
+  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                 String?   @db.Uuid
+  referral_code           String?   @db.VarChar(20)
+  referral_transaction_id String?   @db.Uuid
+  fraud_type              String    @db.VarChar(100)
+  severity                String    @db.VarChar(20)
+  description             String?
+  ip_address              String?   @db.VarChar
+  user_agent              String?
+  detected_by             String?   @db.VarChar(50)
+  created_at              DateTime  @default(now()) @db.Timestamptz(6)
+  resolution_note         String?
+  resolved                Boolean   @default(false)
+  resolved_at             DateTime? @db.Timestamptz(6)
+  resolved_by             String?   @db.VarChar
 }
 
 model referral_admin_logs {
-  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  admin_id          String?   @db.Uuid
-  admin_email       String?   @db.VarChar
-  admin_name        String?   @db.VarChar
-  action            String    @db.VarChar(100)
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  admin_id           String?  @db.Uuid
+  admin_email        String?  @db.VarChar
+  admin_name         String?  @db.VarChar
+  action             String   @db.VarChar(100)
   action_description String?
-  entity_type       String?   @db.VarChar(50)
-  entity_id         String?   @db.Uuid
-  previous_value    Json?
-  new_value         Json?
-  ip_address        String?   @db.VarChar
-  created_at        DateTime  @default(now()) @db.Timestamptz
+  entity_type        String?  @db.VarChar(50)
+  entity_id          String?  @db.Uuid
+  previous_value     Json?
+  new_value          Json?
+  ip_address         String?  @db.VarChar
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
 }
 
-// --- Affiliate System Models ---
-
 model affiliate_configs {
-  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  is_enabled               Boolean   @default(true)
-  program_name             String    @default("Affiliate Program")
-  program_description      String?
-  auto_approve             Boolean   @default(false)
-  cookie_duration_hours    Int       @default(24)
-  cookie_name              String    @default("_aff_ref")
-  default_commission_rate  Decimal   @default(5) @db.Decimal(10, 2)
-  enable_tier_bonuses      Boolean   @default(true)
-  minimum_payout_amount    Decimal   @default(500) @db.Decimal(10, 2)
-  payout_frequency         String    @default("MONTHLY")
-  payout_day_of_month      Int       @default(7)
-  commission_hold_days     Int       @default(7)
-  enable_tds               Boolean   @default(true)
-  tds_threshold            Decimal   @default(15000) @db.Decimal(10, 2)
-  tds_rate_with_pan        Decimal   @default(5) @db.Decimal(10, 2)
-  tds_rate_without_pan     Decimal   @default(20) @db.Decimal(10, 2)
-  block_self_referral      Boolean   @default(true)
-  terms_and_conditions     String?
-  updated_by               String?   @db.Uuid
-  created_at               DateTime  @default(now()) @db.Timestamptz
-  updated_at               DateTime  @updatedAt @db.Timestamptz
+  id                      String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  is_enabled              Boolean  @default(true)
+  program_name            String   @default("Affiliate Program")
+  program_description     String?
+  auto_approve            Boolean  @default(false)
+  cookie_duration_hours   Int      @default(24)
+  cookie_name             String   @default("_aff_ref")
+  default_commission_rate Decimal  @default(5) @db.Decimal(10, 2)
+  enable_tier_bonuses     Boolean  @default(true)
+  minimum_payout_amount   Decimal  @default(500) @db.Decimal(10, 2)
+  payout_frequency        String   @default("MONTHLY")
+  payout_day_of_month     Int      @default(7)
+  commission_hold_days    Int      @default(7)
+  enable_tds              Boolean  @default(true)
+  tds_threshold           Decimal  @default(15000) @db.Decimal(10, 2)
+  tds_rate_with_pan       Decimal  @default(5) @db.Decimal(10, 2)
+  tds_rate_without_pan    Decimal  @default(20) @db.Decimal(10, 2)
+  block_self_referral     Boolean  @default(true)
+  terms_and_conditions    String?
+  created_at              DateTime @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime @updatedAt @db.Timestamptz(6)
+  updated_by              String?  @db.Uuid
 }
 
 model affiliate_applications {
-  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id              String    @db.Uuid
-  email                String?
-  full_name            String
-  phone                String
-  pan_number           String?
-  website_url          String?
-  youtube_channel      String?
-  instagram_handle     String?
-  twitter_handle       String?
-  facebook_page        String?
-  primary_platform     String
-  estimated_audience   Int?
-  niche_categories     String[]
-  promotion_strategy   String
-  previous_experience  String?
-  payment_method       String    @default("BANK_TRANSFER")
-  bank_name            String?
-  bank_account_number  String?
-  bank_ifsc_code       String?
-  account_holder_name  String?
-  upi_id               String?
-  status               String    @default("PENDING")
-  reviewed_by          String?   @db.Uuid
-  reviewed_at          DateTime? @db.Timestamptz
-  review_notes         String?
-  rejection_reason     String?
-  agreed_to_terms      Boolean   @default(false)
-  agreed_at            DateTime? @db.Timestamptz
-  ip_address           String?
-  submitted_at         DateTime? @default(now()) @db.Timestamptz
-  created_at           DateTime  @default(now()) @db.Timestamptz
-  updated_at           DateTime  @updatedAt @db.Timestamptz
-}
-
-model affiliate_profiles {
-  id                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id                   String    @unique @db.Uuid
-  application_id            String    @db.Uuid
-  affiliate_code            String    @unique
-  display_name              String
-  email                     String?
-  phone                     String?
-  pan_number                String?
-  tier_name                 String    @default("Bronze")
-  tier_bonus                Decimal   @default(0) @db.Decimal(14, 2)
-  primary_platform          String?
-  website_url               String?
-  social_links              Json?
-  total_clicks              Int       @default(0)
-  total_orders              Int       @default(0)
-  total_sales               Decimal   @default(0) @db.Decimal(14, 2)
-  total_commission_earned   Decimal   @default(0) @db.Decimal(14, 2)
-  total_commission_paid     Decimal   @default(0) @db.Decimal(14, 2)
-  available_balance         Decimal   @default(0) @db.Decimal(14, 2)
-  pending_balance           Decimal   @default(0) @db.Decimal(14, 2)
-  processing_balance        Decimal   @default(0) @db.Decimal(14, 2)
-  payment_method            String    @default("BANK_TRANSFER")
-  bank_name                 String?
-  bank_account_number       String?
-  bank_ifsc_code            String?
-  account_holder_name       String?
-  upi_id                    String?
-  status                    String    @default("ACTIVE")
-  is_blocked                Boolean   @default(false)
-  block_reason              String?
-  approved_at               DateTime? @default(now()) @db.Timestamptz
-  last_active_at            DateTime? @db.Timestamptz
-  created_at                DateTime  @default(now()) @db.Timestamptz
-  updated_at                DateTime  @updatedAt @db.Timestamptz
-
-  // Relations
-  affiliate_links       affiliate_links[]
-  affiliate_clicks      affiliate_clicks[]
-  affiliate_orders      affiliate_orders[]
-  affiliate_commissions affiliate_commissions[]
-  affiliate_payouts     affiliate_payouts[]
-}
-
-model affiliate_links {
-  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  affiliate_id     String    @db.Uuid
-  affiliate_code   String
-  link_code        String    @unique
-  full_url         String
-  destination_type String
-  destination_url  String
-  product_id       String?   @db.Uuid
-  product_name     String?
-  category_id      String?   @db.Uuid
-  category_name    String?
-  search_query     String?
-  campaign_name    String?
-  sub_id           String?
-  is_active        Boolean   @default(true)
-  total_clicks     Int       @default(0)
-  total_orders     Int       @default(0)
-  total_revenue    Decimal   @default(0) @db.Decimal(14, 2)
-  total_commission Decimal   @default(0) @db.Decimal(14, 2)
-  last_clicked_at  DateTime? @db.Timestamptz
-  created_at       DateTime  @default(now()) @db.Timestamptz
-  updated_at       DateTime  @updatedAt @db.Timestamptz
-
-  // Relations
-  affiliate_profiles affiliate_profiles @relation(fields: [affiliate_id], references: [id])
-  affiliate_clicks   affiliate_clicks[]
-}
-
-model affiliate_clicks {
-  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  affiliate_id     String    @db.Uuid
-  link_id          String?   @db.Uuid
-  link_code        String?
-  affiliate_code   String
-  visitor_id       String?
-  user_id          String?   @db.Uuid
-  ip_address       String?
-  user_agent       String?
-  device_type      String?
-  country          String?
-  referrer_url     String?
-  destination_url  String
-  cookie_expires_at DateTime? @db.Timestamptz
-  is_converted     Boolean   @default(false)
-  converted_at     DateTime? @db.Timestamptz
-  order_id         String?   @db.Uuid
-  is_suspicious    Boolean   @default(false)
-  clicked_at       DateTime  @default(now()) @db.Timestamptz
-
-  // Relations
-  affiliate_profiles affiliate_profiles @relation(fields: [affiliate_id], references: [id])
-  affiliate_links    affiliate_links?   @relation(fields: [link_id], references: [id])
-}
-
-model affiliate_orders {
-  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  affiliate_id          String    @db.Uuid
-  affiliate_code        String
-  click_id              String?   @db.Uuid
-  order_id              String    @db.Uuid
-  order_number          String?
-  customer_id           String    @db.Uuid
-  customer_email        String?
-  order_date            DateTime  @db.Timestamptz
-  order_status          String
-  gross_order_value     Decimal   @db.Decimal(10, 2)
-  discount_amount       Decimal   @default(0) @db.Decimal(10, 2)
-  net_order_value       Decimal   @db.Decimal(10, 2)
-  is_returned           Boolean   @default(false)
-  return_amount         Decimal   @default(0) @db.Decimal(10, 2)
-  final_order_value     Decimal   @db.Decimal(10, 2)
-  delivered_at          DateTime? @db.Timestamptz
-  return_window_ends_at DateTime? @db.Timestamptz
-  commission_status     String    @default("PENDING")
-  commission_rate       Decimal?  @db.Decimal(10, 2)
-  commission_amount     Decimal?  @db.Decimal(10, 2)
-  tier_bonus            Decimal   @default(0) @db.Decimal(10, 2)
-  final_commission      Decimal?  @db.Decimal(10, 2)
-  is_fraud_suspected    Boolean   @default(false)
-  processed_at          DateTime? @db.Timestamptz
-  created_at            DateTime  @default(now()) @db.Timestamptz
-  updated_at            DateTime  @updatedAt @db.Timestamptz
-
-  // Relations
-  affiliate_profiles    affiliate_profiles    @relation(fields: [affiliate_id], references: [id])
-  affiliate_commissions affiliate_commissions[]
-}
-
-model affiliate_commissions {
-  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  affiliate_id         String    @db.Uuid
-  affiliate_order_id   String    @db.Uuid
-  order_id             String    @db.Uuid
-  order_value          Decimal   @db.Decimal(10, 2)
-  base_commission_rate Decimal   @db.Decimal(10, 2)
-  tier_bonus           Decimal   @default(0) @db.Decimal(10, 2)
-  effective_rate       Decimal   @db.Decimal(10, 2)
-  gross_commission     Decimal   @db.Decimal(10, 2)
-  net_commission       Decimal   @db.Decimal(10, 2)
-  tds_applicable       Boolean   @default(false)
-  tds_rate             Decimal   @default(0) @db.Decimal(10, 2)
-  tds_amount           Decimal   @default(0) @db.Decimal(10, 2)
-  final_amount         Decimal   @db.Decimal(10, 2)
-  status               String    @default("PENDING")
-  payout_id            String?   @db.Uuid
-  order_date           DateTime  @db.Timestamptz
-  qualified_at         DateTime? @db.Timestamptz
-  approved_at          DateTime? @db.Timestamptz
-  paid_at              DateTime? @db.Timestamptz
-  cancelled_at         DateTime? @db.Timestamptz
-  cancellation_reason  String?
-  created_at           DateTime  @default(now()) @db.Timestamptz
-  updated_at           DateTime  @updatedAt @db.Timestamptz
-
-  // Relations
-  affiliate_profiles affiliate_profiles @relation(fields: [affiliate_id], references: [id])
-  affiliate_orders   affiliate_orders   @relation(fields: [affiliate_order_id], references: [id])
-  affiliate_payouts  affiliate_payouts? @relation(fields: [payout_id], references: [id])
-}
-
-model affiliate_payouts {
   id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  affiliate_id        String    @db.Uuid
-  payout_number       String    @unique
-  payout_period       String?
-  gross_amount        Decimal   @db.Decimal(10, 2)
-  tds_amount          Decimal   @default(0) @db.Decimal(10, 2)
-  net_amount          Decimal   @db.Decimal(10, 2)
-  commission_count    Int       @default(0)
+  user_id             String    @db.Uuid
+  email               String?
+  full_name           String
+  phone               String
+  pan_number          String?
+  website_url         String?
+  youtube_channel     String?
+  instagram_handle    String?
+  twitter_handle      String?
+  facebook_page       String?
+  primary_platform    String
+  estimated_audience  Int?
+  niche_categories    String[]
+  promotion_strategy  String
+  previous_experience String?
   payment_method      String    @default("BANK_TRANSFER")
   bank_name           String?
   bank_account_number String?
@@ -2893,34 +2138,215 @@ model affiliate_payouts {
   account_holder_name String?
   upi_id              String?
   status              String    @default("PENDING")
-  processed_by        String?   @db.Uuid
-  processed_at        DateTime? @db.Timestamptz
-  transaction_id      String?
-  payment_proof       String?
-  failure_reason      String?
-  admin_notes         String?
-  period_start_date   DateTime? @db.Timestamptz
-  period_end_date     DateTime? @db.Timestamptz
-  requested_at        DateTime  @default(now()) @db.Timestamptz
-  completed_at        DateTime? @db.Timestamptz
-  created_at          DateTime  @default(now()) @db.Timestamptz
-  updated_at          DateTime  @updatedAt @db.Timestamptz
+  reviewed_by         String?   @db.Uuid
+  reviewed_at         DateTime? @db.Timestamptz(6)
+  review_notes        String?
+  rejection_reason    String?
+  agreed_to_terms     Boolean   @default(false)
+  agreed_at           DateTime? @db.Timestamptz(6)
+  ip_address          String?
+  submitted_at        DateTime? @default(now()) @db.Timestamptz(6)
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @updatedAt @db.Timestamptz(6)
+}
 
-  // Relations
-  affiliate_profiles    affiliate_profiles    @relation(fields: [affiliate_id], references: [id])
+model affiliate_profiles {
+  id                      String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                 String                  @unique @db.Uuid
+  application_id          String                  @db.Uuid
+  affiliate_code          String                  @unique
+  display_name            String
+  email                   String?
+  phone                   String?
+  pan_number              String?
+  tier_name               String                  @default("Bronze")
+  tier_bonus              Decimal                 @default(0) @db.Decimal(14, 2)
+  primary_platform        String?
+  website_url             String?
+  social_links            Json?
+  total_clicks            Int                     @default(0)
+  total_orders            Int                     @default(0)
+  total_sales             Decimal                 @default(0) @db.Decimal(14, 2)
+  total_commission_earned Decimal                 @default(0) @db.Decimal(14, 2)
+  total_commission_paid   Decimal                 @default(0) @db.Decimal(14, 2)
+  available_balance       Decimal                 @default(0) @db.Decimal(14, 2)
+  pending_balance         Decimal                 @default(0) @db.Decimal(14, 2)
+  processing_balance      Decimal                 @default(0) @db.Decimal(14, 2)
+  payment_method          String                  @default("BANK_TRANSFER")
+  bank_name               String?
+  bank_account_number     String?
+  bank_ifsc_code          String?
+  account_holder_name     String?
+  upi_id                  String?
+  status                  String                  @default("ACTIVE")
+  is_blocked              Boolean                 @default(false)
+  block_reason            String?
+  approved_at             DateTime?               @default(now()) @db.Timestamptz(6)
+  last_active_at          DateTime?               @db.Timestamptz(6)
+  created_at              DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                @updatedAt @db.Timestamptz(6)
+  affiliate_clicks        affiliate_clicks[]
+  affiliate_commissions   affiliate_commissions[]
+  affiliate_links         affiliate_links[]
+  affiliate_orders        affiliate_orders[]
+  affiliate_payouts       affiliate_payouts[]
+}
+
+model affiliate_links {
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  affiliate_id       String             @db.Uuid
+  affiliate_code     String
+  link_code          String             @unique
+  full_url           String
+  destination_type   String
+  destination_url    String
+  product_id         String?            @db.Uuid
+  product_name       String?
+  category_id        String?            @db.Uuid
+  category_name      String?
+  search_query       String?
+  campaign_name      String?
+  sub_id             String?
+  is_active          Boolean            @default(true)
+  total_clicks       Int                @default(0)
+  total_orders       Int                @default(0)
+  total_revenue      Decimal            @default(0) @db.Decimal(14, 2)
+  total_commission   Decimal            @default(0) @db.Decimal(14, 2)
+  last_clicked_at    DateTime?          @db.Timestamptz(6)
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime           @updatedAt @db.Timestamptz(6)
+  affiliate_clicks   affiliate_clicks[]
+  affiliate_profiles affiliate_profiles @relation(fields: [affiliate_id], references: [id])
+}
+
+model affiliate_clicks {
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  affiliate_id       String             @db.Uuid
+  link_id            String?            @db.Uuid
+  link_code          String?
+  affiliate_code     String
+  visitor_id         String?
+  user_id            String?            @db.Uuid
+  ip_address         String?
+  user_agent         String?
+  device_type        String?
+  country            String?
+  referrer_url       String?
+  destination_url    String
+  cookie_expires_at  DateTime?          @db.Timestamptz(6)
+  is_converted       Boolean            @default(false)
+  converted_at       DateTime?          @db.Timestamptz(6)
+  order_id           String?            @db.Uuid
+  is_suspicious      Boolean            @default(false)
+  clicked_at         DateTime           @default(now()) @db.Timestamptz(6)
+  affiliate_profiles affiliate_profiles @relation(fields: [affiliate_id], references: [id])
+  affiliate_links    affiliate_links?   @relation(fields: [link_id], references: [id])
+}
+
+model affiliate_orders {
+  id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  affiliate_id          String                  @db.Uuid
+  affiliate_code        String
+  click_id              String?                 @db.Uuid
+  order_id              String                  @db.Uuid
+  order_number          String?
+  customer_id           String                  @db.Uuid
+  customer_email        String?
+  order_date            DateTime                @db.Timestamptz(6)
+  order_status          String
+  gross_order_value     Decimal                 @db.Decimal(10, 2)
+  discount_amount       Decimal                 @default(0) @db.Decimal(10, 2)
+  net_order_value       Decimal                 @db.Decimal(10, 2)
+  is_returned           Boolean                 @default(false)
+  return_amount         Decimal                 @default(0) @db.Decimal(10, 2)
+  final_order_value     Decimal                 @db.Decimal(10, 2)
+  delivered_at          DateTime?               @db.Timestamptz(6)
+  return_window_ends_at DateTime?               @db.Timestamptz(6)
+  commission_status     String                  @default("PENDING")
+  commission_rate       Decimal?                @db.Decimal(10, 2)
+  commission_amount     Decimal?                @db.Decimal(10, 2)
+  tier_bonus            Decimal                 @default(0) @db.Decimal(10, 2)
+  final_commission      Decimal?                @db.Decimal(10, 2)
+  is_fraud_suspected    Boolean                 @default(false)
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @updatedAt @db.Timestamptz(6)
+  processed_at          DateTime?               @db.Timestamptz(6)
   affiliate_commissions affiliate_commissions[]
+  affiliate_profiles    affiliate_profiles      @relation(fields: [affiliate_id], references: [id])
+}
+
+model affiliate_commissions {
+  id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  affiliate_id         String             @db.Uuid
+  affiliate_order_id   String             @db.Uuid
+  order_id             String             @db.Uuid
+  order_value          Decimal            @db.Decimal(10, 2)
+  base_commission_rate Decimal            @db.Decimal(10, 2)
+  tier_bonus           Decimal            @default(0) @db.Decimal(10, 2)
+  effective_rate       Decimal            @db.Decimal(10, 2)
+  gross_commission     Decimal            @db.Decimal(10, 2)
+  net_commission       Decimal            @db.Decimal(10, 2)
+  tds_applicable       Boolean            @default(false)
+  tds_rate             Decimal            @default(0) @db.Decimal(10, 2)
+  tds_amount           Decimal            @default(0) @db.Decimal(10, 2)
+  final_amount         Decimal            @db.Decimal(10, 2)
+  status               String             @default("PENDING")
+  payout_id            String?            @db.Uuid
+  order_date           DateTime           @db.Timestamptz(6)
+  qualified_at         DateTime?          @db.Timestamptz(6)
+  approved_at          DateTime?          @db.Timestamptz(6)
+  paid_at              DateTime?          @db.Timestamptz(6)
+  cancelled_at         DateTime?          @db.Timestamptz(6)
+  cancellation_reason  String?
+  created_at           DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime           @updatedAt @db.Timestamptz(6)
+  affiliate_profiles   affiliate_profiles @relation(fields: [affiliate_id], references: [id])
+  affiliate_orders     affiliate_orders   @relation(fields: [affiliate_order_id], references: [id])
+  affiliate_payouts    affiliate_payouts? @relation(fields: [payout_id], references: [id])
+}
+
+model affiliate_payouts {
+  id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  affiliate_id          String                  @db.Uuid
+  payout_number         String                  @unique
+  payout_period         String?
+  gross_amount          Decimal                 @db.Decimal(10, 2)
+  tds_amount            Decimal                 @default(0) @db.Decimal(10, 2)
+  net_amount            Decimal                 @db.Decimal(10, 2)
+  commission_count      Int                     @default(0)
+  payment_method        String                  @default("BANK_TRANSFER")
+  bank_name             String?
+  bank_account_number   String?
+  bank_ifsc_code        String?
+  account_holder_name   String?
+  upi_id                String?
+  status                String                  @default("PENDING")
+  processed_by          String?                 @db.Uuid
+  processed_at          DateTime?               @db.Timestamptz(6)
+  transaction_id        String?
+  payment_proof         String?
+  failure_reason        String?
+  admin_notes           String?
+  period_start_date     DateTime?               @db.Timestamptz(6)
+  period_end_date       DateTime?               @db.Timestamptz(6)
+  requested_at          DateTime                @default(now()) @db.Timestamptz(6)
+  completed_at          DateTime?               @db.Timestamptz(6)
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @updatedAt @db.Timestamptz(6)
+  affiliate_commissions affiliate_commissions[]
+  affiliate_profiles    affiliate_profiles      @relation(fields: [affiliate_id], references: [id])
 }
 
 model affiliate_category_commissions {
-  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  category_id          String    @unique @db.Uuid
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  category_id          String   @unique @db.Uuid
   category_name        String?
   category_level       String?
-  base_commission_rate Decimal   @db.Decimal(10, 2)
-  is_active            Boolean   @default(true)
-  updated_by           String?   @db.Uuid
-  created_at           DateTime  @default(now()) @db.Timestamptz
-  updated_at           DateTime  @updatedAt @db.Timestamptz
+  base_commission_rate Decimal  @db.Decimal(10, 2)
+  is_active            Boolean  @default(true)
+  created_at           DateTime @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime @updatedAt @db.Timestamptz(6)
+  updated_by           String?  @db.Uuid
 }
 
 model otpVerification {
@@ -2928,10 +2354,77 @@ model otpVerification {
   phone     String   @db.VarChar
   otp       String   @db.VarChar(6)
   type      String   @db.VarChar(50)
-  expiresAt DateTime @db.Timestamptz
-  createdAt DateTime @default(now()) @db.Timestamptz
+  expiresAt DateTime @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
 
   @@index([phone])
   @@index([expiresAt])
 }
 
+enum Vertical {
+  qwik
+  eato
+  bazar
+  star
+}
+
+enum MediaType {
+  image
+  video
+}
+
+enum ProductSourceType {
+  WAREHOUSE
+  DROP_SHIP
+}
+
+enum DocumentType {
+  DRIVERS_LICENSE
+  ID_PROOF
+  VEHICLE_REGISTRATION
+  PHOTO
+}
+
+enum DocumentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum RiderVerificationStatus {
+  PENDING_VERIFICATION
+  VERIFIED
+  ACTION_REQUIRED
+  SUSPENDED
+}
+
+enum SellerDocumentType {
+  GSTIN_CERTIFICATE
+  PAN_CARD
+  BUSINESS_LICENSE
+  ID_PROOF
+  ADDRESS_PROOF
+}
+
+enum SellerVerificationStatus {
+  PENDING_VERIFICATION
+  VERIFIED
+  ACTION_REQUIRED
+  SUSPENDED
+}
+
+enum ServiceStatus {
+  pending
+  assigned
+  in_progress
+  completed
+  cancelled
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  SELLER
+  VENDOR
+  RIDER
+}
