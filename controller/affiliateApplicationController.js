@@ -34,7 +34,7 @@ export const applyForAffiliate = async (req, res) => {
 
     const application = await affiliateDAO.createApplication({
       user_id: userId,
-      email: email ? String(email) : null,
+      email: email && String(email).trim() ? String(email).trim() : null,
       full_name,
       phone,
       pan_number,
