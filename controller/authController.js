@@ -9,7 +9,6 @@ import AuthService from "../services/authService.js";
 import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
-import { twilioClient } from "../utils/twilio.js";
 import admin from "../config/firebase.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -203,83 +202,6 @@ export const removeUserAvatar = async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
-  }
-};
-
-// Twilio OTP Functions
-export const sendOTP = async (req, res) => {
-  try {
-    const { phone } = req.body;
-
-    if (!phone) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Phone number is required" });
-    }
-
-    // Format phone number: Add +91 if not present
-    const formattedPhone = phone.toString().startsWith("+")
-      ? phone
-      : `+91${phone}`;
-
-    const response = await twilioClient.verify.v2
-      .services(process.env.TWILIO_VERIFY_SID)
-      .verifications.create({
-        to: formattedPhone,
-        channel: "sms",
-      });
-
-    res.json({
-      success: true,
-      message: "OTP sent successfully",
-      status: response.status,
-    });
-  } catch (err) {
-    console.error("Twilio Send OTP Error:", err);
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-export const verifyOTP = async (req, res) => {
-  try {
-    const { phone, otp } = req.body;
-
-    if (!phone || !otp) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Phone number and OTP are required" });
-    }
-
-    // Format phone number: Add +91 if not present
-    const formattedPhone = phone.toString().startsWith("+")
-      ? phone
-      : `+91${phone}`;
-
-    const response = await twilioClient.verify.v2
-      .services(process.env.TWILIO_VERIFY_SID)
-      .verificationChecks.create({
-        to: formattedPhone,
-        code: otp,
-      });
-
-    // Verify OTP logic...
-    if (response.status === "approved") {
-      // User is verified, now login or signup
-      const result = await AuthService.loginOrSignupWithOTP(formattedPhone);
-
-      return res.json({
-        success: true,
-        message: "OTP verified",
-        user: result.user,
-        token: result.token,
-        refreshToken: result.refreshToken,
-      });
-    }
-
-    res.status(400).json({ success: false, message: "Invalid OTP" });
-  } catch (err) {
-    console.error("Twilio Verify OTP Error:", err);
-    res.status(500).json({ success: false, message: err.message });
   }
 };
 

@@ -7,8 +7,6 @@ import {
   uploadAvatar,
   updateUserAvatar,
   removeUserAvatar,
-  sendOTP,
-  verifyOTP,
   getBusinessUsers,
   phoneLogin,
 } from "../controller/authController.js";
@@ -23,10 +21,6 @@ router.get("/me", authenticate, getMe);
 router.post("/upload-avatar", authenticate, uploadAvatar, updateUserAvatar);
 router.delete("/remove-avatar", authenticate, removeUserAvatar);
 router.get("/business-users", getBusinessUsers);
-
-// OTP Routes
-router.post("/send-otp", sendOTP);
-router.post("/verify-otp", verifyOTP);
 
 // Firebase Phone Login
 router.post("/phone-login", phoneLogin);
