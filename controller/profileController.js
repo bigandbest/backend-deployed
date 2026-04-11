@@ -239,7 +239,11 @@ export const updateUserProfile = async (req, res) => {
     if (last_name !== undefined) updateData.last_name = last_name;
     if (email !== undefined) {
       const normalizedEmail = String(email).trim().toLowerCase();
-      updateData.email = normalizedEmail || null;
+      // Only update email if a real value is provided — never allow null/empty
+      // (email is non-nullable in schema; placeholder @bbm.local is kept as-is)
+      if (normalizedEmail) {
+        updateData.email = normalizedEmail;
+      }
     }
 
     if (Object.keys(updateData).length === 0) {
