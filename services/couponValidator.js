@@ -132,8 +132,13 @@ class CouponValidator {
       where: {
         user_id: userId,
         status: { in: ["DELIVERED", "COMPLETED", "CONFIRMED"] },
-        payment_status: { in: ["PAID", "COD_CONFIRMED"] },
-        total_amount: { gt: 0 },
+        // orders schema has no payment_status field; status filter is sufficient
+        // payment_method covers both COD and prepaid paths
+        OR: [
+          { payment_method: { not: "COD" }, razorpay_payment_id: { not: null } },
+          { payment_method: "COD" },
+        ],
+        total: { gt: 0 },
       },
     });
 
