@@ -53,6 +53,18 @@ class UserDAO {
     });
   }
 
+  async getUsersByIds(ids) {
+    return await prisma.users.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+      },
+    });
+  }
+
   async getUserByEmail(email) {
     return await prisma.users.findUnique({
       where: { email },

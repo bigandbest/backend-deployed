@@ -7,7 +7,7 @@ class ContactQueryDAO {
 
     async getById(id) {
         return await prisma.contact_queries.findUnique({
-            where: { id }
+            where: { id: parseInt(id) }
         });
     }
 
@@ -33,7 +33,7 @@ class ContactQueryDAO {
 
     async updateStatus(id, status) {
         return await prisma.contact_queries.update({
-            where: { id },
+            where: { id: parseInt(id) },
             data: {
                 status,
                 updated_at: new Date()
@@ -43,7 +43,7 @@ class ContactQueryDAO {
 
     async delete(id) {
         return await prisma.contact_queries.delete({
-            where: { id }
+            where: { id: parseInt(id) }
         });
     }
 }
