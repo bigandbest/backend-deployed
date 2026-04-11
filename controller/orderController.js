@@ -347,8 +347,13 @@ export const placeOrder = async (req, res) => {
     const userRecord = user_id ? await userControlDao.getUserById(user_id) : null;
     const resolvedReceiverName =
       (receiver_name || userRecord?.name || "").toString().trim();
-    const resolvedMobile =
-      (mobile || userRecord?.phone || "").toString().replace(/\D/g, "");
+    const rawMobile = (mobile || userRecord?.phone || "").toString().replace(/\D/g, "");
+    // Strip leading country code: 914444444444 → 4444444444, 914444444444 → 4444444444
+    const resolvedMobile = rawMobile.length === 12 && rawMobile.startsWith("91")
+      ? rawMobile.slice(2)
+      : rawMobile.length === 13 && rawMobile.startsWith("091")
+        ? rawMobile.slice(3)
+        : rawMobile;
 
     if (!resolvedReceiverName || resolvedReceiverName.length < 2 || resolvedMobile.length !== 10) {
       return res.status(400).json({
@@ -605,10 +610,15 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
     const fallbackAddressName = detailedAddress?.receiver_name || detailedAddress?.full_name;
     const resolvedReceiverName =
       (receiver_name || fallbackAddressName || userRecord?.name || "").toString().trim();
-    const resolvedMobile =
-      (mobile || fallbackAddressMobile || userRecord?.phone || "")
-        .toString()
-        .replace(/\D/g, "");
+    const rawMobile = (mobile || fallbackAddressMobile || userRecord?.phone || "")
+      .toString()
+      .replace(/\D/g, "");
+    // Strip leading country code: +914444444444 → 4444444444
+    const resolvedMobile = rawMobile.length === 12 && rawMobile.startsWith("91")
+      ? rawMobile.slice(2)
+      : rawMobile.length === 13 && rawMobile.startsWith("091")
+        ? rawMobile.slice(3)
+        : rawMobile;
 
     if (!resolvedReceiverName || resolvedReceiverName.length < 2 || resolvedMobile.length !== 10) {
       return res.status(400).json({
