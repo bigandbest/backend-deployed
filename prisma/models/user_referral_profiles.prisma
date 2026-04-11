@@ -8,18 +8,20 @@ model user_referral_profiles {
   successful_referrals    Int       @default(0)
   pending_referrals       Int       @default(0)
   failed_referrals        Int       @default(0)
-  total_earnings          Decimal   @default(0) @db.Decimal(10, 2)
-  available_balance       Decimal   @default(0) @db.Decimal(10, 2)
-  pending_balance         Decimal   @default(0) @db.Decimal(10, 2)
-  withdrawn_amount        Decimal   @default(0) @db.Decimal(10, 2)
-  expired_amount          Decimal   @default(0) @db.Decimal(10, 2)
-  used_for_purchase       Decimal   @default(0) @db.Decimal(10, 2)
+  total_earnings          Decimal   @default(0) @db.Decimal(14, 2)
+  available_balance       Decimal   @default(0) @db.Decimal(14, 2)
+  pending_balance         Decimal   @default(0) @db.Decimal(14, 2)
+  withdrawn_amount        Decimal   @default(0) @db.Decimal(14, 2)
+  expired_amount          Decimal   @default(0) @db.Decimal(14, 2)
+  used_for_purchase       Decimal   @default(0) @db.Decimal(14, 2)
   was_referred            Boolean   @default(false)
   referred_by_user_id     String?   @db.Uuid
   referred_by_code        String?   @db.VarChar(20)
   referred_at             DateTime? @db.Timestamptz
   referral_bonus_received Boolean   @default(false)
   current_tier            String?   @db.VarChar(50)
+  referral_code_created_at DateTime? @db.Timestamptz
+  status                  String?   @default("ACTIVE") @db.VarChar(50)
   created_at              DateTime  @default(now()) @db.Timestamptz
   updated_at              DateTime  @updatedAt @db.Timestamptz
 

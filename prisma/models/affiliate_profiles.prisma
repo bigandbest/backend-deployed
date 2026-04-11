@@ -8,18 +8,18 @@ model affiliate_profiles {
   phone                     String?
   pan_number                String?
   tier_name                 String    @default("Bronze")
-  tier_bonus                Decimal   @default(0) @db.Decimal(10, 2)
+  tier_bonus                Decimal   @default(0) @db.Decimal(14, 2)
   primary_platform          String?
   website_url               String?
   social_links              Json?
   total_clicks              Int       @default(0)
   total_orders              Int       @default(0)
-  total_sales               Decimal   @default(0) @db.Decimal(10, 2)
-  total_commission_earned   Decimal   @default(0) @db.Decimal(10, 2)
-  total_commission_paid     Decimal   @default(0) @db.Decimal(10, 2)
-  available_balance         Decimal   @default(0) @db.Decimal(10, 2)
-  pending_balance           Decimal   @default(0) @db.Decimal(10, 2)
-  processing_balance        Decimal   @default(0) @db.Decimal(10, 2)
+  total_sales               Decimal   @default(0) @db.Decimal(14, 2)
+  total_commission_earned   Decimal   @default(0) @db.Decimal(14, 2)
+  total_commission_paid     Decimal   @default(0) @db.Decimal(14, 2)
+  available_balance         Decimal   @default(0) @db.Decimal(14, 2)
+  pending_balance           Decimal   @default(0) @db.Decimal(14, 2)
+  processing_balance        Decimal   @default(0) @db.Decimal(14, 2)
   payment_method            String    @default("BANK_TRANSFER")
   bank_name                 String?
   bank_account_number       String?
