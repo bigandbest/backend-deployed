@@ -167,6 +167,7 @@ model cod_collections {
 
   @@index([rider_id], map: "idx_cod_collections_rider_id")
   @@index([status], map: "idx_cod_collections_status")
+  @@index([order_id], map: "idx_cod_collections_order_id")
 }
 
 model contact_queries {
@@ -392,12 +393,11 @@ model faq_templates {
 }
 
 model fulfillment_events {
-  id           Int        @id @default(autoincrement())
-  sub_order_id String     @db.Uuid
-  event_type   String     @db.VarChar
-  payload      Json?      @default("{}")
-  created_at   DateTime   @default(now()) @db.Timestamptz(6)
-  sub_order    sub_orders @relation(fields: [sub_order_id], references: [id], onDelete: Cascade)
+  id           Int      @id @default(autoincrement())
+  sub_order_id String   @db.Uuid
+  event_type   String   @db.VarChar
+  payload      Json?    @default("{}")
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
 
   @@index([sub_order_id])
   @@index([event_type])
@@ -541,6 +541,7 @@ model orders {
   delivery_latitude    Decimal?            @db.Decimal(10, 7)
   delivery_longitude   Decimal?            @db.Decimal(10, 7)
   customer_address_id  Int?
+  delivery_otp         String?             @db.VarChar(6)
   coupon_usage         coupon_usage?
   order_items          order_items[]
   order_tracking       order_tracking[]
@@ -1120,31 +1121,34 @@ model rider_payout_milestones {
 }
 
 model rider_payouts {
-  id                 Int       @id @default(autoincrement())
-  rider_id           String    @db.Uuid
-  sub_order_id       String    @unique @db.Uuid
-  parent_order_id    String    @db.Uuid
-  route_type         String    @db.VarChar(10)
-  pickup_latitude    Decimal?  @db.Decimal(10, 7)
-  pickup_longitude   Decimal?  @db.Decimal(10, 7)
-  source_latitude    Decimal?  @db.Decimal(10, 7)
-  source_longitude   Decimal?  @db.Decimal(10, 7)
-  delivery_latitude  Decimal?  @db.Decimal(10, 7)
-  delivery_longitude Decimal?  @db.Decimal(10, 7)
-  leg1_km            Decimal?  @db.Decimal(5, 2)
-  leg2_km            Decimal?  @db.Decimal(5, 2)
-  total_km           Decimal?  @db.Decimal(5, 2)
-  slab_id            Int?
-  payout_amount      Decimal?  @db.Decimal(10, 2)
-  status             String    @default("PENDING") @db.VarChar(20)
-  calculated_at      DateTime? @db.Timestamptz(6)
-  paid_at            DateTime? @db.Timestamptz(6)
-  created_at         DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at         DateTime  @default(now()) @db.Timestamptz(6)
+  id                     Int       @id @default(autoincrement())
+  rider_id               String    @db.Uuid
+  sub_order_id           String    @unique @db.Uuid
+  parent_order_id        String    @db.Uuid
+  route_type             String    @db.VarChar(10)
+  pickup_latitude        Decimal?  @db.Decimal(10, 7)
+  pickup_longitude       Decimal?  @db.Decimal(10, 7)
+  source_latitude        Decimal?  @db.Decimal(10, 7)
+  source_longitude       Decimal?  @db.Decimal(10, 7)
+  delivery_latitude      Decimal?  @db.Decimal(10, 7)
+  delivery_longitude     Decimal?  @db.Decimal(10, 7)
+  leg1_km                Decimal?  @db.Decimal(5, 2)
+  leg2_km                Decimal?  @db.Decimal(5, 2)
+  total_km               Decimal?  @db.Decimal(5, 2)
+  slab_id                Int?
+  payout_amount          Decimal?  @db.Decimal(10, 2)
+  status                 String    @default("PENDING") @db.VarChar(20)
+  calculated_at          DateTime? @db.Timestamptz(6)
+  paid_at                DateTime? @db.Timestamptz(6)
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime  @default(now()) @db.Timestamptz(6)
+  distance_source        String?   @default("haversine_fallback") @db.VarChar(30)
+  distance_calculated_at DateTime? @db.Timestamptz(6)
 
   @@index([parent_order_id], map: "idx_rider_payouts_parent")
   @@index([rider_id], map: "idx_rider_payouts_rider")
   @@index([status], map: "idx_rider_payouts_status")
+  @@index([distance_source], map: "idx_rider_payouts_distance_source")
 }
 
 model rider_wage_logs {
@@ -1183,7 +1187,6 @@ model riders {
   rider_assignments   rider_assignments[]
   rider_documents     rider_documents[]
   rider_wage_logs     rider_wage_logs[]
-  users               users                   @relation(fields: [user_id], references: [id], onDelete: Cascade)
   warehouse_riders    warehouse_riders[]
 
   @@index([user_id])
@@ -1374,7 +1377,6 @@ model sellers {
   seller_negotiations     seller_negotiations[]
   seller_pincode_requests seller_pincode_requests[]
   seller_products         seller_products[]
-  users                   users                     @relation(fields: [user_id], references: [id], onDelete: Cascade)
   warehouse_sellers       warehouse_sellers[]
 
   @@index([user_id])
@@ -1478,7 +1480,6 @@ model stock_notify_requests {
   notified_at DateTime? @db.Timestamptz(6)
   created_at  DateTime  @default(now()) @db.Timestamptz(6)
   products    products  @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users       users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([user_id, product_id])
   @@index([product_id], map: "idx_snr_product")
@@ -1524,21 +1525,20 @@ model sub_order_items {
 }
 
 model sub_orders {
-  id                    String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  parent_order_id       String               @db.Uuid
-  source_type           String               @db.VarChar
+  id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  parent_order_id       String            @db.Uuid
+  source_type           String            @db.VarChar
   source_id             Int
-  seller_id             String?              @db.Uuid
-  fulfillment_status    String               @default("pending") @db.VarChar
-  rider_id              String?              @db.Uuid
-  pickup_sequence       Json?                @default("[]")
-  estimated_delivery_at DateTime?            @db.Timestamptz(6)
-  created_at            DateTime             @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime             @default(now()) @db.Timestamptz(6)
-  fulfillment_events    fulfillment_events[]
+  seller_id             String?           @db.Uuid
+  fulfillment_status    String            @default("pending") @db.VarChar
+  rider_id              String?           @db.Uuid
+  pickup_sequence       Json?             @default("[]")
+  estimated_delivery_at DateTime?         @db.Timestamptz(6)
+  created_at            DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime          @default(now()) @db.Timestamptz(6)
   sub_order_items       sub_order_items[]
-  parent_order          orders               @relation(fields: [parent_order_id], references: [id], onDelete: Cascade)
-  warehouse             warehouses           @relation(fields: [source_id], references: [id])
+  parent_order          orders            @relation(fields: [parent_order_id], references: [id], onDelete: Cascade)
+  warehouse             warehouses        @relation(fields: [source_id], references: [id])
 
   @@index([parent_order_id])
   @@index([source_type])
@@ -1577,33 +1577,33 @@ model team_members {
 }
 
 model users {
-  id                                                        String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email                                                     String?                 @unique
+  id                                                        String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email                                                     String?               @unique
   photo_url                                                 String?
-  role                                                      UserRole                @default(USER)
+  role                                                      UserRole              @default(USER)
   password                                                  String?
   password_reset_token                                      String?
-  password_reset_expires                                    DateTime?               @db.Timestamptz(6)
-  created_at                                                DateTime?               @default(now()) @db.Timestamptz(6)
-  last_login                                                DateTime?               @db.Timestamptz(6)
-  is_active                                                 Boolean?                @default(true)
+  password_reset_expires                                    DateTime?             @db.Timestamptz(6)
+  created_at                                                DateTime?             @default(now()) @db.Timestamptz(6)
+  last_login                                                DateTime?             @db.Timestamptz(6)
+  is_active                                                 Boolean?              @default(true)
   phone                                                     String?
   avatar                                                    String?
   name                                                      String?
   account_type                                              String?
   company_name                                              String?
-  street_address                                            String?                 @db.VarChar
-  suite_unit_floor                                          String?                 @db.VarChar
-  house_number                                              String?                 @db.VarChar
-  locality                                                  String?                 @db.VarChar
-  city                                                      String?                 @db.VarChar
-  state                                                     String?                 @db.VarChar
-  postal_code                                               String?                 @db.VarChar
-  country                                                   String?                 @default("India") @db.VarChar
-  landmark                                                  String?                 @db.VarChar
-  gstin                                                     String?                 @unique @db.VarChar
-  pan                                                       String?                 @unique @db.VarChar
-  adhaar_no                                                 String?                 @unique @db.VarChar
+  street_address                                            String?               @db.VarChar
+  suite_unit_floor                                          String?               @db.VarChar
+  house_number                                              String?               @db.VarChar
+  locality                                                  String?               @db.VarChar
+  city                                                      String?               @db.VarChar
+  state                                                     String?               @db.VarChar
+  postal_code                                               String?               @db.VarChar
+  country                                                   String?               @default("India") @db.VarChar
+  landmark                                                  String?               @db.VarChar
+  gstin                                                     String?               @unique @db.VarChar
+  pan                                                       String?               @unique @db.VarChar
+  adhaar_no                                                 String?               @unique @db.VarChar
   first_name                                                String?
   last_name                                                 String?
   business_type                                             String?
@@ -1613,20 +1613,17 @@ model users {
   coupon_usage                                              coupon_usage[]
   enquiries                                                 enquiries[]
   orders                                                    orders[]
-  return_orders_return_orders_admin_idTousers               return_orders[]         @relation("return_orders_admin_idTousers")
-  return_orders_return_orders_user_idTousers                return_orders[]         @relation("return_orders_user_idTousers")
-  riders                                                    riders?
-  sellers                                                   sellers?
+  return_orders_return_orders_admin_idTousers               return_orders[]       @relation("return_orders_admin_idTousers")
+  return_orders_return_orders_user_idTousers                return_orders[]       @relation("return_orders_user_idTousers")
   service_bookings                                          service_bookings[]
   shopping_lists                                            shopping_lists[]
-  stock_notify_requests                                     stock_notify_requests[]
   user_addresses                                            user_addresses[]
   user_notifications                                        user_notifications[]
   wallet_audit_logs                                         wallet_audit_logs[]
-  wallet_transactions_wallet_transactions_created_byTousers wallet_transactions[]   @relation("wallet_transactions_created_byTousers")
-  wallet_transactions_wallet_transactions_user_idTousers    wallet_transactions[]   @relation("wallet_transactions_user_idTousers")
-  wallets_wallets_frozen_byTousers                          wallets[]               @relation("wallets_frozen_byTousers")
-  wallets_wallets_user_idTousers                            wallets?                @relation("wallets_user_idTousers")
+  wallet_transactions_wallet_transactions_created_byTousers wallet_transactions[] @relation("wallet_transactions_created_byTousers")
+  wallet_transactions_wallet_transactions_user_idTousers    wallet_transactions[] @relation("wallet_transactions_user_idTousers")
+  wallets_wallets_frozen_byTousers                          wallets[]             @relation("wallets_frozen_byTousers")
+  wallets_wallets_user_idTousers                            wallets?              @relation("wallets_user_idTousers")
   wishlist_items                                            wishlist_items[]
 }
 
@@ -1890,7 +1887,7 @@ model referral_configs {
   program_name              String?  @default("Refer & Earn") @db.VarChar
   referrer_reward_amount    Decimal  @default(75) @db.Decimal(14, 2)
   referee_reward_amount     Decimal  @default(75) @db.Decimal(14, 2)
-  max_earning_per_user      Decimal  @default(1000) @db.Decimal(10, 2)
+  max_earning_per_user      Decimal  @default(1000) @db.Decimal(14, 2)
   reward_validity_days      Int      @default(7)
   min_order_value           Decimal  @default(200) @db.Decimal(14, 2)
   applicable_first_order    Boolean? @default(true)

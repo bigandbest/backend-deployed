@@ -17,4 +17,8 @@ model subcategories {
   groups      groups[]
   products    products[]
   section_mappings section_subcategory_mappings[]
+
+  @@index([category_id])
+  @@index([category_id, active])
+  @@index([active])
 }

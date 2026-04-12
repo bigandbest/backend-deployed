@@ -120,6 +120,7 @@ import internalReferralRoutes from "./routes/internalReferralRoutes.js";
 import affiliateRoutes from "./routes/affiliateRoutes.js";
 import affiliateAdminRoutes from "./routes/affiliateAdminRoutes.js";
 import bankAccountRoutes from "./routes/bankAccountRoutes.js";
+import fcmTokenRoutes from "./routes/fcmTokenRoutes.js";
 import { startGeocodeRetryWorker } from "./workers/geocodeRetryWorker.js";
 
 // Configuration
@@ -320,6 +321,7 @@ const createApp = () => {
   app.use("/api/certifications", certificationRoutes);
   app.use("/api/about-content", aboutContentRoutes);
   app.use("/api/contact", contactRoutes);
+  app.use("/api/fcm", fcmTokenRoutes);
   app.use("/api/team-members", teamMemberRoutes);
   app.use("/api/delivery-charges", deliveryChargeRoutes);
   app.use("/api/charge-settings", chargeSettingsRoutes);
