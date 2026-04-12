@@ -36,5 +36,6 @@ model product_variants {
 
   @@index([active])
   @@index([product_id])
+  @@index([product_id, active])
   @@index([sku])
 }
