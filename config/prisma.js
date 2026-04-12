@@ -1,4 +1,6 @@
-// import "./loadEnv.js";
+import { config } from "dotenv";
+config(); // Must run before PrismaClient is created so DATABASE_URL is available
+
 import { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = global;
