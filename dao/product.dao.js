@@ -597,15 +597,27 @@ class ProductDAO {
     }
 
     async getRelatedProductsBySubcategory(productId, limit = 10) {
-        const product = await prisma.products.findUnique({
-            where: { id: productId },
-            select: { subcategory_id: true }
-        });
-        if (!product || !product.subcategory_id) return [];
+        // Try the DAO product cache before hitting the DB for subcategory_id.
+        // getProductById() stores the full Prisma object at "product:<id>", so we
+        // can extract subcategory_id from there without an extra round-trip.
+        let subcategoryId;
+        try {
+            const raw = await redis.get(`product:${productId}`);
+            if (raw) subcategoryId = JSON.parse(raw).subcategory_id;
+        } catch { /* Redis unavailable — fall through */ }
+
+        if (!subcategoryId) {
+            const product = await prisma.products.findUnique({
+                where: { id: productId },
+                select: { subcategory_id: true }
+            });
+            if (!product || !product.subcategory_id) return [];
+            subcategoryId = product.subcategory_id;
+        }
 
         return await prisma.products.findMany({
             where: {
-                subcategory_id: product.subcategory_id,
+                subcategory_id: subcategoryId,
                 id: { not: productId },
                 active: true,
             },

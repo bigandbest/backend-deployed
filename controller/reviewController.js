@@ -1,4 +1,6 @@
 import reviewDao from "../dao/review.dao.js";
+import { redisDel } from "../lib/redis.js";
+import { reviewsKey, productKey } from "../lib/cacheKeys.js";
 
 // Get all reviews for a product
 export const getProductReviews = async (req, res) => {
@@ -83,6 +85,12 @@ export const addReview = async (req, res) => {
       comment,
       is_verified_purchase: false, // Can be updated later based on order history
     });
+
+    // Bust cached review list and product (rating average is embedded there)
+    await Promise.all([
+      redisDel(reviewsKey(productId)),
+      redisDel(productKey(productId)),
+    ]);
 
     res.status(201).json({
       success: true,

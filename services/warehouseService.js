@@ -1,5 +1,8 @@
 import prisma from '../config/prisma.js';
 import productDao from '../dao/product.dao.js';
+import cache from '../utils/cache.js';
+
+const WAREHOUSE_CACHE_TTL = 300; // 5 minutes in seconds
 
 /**
  * Find available inventory in a set of warehouses for a given product+variant.
@@ -80,6 +83,10 @@ export const getZonalWarehousesForPincode = async (pincode) => {
  * Rule 8: if both Division and Seller have stock → always choose Division.
  */
 export const findWarehouseForProduct = async (productId, pincode, _productType, quantity = 1, variantId = null) => {
+  const cacheKey = `wh:${productId}:${variantId || 'nv'}:${pincode}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
   try {
     const product = await productDao.getProductById(productId);
     if (!product) {
@@ -100,12 +107,14 @@ export const findWarehouseForProduct = async (productId, pincode, _productType, 
         productId, divisionWarehouseIds, quantity, variantId, 'division'
       );
       if (divisionStock) {
-        return {
+        const result = {
           warehouse_id: divisionStock.warehouse_id,
           warehouse_name: divisionStock.warehouses?.name || 'Division Warehouse',
           seller_id: null,
           assignment_source: 'division',
         };
+        cache.set(cacheKey, result, WAREHOUSE_CACHE_TTL);
+        return result;
       }
     }
 
@@ -120,12 +129,14 @@ export const findWarehouseForProduct = async (productId, pincode, _productType, 
         productId, zonalWarehouseIds, quantity, variantId, 'zonal'
       );
       if (zonalStock) {
-        return {
+        const result = {
           warehouse_id: zonalStock.warehouse_id,
           warehouse_name: zonalStock.warehouses?.name || 'Zonal Warehouse',
           seller_id: null,
           assignment_source: 'zonal',
         };
+        cache.set(cacheKey, result, WAREHOUSE_CACHE_TTL);
+        return result;
       }
     }
 
@@ -173,12 +184,14 @@ export const findWarehouseForProduct = async (productId, pincode, _productType, 
           sellerProduct &&
           sellerProduct.stock_quantity - (sellerProduct.reserved_quantity || 0) >= quantity
         ) {
-          return {
+          const result = {
             warehouse_id: sellerProduct.warehouse_id,
             warehouse_name: sellerProduct.warehouses?.name || 'Seller Store',
             seller_id: seller.id,
             assignment_source: 'seller',
           };
+          cache.set(cacheKey, result, WAREHOUSE_CACHE_TTL);
+          return result;
         }
       }
     }

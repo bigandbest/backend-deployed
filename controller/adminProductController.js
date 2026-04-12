@@ -1,6 +1,18 @@
 import ProductDAO from "../dao/product.dao.js";
 import prisma from "../config/prisma.js";
 import { deleteFromCloudinary, extractPublicId } from "../services/uploadService.js";
+import { redisDel, redisDelPattern } from "../lib/redis.js";
+import { productKey, relatedProductsKey } from "../lib/cacheKeys.js";
+
+/** Bust all Redis entries for a given product ID after any write. */
+const invalidateProductCache = async (productId) => {
+  await Promise.all([
+    redisDel(productKey(productId)),
+    redisDelPattern(`product:v1:${productId}:*`),
+    redisDel(relatedProductsKey(productId)),
+    redisDelPattern(`avail:v1:${productId}:*`),
+  ]);
+};
 
 // Create new product
 export const createProduct = async (req, res) => {
@@ -336,6 +348,7 @@ export const createProduct = async (req, res) => {
     }
     // ------------------------------------
 
+    await invalidateProductCache(newProduct.id);
     res.status(201).json({
       success: true,
       message: "Product created successfully",
@@ -680,6 +693,7 @@ export const deleteProductForAdmin = async (req, res) => {
       }
     }
 
+    await invalidateProductCache(productId);
     res.status(200).json({
       success: true,
       message: "Product deleted successfully",
@@ -1131,6 +1145,7 @@ export const updateProduct = async (req, res) => {
     }
 
     console.log("Product updated successfully:", product);
+    await invalidateProductCache(productId);
     res.status(200).json({
       success: true,
       message: "Product updated successfully",

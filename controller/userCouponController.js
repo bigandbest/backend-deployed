@@ -4,6 +4,8 @@
 import { supabase } from "../config/supabaseClient.js";
 import couponValidator from "../services/couponValidator.js";
 import prisma from "../config/prisma.js";
+import { redisGet, redisSet } from "../lib/redis.js";
+import { couponsKey, COUPONS_TTL } from "../lib/cacheKeys.js";
 
 /**
  * Validate coupon code
@@ -147,6 +149,17 @@ export const getAvailableCoupons = async (req, res) => {
     const userId = req.user?.id;
     const { cart_value } = req.query;
 
+    // ── Cache-aside (cart-value bucket, 2-min TTL) ───────────────────────────
+    const cartValueNum = cart_value ? parseFloat(cart_value) : 0;
+    const bucket = Math.floor(cartValueNum / 100) * 100;
+    const cacheKey = couponsKey(bucket);
+    const cached = await redisGet(cacheKey);
+    if (cached) {
+      res.setHeader('X-Cache', 'HIT');
+      return res.status(200).json(cached);
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     // Use Prisma to fetch active coupons (Bypasses RLS)
     const now = new Date();
 
@@ -202,11 +215,15 @@ export const getAvailableCoupons = async (req, res) => {
       availableCoupons.push(coupon);
     }
 
-    res.status(200).json({
+    const responseBody = {
       success: true,
       data: availableCoupons,
       count: availableCoupons.length,
-    });
+    };
+
+    await redisSet(cacheKey, responseBody, COUPONS_TTL);
+    res.setHeader('X-Cache', 'MISS');
+    res.status(200).json(responseBody);
   } catch (error) {
     console.error("Error fetching available coupons:", error);
     res.status(500).json({

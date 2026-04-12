@@ -1,10 +1,20 @@
 import { supabase } from "../config/supabaseClient.js";
 import * as deliveryValidationService from "./deliveryValidationService.js";
 import productDao from "../dao/product.dao.js";
+import { redisGet, redisSet, redisDel, redisDelPattern } from "../lib/redis.js";
+import {
+  productKey,
+  productWithPincodeKey,
+  relatedProductsKey,
+  availabilityKey,
+  PRODUCT_TTL,
+  RELATED_TTL,
+  AVAILABILITY_TTL,
+} from "../lib/cacheKeys.js";
+import { findWarehouseForProducts } from "../services/warehouseService.js";
 import productVariantDao from "../dao/product-variant.dao.js";
 import productWarehouseStockDao from "../dao/product-warehouse-stock.dao.js";
 import categoryDao from "../dao/category.dao.js";
-import sellerDao from "../dao/seller.dao.js";
 import deliveryZoneDao from "../dao/delivery-zone.dao.js";
 import partnerDao from "../dao/partner.dao.js";
 import stockMovementDao from "../dao/stock-movement.dao.js";
@@ -320,6 +330,22 @@ export const getProductById = async (req, res) => {
       return res.status(400).json({ error: "Product ID is required" });
     }
 
+    // ── Cache-aside ─────────────────────────────────────────────────────────
+    const hasPincode = !!(pincode && /^\d{6}$/.test(pincode));
+    const cacheKey = hasPincode ? productWithPincodeKey(id, pincode) : productKey(id);
+    const cached = await redisGet(cacheKey);
+    if (cached) {
+      res.setHeader('X-Cache', 'HIT');
+      res.setHeader(
+        'Cache-Control',
+        hasPincode
+          ? 'private, max-age=30, stale-while-revalidate=120'
+          : 'public, s-maxage=60, stale-while-revalidate=300',
+      );
+      return res.status(200).json(cached);
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     const product = await productDao.getProductById(id);
 
     if (!product || !product.active) {
@@ -328,7 +354,6 @@ export const getProductById = async (req, res) => {
 
     // Run delivery zone lookup, pincode check, and availability enrichment in parallel
     const isZonal = product.delivery_type === "zonal" && product.allowed_zone_ids?.length > 0;
-    const hasPincode = pincode && /^\d{6}$/.test(pincode);
 
     let transformedProduct = transformProduct(product);
 
@@ -347,7 +372,7 @@ export const getProductById = async (req, res) => {
       ...(hasPincode && { can_deliver_to_pincode: canDeliver, checked_pincode: pincode }),
     };
 
-    res.status(200).json({
+    const responseBody = {
       success: true,
       product: {
         ...transformedProduct,
@@ -366,7 +391,19 @@ export const getProductById = async (req, res) => {
           return (a.sort_order || 0) - (b.sort_order || 0);
         }),
       },
-    });
+    };
+
+    // Cache the full response payload
+    await redisSet(cacheKey, responseBody, PRODUCT_TTL);
+
+    res.setHeader('X-Cache', 'MISS');
+    res.setHeader(
+      'Cache-Control',
+      hasPincode
+        ? 'private, max-age=30, stale-while-revalidate=120'
+        : 'public, s-maxage=60, stale-while-revalidate=300',
+    );
+    res.status(200).json(responseBody);
   } catch (error) {
     console.error("Server error:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -1162,15 +1199,33 @@ export const getRelatedProductsBySubcategory = async (req, res) => {
       return res.status(400).json({ success: false, error: "productId is required" });
     }
 
+    // ── Cache-aside ─────────────────────────────────────────────────────────
+    const cacheKey = relatedProductsKey(productId);
+    const cached = await redisGet(cacheKey);
+    if (cached) {
+      res.setHeader('X-Cache', 'HIT');
+      res.setHeader('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600');
+      return res.status(200).json(cached);
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     const products = await productDao.getRelatedProductsBySubcategory(productId, parseInt(limit));
     let transformedProducts = products.map(product => transformProduct(product));
+    // Filter out the current product before caching
+    transformedProducts = transformedProducts.filter(p => p.id !== productId);
     transformedProducts = await enrichWithAvailability(req, transformedProducts);
 
-    res.status(200).json({
+    const responseBody = {
       success: true,
       products: transformedProducts,
       total: transformedProducts.length,
-    });
+    };
+
+    await redisSet(cacheKey, responseBody, RELATED_TTL);
+
+    res.setHeader('X-Cache', 'MISS');
+    res.setHeader('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600');
+    res.status(200).json(responseBody);
   } catch (error) {
     console.error("getRelatedProductsBySubcategory error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
@@ -1563,129 +1618,93 @@ export const checkProductAvailability = async (req, res) => {
 export const checkCartAvailability = async (req, res) => {
   try {
     const { items, pincode } = req.body;
-    if (!items || !Array.isArray(items) || !pincode) return res.status(400).json({ success: false, error: "Invalid input" });
-
-    const divisionWarehouseResults = await warehousePincodeDao.getByPincode(pincode);
-    const zonePincodeResults = await zonePincodeDao.getByPincode(pincode);
-
-    const divisionWarehouse = divisionWarehouseResults && divisionWarehouseResults.length > 0 ? divisionWarehouseResults[0] : null;
-    const zonePincode = zonePincodeResults && zonePincodeResults.length > 0 ? zonePincodeResults[0] : null;
-
-    const results = [];
-    let allAvailable = true;
-    let maxDeliveryDays = 0;
-
-    for (const item of items) {
-      const { product_id, variant_id, quantity } = item;
-      const product = await productDao.getProductById(product_id);
-      if (!product) {
-        results.push({ product_id, variant_id, available: false, error: "Product not found" });
-        allAvailable = false;
-        continue;
-      }
-
-      let availabilityInfo = null;
-
-      // 1. Check Seller
-      if (divisionWarehouse) {
-        const bestSeller = await sellerDao.getFirstAvailableSeller(product_id, variant_id, divisionWarehouse.warehouse_id, quantity);
-        if (bestSeller && bestSeller.is_open !== false) {
-          availabilityInfo = {
-            product_id,
-            variant_id,
-            product_name: product.name,
-            available: true,
-            warehouse_type: "seller",
-            warehouse_id: divisionWarehouse.warehouse_id,
-            warehouse_name: divisionWarehouse.warehouse?.name,
-            seller_id: bestSeller.id,
-            seller_name: bestSeller.business_name || bestSeller.name || "Multiple Sellers",
-            delivery_days: 0.1,
-            delivery_message: "Delivery in 2hr",
-            available_quantity: bestSeller.stock_quantity,
-            requested_quantity: quantity,
-          };
-          maxDeliveryDays = Math.max(maxDeliveryDays, 1);
-        }
-      }
-
-      // 2. Check Division Warehouse
-      if (!availabilityInfo && divisionWarehouse) {
-        const divisionStock = variant_id 
-          ? await productWarehouseStockDao.getByVariantAndWarehouse(variant_id, divisionWarehouse.warehouse_id)
-          : await productWarehouseStockDao.getByProductAndWarehouse(product_id, divisionWarehouse.warehouse_id);
-          
-        const availableQty = divisionStock ? divisionStock.stock_quantity - (divisionStock.reserved_quantity || 0) : 0;
-        if (availableQty >= quantity) {
-          availabilityInfo = {
-            product_id,
-            variant_id,
-            product_name: product.name,
-            available: true,
-            warehouse_type: "division",
-            warehouse_id: divisionWarehouse.warehouse_id,
-            warehouse_name: divisionWarehouse.warehouse?.name || divisionWarehouse.warehouses?.name,
-            delivery_days: 0.1,
-            delivery_message: "Delivery in 2hr",
-            available_quantity: availableQty,
-            requested_quantity: quantity,
-          };
-          maxDeliveryDays = Math.max(maxDeliveryDays, 1);
-        }
-      }
-
-      // 3. Check Zonal Warehouse
-      if (!availabilityInfo && zonePincode) {
-        const zonalWarehouses = await deliveryZoneDao.getZonalWarehouses(zonePincode.zone_id);
-        for (const warehouse of zonalWarehouses) {
-          const zonalStock = variant_id
-            ? await productWarehouseStockDao.getByVariantAndWarehouse(variant_id, warehouse.id)
-            : await productWarehouseStockDao.getByProductAndWarehouse(product_id, warehouse.id);
-            
-          const availableQty = zonalStock ? zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0) : 0;
-          if (availableQty >= quantity) {
-            availabilityInfo = {
-              product_id,
-              variant_id,
-              product_name: product.name,
-              available: true,
-              warehouse_type: "zonal",
-              warehouse_id: warehouse.id,
-              warehouse_name: warehouse.name,
-              delivery_days: 0.5,
-              delivery_message: "Same day delivery",
-              available_quantity: availableQty,
-              requested_quantity: quantity,
-            };
-            maxDeliveryDays = Math.max(maxDeliveryDays, 0.5);
-            break;
-          }
-        }
-      }
-
-      if (availabilityInfo) {
-        results.push(availabilityInfo);
-      } else {
-        results.push({
-          product_id,
-          variant_id,
-          product_name: product.name,
-          available: false,
-          delivery_message: "Not available",
-          requested_quantity: quantity
-        });
-        allAvailable = false;
-      }
+    if (!items || !Array.isArray(items) || !pincode) {
+      return res.status(400).json({ success: false, error: "Invalid input" });
     }
 
-    res.json({
-      success: true, all_available: allAvailable, pincode, max_delivery_days: maxDeliveryDays,
-      delivery_message: maxDeliveryDays === 1 ? "Delivery in 1 day" : maxDeliveryDays === 3 ? "Delivery in 3-4 working days" : "Delivery time varies",
+    res.setHeader('Cache-Control', 'no-store');
+
+    // ── Per-item Redis cache check ───────────────────────────────────────────
+    const cacheKeys = items.map((item) =>
+      availabilityKey(item.product_id, item.variant_id || null, pincode),
+    );
+    const cachedValues = await Promise.all(cacheKeys.map((k) => redisGet(k)));
+
+    const uncachedItems = [];
+    const resultMap = new Map();
+
+    items.forEach((item, idx) => {
+      if (cachedValues[idx]) {
+        resultMap.set(item.product_id, cachedValues[idx]);
+      } else {
+        uncachedItems.push(item);
+      }
+    });
+    // ────────────────────────────────────────────────────────────────────────
+
+    // Use the same warehouse lookup as order placement so cart and checkout always agree
+    if (uncachedItems.length > 0) {
+      const mappedItems = uncachedItems.map((item) => ({
+        productId: item.product_id,
+        variantId: item.variant_id || null,
+        quantity: parseInt(item.quantity, 10) || 1,
+        productType: item.product_type || null,
+      }));
+
+      const { successes } = await findWarehouseForProducts(mappedItems, pincode);
+      const successSet = new Map(successes.map((s) => [s.item.productId, s.warehouseInfo]));
+
+      await Promise.all(
+        uncachedItems.map(async (item) => {
+          const warehouseInfo = successSet.get(item.product_id);
+          const itemResult = warehouseInfo
+            ? {
+                product_id: item.product_id,
+                variant_id: item.variant_id || null,
+                available: true,
+                warehouse_type: warehouseInfo.assignment_source,
+                warehouse_id: warehouseInfo.warehouse_id,
+                warehouse_name: warehouseInfo.warehouse_name,
+                delivery_message:
+                  warehouseInfo.assignment_source === "zonal"
+                    ? "Same day delivery"
+                    : "Delivery in 2hr",
+                requested_quantity: item.quantity,
+              }
+            : {
+                product_id: item.product_id,
+                variant_id: item.variant_id || null,
+                available: false,
+                delivery_message: "Not available at your location",
+                requested_quantity: item.quantity,
+              };
+
+          resultMap.set(item.product_id, itemResult);
+
+          // Only cache positive results — negative availability can change quickly
+          if (itemResult.available) {
+            await redisSet(
+              availabilityKey(item.product_id, item.variant_id || null, pincode),
+              itemResult,
+              AVAILABILITY_TTL,
+            );
+          }
+        }),
+      );
+    }
+
+    const results = items.map((item) => resultMap.get(item.product_id));
+    const allAvailable = results.every((r) => r?.available);
+
+    return res.json({
+      success: true,
+      all_available: allAvailable,
+      pincode,
       items: results,
     });
   } catch (error) {
     console.error("Error in checkCartAvailability:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
+    return res.status(500).json({ success: false, error: "Internal server error" });
   }
 };
 

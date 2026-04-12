@@ -17,11 +17,11 @@ import userControlDao from "../dao/user.dao.js";
 import chargeSettingDao from "../dao/charge-setting.dao.js";
 import prisma from "../config/prisma.js";
 import subOrderDao from "../dao/sub-order.dao.js";
-import { routeSubOrders } from "../services/fulfillmentRouter.js";
-import { geocodeAddress, buildAddressString } from '../utils/geocode.js';
+import { buildAddressString } from '../utils/geocode.js';
 import walletDao from "../dao/wallet.dao.js";
-import { findWarehouseForProduct, findWarehouseForProducts } from "../services/warehouseService.js";
+import { findWarehouseForProducts } from "../services/warehouseService.js";
 import cache from "../utils/cache.js";
+import { publishJob } from "../utils/publishJob.js";
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -407,46 +407,51 @@ export const placeOrder = async (req, res) => {
     }
     const deliverabilityValidation = { success: true, pincode };
 
-    const preparedItems = [];
-
+    // Resolve variant IDs first (needed for parallel warehouse lookup)
+    const itemsWithVariants = [];
     for (const item of items) {
       const productId = item.product_id || item.id || item.product?.id;
       if (!productId) {
-        return res.status(400).json({ success: false, error: "Order item is missing product_id" });
+        return res.status(400).json({ success: false, error: 'Order item is missing product_id' });
       }
-
       const quantity = parseInt(item.quantity, 10) || 1;
-
-      // ✅ OPTIMIZATION: Use variant from cart if available, else resolve
       const variantId = item.variant_id || (await resolveOrderItemVariantId(item, productId));
       if (!variantId) {
         return res.status(400).json({ success: false, error: `No variant found for product ${productId}` });
       }
-
-      // ✅ OPTIMIZATION: Use warehouse info from cart if available (passed from frontend)
-      // This avoids redundant warehouse lookup queries
-      let warehouseInfo = item.warehouseInfo || item.warehouse_info;
-
-      if (!warehouseInfo) {
-        // Fall back to warehouse lookup only if not provided from cart
-        warehouseInfo = await findWarehouseForProduct(
-          productId,
-          deliverabilityValidation.pincode,
-          item.product_type,
-          quantity,
-          variantId
-        );
-      }
-
-      if (!warehouseInfo) {
-        return res.status(400).json({
-          success: false,
-          error: `Product ${productId} is not available for pincode ${deliverabilityValidation.pincode}`,
-        });
-      }
-
-      preparedItems.push({ item, productId, quantity, variantId, warehouseInfo });
+      itemsWithVariants.push({ item, productId, quantity, variantId });
     }
+
+    // Parallel warehouse lookup — replaces the sequential per-item loop
+    const { successes: warehouseResults, failures: warehouseFailures } =
+      await findWarehouseForProducts(
+        itemsWithVariants.map(({ productId, variantId, quantity, item }) => ({
+          productId,
+          variantId,
+          quantity,
+          productType: item.product_type,
+        })),
+        deliverabilityValidation.pincode
+      );
+
+    if (warehouseFailures.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Some items are not deliverable to this pincode',
+        unavailable_products: warehouseFailures.map(f => ({
+          product_id: f.productId,
+          reason: f.reason,
+        })),
+      });
+    }
+
+    const preparedItems = itemsWithVariants.map(({ item, productId, quantity, variantId }, idx) => ({
+      item,
+      productId,
+      quantity,
+      variantId,
+      warehouseInfo: warehouseResults[idx].warehouseInfo,
+    }));
 
     // ✅ Generate single OTP for all sub-orders (zonal, division, etc.)
     const deliveryOtp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -555,45 +560,36 @@ export const placeOrder = async (req, res) => {
         });
       }
 
-      routeSubOrders(order.id).catch(err =>
-        console.error('Fulfillment routing error:', err.message)
-      );
     } catch (subOrderErr) {
       console.error('Sub-order creation error:', subOrderErr.message, subOrderErr.stack);
     }
     // ─────────────────────────────────────────────────────────────────────────
 
-    // Geocode delivery address in background only if GPS not already provided
+    // Respond to the user immediately — all async work is queued below
+    const response = res.json({
+      success: true,
+      order,
+      message: 'Order placed successfully.',
+    });
+
+    // Enqueue geocoding (only if GPS not provided directly by client)
     if (bodyLat == null || bodyLon == null) {
-      setImmediate(async () => {
-        try {
-          const addressString = buildAddressString({
-            addressLine1: address,
-            city: '',
-            state: '',
-            pincode: deliverabilityValidation.pincode,
-          });
-          const geo = await geocodeAddress(addressString);
-          if (geo?.latitude && geo?.longitude) {
-            await prisma.orders.update({
-              where: { id: order.id },
-              data: {
-                delivery_latitude: geo.latitude,
-                delivery_longitude: geo.longitude,
-              },
-            });
-          }
-        } catch (geoErr) {
-          console.error('[orderController] geocode failed for order', order.id, geoErr.message);
-        }
+      const addressString = buildAddressString({
+        addressLine1: address,
+        city: '',
+        state: '',
+        pincode: deliverabilityValidation.pincode,
+      });
+      await publishJob('geocode_order', {
+        orderId: order.id,
+        addressString,
       });
     }
 
-    return res.json({
-      success: true,
-      order,
-      message: "Order placed successfully. Warehouse assignments are stored in order items.",
-    });
+    // Enqueue fulfillment routing
+    await publishJob('fulfillment_routing', { orderId: order.id });
+
+    return response;
   } catch (error) {
     console.error("Error in placeOrder:", error);
     return res.status(500).json({ success: false, error: error.message });
@@ -644,11 +640,6 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
         error: "Please complete profile with valid name and mobile number before placing order",
       });
     }
-
-    // Delivery coordinates are resolved from the delivery address itself — not the
-    // device GPS — so orders placed for family/friends at a different location are
-    // handled correctly. deliveryGeo is populated below after addressString is built.
-    let deliveryGeo = null;
 
     // Use charges from request (snapshot) or fetch current settings as fallback
     let finalChargeSettings = {
@@ -722,17 +713,6 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
     ]
       .filter(Boolean)
       .join(", ");
-
-    // Geocode the delivery address synchronously (4s timeout) so coordinates are
-    // available immediately. If it times out, a retry is queued after order creation.
-    try {
-      deliveryGeo = await Promise.race([
-        geocodeAddress(addressString),
-        new Promise((resolve) => setTimeout(() => resolve(null), 4000)),
-      ]);
-    } catch {
-      deliveryGeo = null;
-    }
 
     const pincodeStr = detailedAddress.postalCode?.trim() || "";
 
@@ -916,11 +896,6 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
           coupon_discount: coupon_discount ? parseFloat(coupon_discount) : 0,
           is_bulk_order: hasBulkOrder,
           ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
-          // Use geocoded delivery address coordinates (resolved from addressString above)
-          ...(deliveryGeo?.latitude && deliveryGeo?.longitude ? {
-            delivery_latitude: deliveryGeo.latitude,
-            delivery_longitude: deliveryGeo.longitude,
-          } : {}),
           ...finalChargeSettings,
         },
       });
@@ -971,26 +946,8 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
     });
     // ─────────────────────────────────────────────────────────────────────────
 
-    // ── Async fulfillment routing (outside tx, non-blocking) ─────────────────
-    routeSubOrders(order.id).catch(err =>
-      console.error('[Order] Fulfillment routing error:', err.message)
-    );
-
-    // ── Queue geocoding retry if synchronous attempt timed out ───────────────
-    if (!deliveryGeo) {
-      prisma.geocode_retry_queue.create({
-        data: {
-          address_string: addressString,
-          entity_type: 'ORDER',
-          entity_id: order.id,
-          resolved: false,
-          attempts: 0,
-        },
-      }).catch(err => console.error('[geocode] Failed to queue retry for order', order.id, err.message));
-    }
-    // ─────────────────────────────────────────────────────────────────────────
-
-    return res.status(201).json({
+    // Respond immediately — geocoding and fulfillment routing are queued below
+    const response = res.status(201).json({
       success: true,
       order,
       subOrders: createdSubOrders.map(s => ({
@@ -1000,6 +957,17 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
         estimatedDeliveryAt: s.estimated_delivery_at,
       })),
     });
+
+    // Enqueue geocoding in background
+    await publishJob('geocode_order', {
+      orderId: order.id,
+      addressString,
+    });
+
+    // Enqueue fulfillment routing in background
+    await publishJob('fulfillment_routing', { orderId: order.id });
+
+    return response;
   } catch (error) {
     console.error("Error in placeOrderWithDetailedAddress:", error);
     return res.status(500).json({ success: false, error: error.message });
