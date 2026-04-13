@@ -6,15 +6,19 @@ class GroupDAO {
     }
 
     async getById(id) {
-        return await prisma.groups.findUnique({
+        const group = await prisma.groups.findUnique({
             where: { id },
             include: {
-                subcategory: true,
+                subcategories: true,
                 _count: {
                     select: { products: true }
                 }
             }
         });
+        if (group) {
+            group.subcategory = group.subcategories;
+        }
+        return group;
     }
 
     async listBySubcategory(subcategoryId, activeOnly = true) {

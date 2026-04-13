@@ -53,16 +53,21 @@ class CategoryDAO {
   }
 
   async getSubcategoryById(id, activeOnly = false) {
-    return await prisma.subcategories.findUnique({
+    const sub = await prisma.subcategories.findUnique({
       where: { id },
       include: {
-        category: true,
+        categories: true,
         groups: {
           where: activeOnly ? { active: true } : {},
           orderBy: { sort_order: "asc" },
         },
       },
     });
+
+    if (sub) {
+      sub.category = sub.categories;
+    }
+    return sub;
   }
 
   async getSubcategoriesByCategoryId(categoryId) {
@@ -182,14 +187,17 @@ class CategoryDAO {
       }),
       prisma.subcategories.findMany({
         where: { active: true, featured: true },
-        include: { category: { select: { name: true } } },
+        include: { categories: { select: { name: true } } },
         orderBy: { name: "asc" },
       }),
     ]);
 
     return {
       categories: featuredCategories,
-      subcategories: featuredSubcategories,
+      subcategories: featuredSubcategories.map(sub => ({
+        ...sub,
+        category: sub.categories
+      })),
     };
   }
 
