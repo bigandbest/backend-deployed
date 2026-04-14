@@ -114,6 +114,12 @@ class CategoryDAO {
     });
   }
 
+  async getGroupById(id) {
+    return await prisma.groups.findUnique({
+      where: { id },
+    });
+  }
+
   async getGroupsBySubcategoryId(subcategoryId) {
     return await prisma.groups.findMany({
       where: { subcategory_id: subcategoryId },
