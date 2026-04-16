@@ -72,7 +72,7 @@ export const getProductsForDailyDeal = async (req, res) => {
     const data = await dailyDealsProductDao.getProductsByDealId(daily_deal_id);
 
     // Extract actual product objects
-    const productsList = data.map((item) => item.product).filter((p) => p !== null);
+    const productsList = data.map((item) => item.product).filter(Boolean);
 
     // Enrich with inventory
     const enrichedProducts = await productDao.enrichProductsWithInventory(
@@ -131,6 +131,7 @@ export const getProductsForDailyDeal = async (req, res) => {
         title: dealData.title,
         discount: dealData.discount,
         image_url: dealData.image_url,
+        banner: dealData.banner ?? null,
       },
       products: formattedProducts,
       total: formattedProducts.length,
