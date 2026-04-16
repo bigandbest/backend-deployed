@@ -31,10 +31,17 @@ export async function addBanner(req, res) {
         "Uploading banner image to Cloudinary:",
         imageFile.originalname,
       );
+      const bannerTransformation =
+        banner_type === "daily_deals"
+          ? [{ width: 1200, height: 400, crop: "fill", gravity: "auto", quality: "auto", fetch_format: "auto" }]
+          : null;
+
       const uploadResult = await uploadToCloudinary(
         imageFile.buffer,
         "addBanner",
         imageFile.mimetype,
+        null,
+        bannerTransformation,
       );
 
       if (!uploadResult.success) {
@@ -107,11 +114,18 @@ export async function updateBanner(req, res) {
         "Uploading banner update image to Cloudinary:",
         imageFile.originalname,
       );
+      const effectiveBannerType = banner_type ?? existingBanner?.banner_type;
+      const bannerTransformation =
+        effectiveBannerType === "daily_deals"
+          ? [{ width: 1200, height: 400, crop: "fill", gravity: "auto", quality: "auto", fetch_format: "auto" }]
+          : null;
+
       const uploadResult = await uploadToCloudinary(
         imageFile.buffer,
         "addBanner",
         imageFile.mimetype,
         existingBanner?.image_url ?? null,
+        bannerTransformation,
       );
 
       if (!uploadResult.success) {
