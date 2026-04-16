@@ -29,6 +29,7 @@ export const extractPublicId = (url) => {
  * @param {string} folder           - Cloudinary folder (default: 'uploads')
  * @param {string} mimeType
  * @param {string} [oldImageUrl]    - Existing image URL to delete before upload
+ * @param {Array<object>} [transformations] - Optional Cloudinary transformation array
  * @returns {Promise<{success: boolean, secure_url?: string, public_id?: string, error?: any}>}
  */
 export const uploadToCloudinary = async (
