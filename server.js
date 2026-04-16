@@ -36,6 +36,7 @@ import dailyDealsProductRoutes from "./routes/dailyDealsProductRoutes.js";
 import brandRoutes from "./routes/brandRoutes.js";
 import brandProductsRoutes from "./routes/brandProducts.js";
 import recommendedStoreRoutes from "./routes/recommendedStoreRoutes.js";
+import productRecommendedStoreRoutes from "./routes/productRecommendedStoreRoutes.js";
 import quickPickRoutes from "./routes/quickPickRoutes.js";
 import quickPickGroupRoutes from "./routes/quickPickGroupRoutes.js";
 import quickPickGroupProductRoutes from "./routes/quickPickGroupProductRoutes.js";
@@ -226,7 +227,7 @@ const createApp = () => {
 
   app.use("/api/product-brand", brandProductsRoutes);
   app.use("/api/recommended-stores", recommendedStoreRoutes);
-  app.use("/api/product-recommended-stores", recommendedStoreRoutes);
+  app.use("/api/product-recommended-stores", productRecommendedStoreRoutes);
   app.use("/api/quick-pick", quickPickRoutes);
   app.use("/api/quick-pick-group", quickPickGroupRoutes);
   app.use("/api/quick-pick-group-product", quickPickGroupProductRoutes);

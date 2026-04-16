@@ -41,7 +41,10 @@ class ProductRecommendedStoreDAO {
             include: {
                 products: {
                     include: {
-                        product_variants: true
+                        variants: true,
+                        media: true,
+                        brands: { include: { brand: true } },
+                        category: true,
                     }
                 }
             }

@@ -241,14 +241,25 @@ export async function getProductsForRecommendedStore(req, res) {
       .filter((item) => item.products && item.products.active)
       .map((item) => {
         const product = item.products;
-        // Simplified mapping
+        const defaultVariant =
+          product.variants?.find((v) => v.is_default) ||
+          product.variants?.[0] ||
+          {};
+
         return {
           id: product.id,
           name: product.name,
-          price: parseFloat(product.price),
+          price: parseFloat(defaultVariant.price) || 0,
+          oldPrice: parseFloat(defaultVariant.old_price) || 0,
           rating: product.rating,
-          category: product.category,
-          // ... map other fields as needed
+          category: product.category?.name || null,
+          category_id: product.category_id,
+          image: product.media?.[0]?.url || null,
+          media: product.media || [],
+          variants: product.variants || [],
+          brand: product.brands?.[0]?.brand?.name || null,
+          active: product.active,
+          has_variants: product.has_variants,
           created_at: product.created_at,
         };
       });
@@ -261,8 +272,6 @@ export async function getProductsForRecommendedStore(req, res) {
         (p) => p.price >= min && p.price <= max,
       );
     }
-
-    // ... apply other filters ...
 
     res.status(200).json({
       success: true,

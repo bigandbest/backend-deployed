@@ -5,6 +5,10 @@ import addBannerDao from "../dao/add-banner.dao.js";
 import productDao from "../dao/product.dao.js";
 
 // --- Daily Deal Controllers ---
+const isUuid = (value) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value || ""),
+  );
 
 // Add a Daily Deal
 export async function addDailyDeal(req, res) {
@@ -33,6 +37,12 @@ export async function addDailyDeal(req, res) {
     }
 
     if (banner_id) {
+      if (!isUuid(banner_id)) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid banner_id format. Expected UUID.",
+        });
+      }
       const bannerData = await addBannerDao.getById(banner_id);
       if (!bannerData || bannerData.banner_type !== "daily_deals") {
         return res
@@ -101,6 +111,12 @@ export async function updateDailyDeal(req, res) {
       if (banner_id === null || banner_id === "" || banner_id === "null") {
         updateData.banner_id = null;
       } else {
+        if (!isUuid(banner_id)) {
+          return res.status(400).json({
+            success: false,
+            error: "Invalid banner_id format. Expected UUID.",
+          });
+        }
         const bannerData = await addBannerDao.getById(banner_id);
         if (!bannerData || bannerData.banner_type !== "daily_deals") {
           return res
@@ -250,8 +266,10 @@ export const getProductsForDailyDeal = async (req, res) => {
         .json({ success: false, error: "Daily deal not found" });
 
     const data = await dailyDealsProductDao.getProductsByDealId(daily_deal_id);
-    const products = data.map((item) => {
-      const p = item.product;
+    const products = data
+      .map((item) => item.products)
+      .filter(Boolean)
+      .map((p) => {
       const defaultVariant =
         p.variants?.find((v) => v.is_default) || p.variants?.[0] || {};
       return {
@@ -269,7 +287,7 @@ export const getProductsForDailyDeal = async (req, res) => {
         brand: "BigandBest",
         description: p.description,
       };
-    });
+      });
 
     res.status(200).json({
       success: true,

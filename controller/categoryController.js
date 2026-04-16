@@ -11,10 +11,17 @@ export const addCategory = async (req, res) => {
   try {
     const categoryData = { ...req.body };
     // Parse boolean fields manually because multer converts everything to strings
-    if (categoryData.active !== undefined)
-      categoryData.active = categoryData.active === "true";
-    if (categoryData.featured !== undefined)
-      categoryData.featured = categoryData.featured === "true";
+    // Handle both string and boolean types
+    if (categoryData.active !== undefined) {
+      if (typeof categoryData.active === "string") {
+        categoryData.active = categoryData.active === "true";
+      }
+    }
+    if (categoryData.featured !== undefined) {
+      if (typeof categoryData.featured === "string") {
+        categoryData.featured = categoryData.featured === "true";
+      }
+    }
 
     let imageUrl = categoryData.image_url;
 
@@ -65,11 +72,17 @@ export const updateCategory = async (req, res) => {
     const { id } = req.params;
     const updates = { ...req.body };
 
-    // Parse boolean fields
-    if (updates.active !== undefined)
-      updates.active = updates.active === "true";
-    if (updates.featured !== undefined)
-      updates.featured = updates.featured === "true";
+    // Parse boolean fields - handle both string and boolean types
+    if (updates.active !== undefined) {
+      if (typeof updates.active === "string") {
+        updates.active = updates.active === "true";
+      }
+    }
+    if (updates.featured !== undefined) {
+      if (typeof updates.featured === "string") {
+        updates.featured = updates.featured === "true";
+      }
+    }
 
     let imageUrl = updates.image_url;
 
@@ -292,11 +305,17 @@ export const addSubcategory = async (req, res) => {
 
     await validateCategoryCreationLock(subcategoryData.category_id);
 
-    // Parse boolean fields
-    if (subcategoryData.active !== undefined)
-      subcategoryData.active = subcategoryData.active === "true";
-    if (subcategoryData.featured !== undefined)
-      subcategoryData.featured = subcategoryData.featured === "true";
+    // Parse boolean fields - handle both string and boolean types
+    if (subcategoryData.active !== undefined) {
+      if (typeof subcategoryData.active === "string") {
+        subcategoryData.active = subcategoryData.active === "true";
+      }
+    }
+    if (subcategoryData.featured !== undefined) {
+      if (typeof subcategoryData.featured === "string") {
+        subcategoryData.featured = subcategoryData.featured === "true";
+      }
+    }
     // Parse integer fields
     if (subcategoryData.sort_order !== undefined)
       subcategoryData.sort_order = parseInt(subcategoryData.sort_order);
@@ -350,11 +369,17 @@ export const updateSubcategory = async (req, res) => {
   try {
     const { id } = req.params;
     const updates = { ...req.body };
-    // Parse boolean fields
-    if (updates.active !== undefined)
-      updates.active = updates.active === "true";
-    if (updates.featured !== undefined)
-      updates.featured = updates.featured === "true";
+    // Parse boolean fields - handle both string and boolean types
+    if (updates.active !== undefined) {
+      if (typeof updates.active === "string") {
+        updates.active = updates.active === "true";
+      }
+    }
+    if (updates.featured !== undefined) {
+      if (typeof updates.featured === "string") {
+        updates.featured = updates.featured === "true";
+      }
+    }
     // Parse integer fields
     if (updates.sort_order !== undefined)
       updates.sort_order = parseInt(updates.sort_order);
@@ -506,11 +531,17 @@ export const addGroup = async (req, res) => {
 
     await validateGroupCreationLock(groupData.subcategory_id);
 
-    // Parse boolean fields
-    if (groupData.active !== undefined)
-      groupData.active = groupData.active === "true";
-    if (groupData.featured !== undefined)
-      groupData.featured = groupData.featured === "true";
+    // Parse boolean fields - handle both string and boolean types
+    if (groupData.active !== undefined) {
+      if (typeof groupData.active === "string") {
+        groupData.active = groupData.active === "true";
+      }
+    }
+    if (groupData.featured !== undefined) {
+      if (typeof groupData.featured === "string") {
+        groupData.featured = groupData.featured === "true";
+      }
+    }
     // Parse integer fields
     if (groupData.sort_order !== undefined)
       groupData.sort_order = parseInt(groupData.sort_order);
@@ -564,11 +595,17 @@ export const updateGroup = async (req, res) => {
   try {
     const { id } = req.params;
     const updates = { ...req.body };
-    // Parse boolean fields
-    if (updates.active !== undefined)
-      updates.active = updates.active === "true";
-    if (updates.featured !== undefined)
-      updates.featured = updates.featured === "true";
+    // Parse boolean fields - handle both string and boolean types
+    if (updates.active !== undefined) {
+      if (typeof updates.active === "string") {
+        updates.active = updates.active === "true";
+      }
+    }
+    if (updates.featured !== undefined) {
+      if (typeof updates.featured === "string") {
+        updates.featured = updates.featured === "true";
+      }
+    }
     // Parse integer fields
     if (updates.sort_order !== undefined)
       updates.sort_order = parseInt(updates.sort_order);
@@ -677,8 +714,11 @@ export const deleteGroup = async (req, res) => {
 export const getCategoriesHierarchy = async (req, res) => {
   try {
     // Get categories
-    // Use DAO's full hierarchy method - false for activeOnly to show all in admin
-    const categories = await CategoryDAO.getFullHierarchy(false);
+    // Check if admin is requesting all categories (including inactive)
+    const includeInactive = req.query.includeInactive === "true";
+    const activeOnly = !includeInactive;
+    // Use DAO's full hierarchy method
+    const categories = await CategoryDAO.getFullHierarchy(activeOnly);
     // DAO returns structure that matches controller's expected output?
     // DAO returns: categories -> subcategories -> groups
     // The controller response format: `categories: hierarchy`
@@ -709,15 +749,18 @@ export const getCategoriesHierarchy = async (req, res) => {
   }
 };
 
-// Get ALL categories with subcategories - direct Prisma query, no DAO layer, no filtering
+// Get ALL categories with subcategories - only active categories for frontend
 // GET /api/categories/all-with-subcategories
 export const getAllCategoriesWithSubs = async (req, res) => {
   try {
     const categories = await prisma.categories.findMany({
+      where: { active: true },
       include: {
         subcategories: {
+          where: { active: true },
           include: {
             groups: {
+              where: { active: true },
               orderBy: { sort_order: "asc" },
             },
           },
