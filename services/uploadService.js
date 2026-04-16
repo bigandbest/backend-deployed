@@ -36,6 +36,7 @@ export const uploadToCloudinary = async (
   folder = "uploads",
   mimeType,
   oldImageUrl = null,
+  transformations = null,
 ) => {
   // Delete old image from Cloudinary if one exists
   if (oldImageUrl) {
@@ -57,6 +58,7 @@ export const uploadToCloudinary = async (
         folder: folder,
         resource_type: "auto",
         timeout: 120000,
+        ...(transformations && { transformation: transformations }),
       },
       (error, result) => {
         if (error) {
