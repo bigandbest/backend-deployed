@@ -103,7 +103,7 @@ export async function buildInvoicePDF(order, config) {
   const buffers = [];
   doc.on("data", (chunk) => buffers.push(chunk));
 
-  const state = getStateFromPincode(order.delivery_pincode);
+  const state = getStateFromPincode(order.delivery_pincode) ?? { name: "UTTAR PRADESH", code: "09" };
   const invoiceDate = new Date(order.created_at).toLocaleDateString("en-IN", {
     day: "2-digit", month: "2-digit", year: "numeric",
   });
@@ -260,10 +260,10 @@ export async function buildInvoicePDF(order, config) {
   doc.text(`FSSAI Lic. No: ${config.platform.fssai}`, startX, doc.y);
   doc.text(`Email: ${config.platform.email}`, startX, doc.y);
 
-  doc.end();
-
-  return new Promise((resolve, reject) => {
+  const endPromise = new Promise((resolve, reject) => {
     doc.on("end", () => resolve(Buffer.concat(buffers)));
     doc.on("error", reject);
   });
+  doc.end();
+  return endPromise;
 }
