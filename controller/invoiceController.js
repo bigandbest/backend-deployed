@@ -7,7 +7,7 @@ import { buildInvoicePDF } from "../services/invoiceService.js";
 // Shared optimized Prisma query — minimal select, no unused joins
 async function fetchOrderForInvoice(orderId) {
   return prisma.orders.findUnique({
-    where: { id: parseInt(orderId, 10) },
+    where: { id: String(orderId) },
     select: {
       id: true,
       receiver_name: true,
@@ -45,8 +45,8 @@ async function fetchOrderForInvoice(orderId) {
 // GET /orders/:id/invoice
 export async function getInvoice(req, res) {
   try {
-    const orderId = parseInt(req.params.id, 10);
-    if (isNaN(orderId)) {
+    const orderId = String(req.params.id || "").trim();
+    if (!orderId) {
       return res.status(400).json({ success: false, error: "Invalid order ID" });
     }
 
@@ -93,8 +93,8 @@ export async function getBatchInvoice(req, res) {
     }
 
     const parsedIds = orderIds
-      .map((id) => parseInt(id, 10))
-      .filter((id) => !isNaN(id));
+      .map((id) => String(id || "").trim())
+      .filter(Boolean);
 
     if (parsedIds.length === 0) {
       return res.status(400).json({ success: false, error: "No valid order IDs provided" });
