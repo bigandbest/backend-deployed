@@ -25,6 +25,7 @@ import { getProductsCartData } from "./controller/productController.js";
 import locationRoute from "./routes/locationRoutes.js";
 import cartRoutes from "./routes/cartRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
+import invoiceRoutes from "./routes/invoiceRoutes.js";
 import checkCartAvailabilityRoute from "./routes/checkCartAvailabilityRoute.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
@@ -214,6 +215,7 @@ const createApp = () => {
   app.use("/api/cart", cartRoutes);
   app.use("/api/order", orderRoutes);
   app.use("/api/orderItems", orderRoutes); // Now pointing to the same merged file
+  app.use("/api/orders", invoiceRoutes);
   app.use("/api/check", checkCartAvailabilityRoute);
   app.use("/api/payment", paymentRoutes);
   app.use("/api/notifications", notificationRoutes);
