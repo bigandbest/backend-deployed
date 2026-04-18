@@ -5,19 +5,14 @@ import { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = global;
 
-// In production (Vercel/serverless) keep connection_limit=1 to work with PgBouncer.
-// In local development, boost the pool so concurrent homepage requests don't starve each other.
 const buildDatabaseUrl = () => {
   const raw = process.env.DATABASE_URL || "";
-  if (process.env.NODE_ENV === "production") return raw;
   try {
     const url = new URL(raw);
-    if (!url.searchParams.has("connection_limit")) {
-      url.searchParams.set("connection_limit", "10");
-    }
-    if (!url.searchParams.has("pool_timeout")) {
-      url.searchParams.set("pool_timeout", "30");
-    }
+    // Always override to ensure a real pool — this is a long-running Node.js server,
+    // not a serverless/Vercel deployment, so connection_limit=1 starves concurrent crons.
+    url.searchParams.set("connection_limit", "10");
+    url.searchParams.set("pool_timeout", "30");
     return url.toString();
   } catch {
     return raw;
