@@ -69,13 +69,29 @@ export function computeTotals(invoiceItems) {
   };
 }
 
-async function generateQRBuffer(order, config) {
+async function generateQRBuffer(order, config, invoiceItems, totals, state) {
   const qrData = JSON.stringify({
-    invoiceNo: String(order.id),
-    orderNo: String(order.id),
+    invoiceNo: String(order.invoice_number || order.id),
+    invoiceReferenceNumber: String(order.irn || ""),
+    orderReferenceNumber: String(order.orn || ""),
+    orderId: String(order.id),
     date: new Date(order.created_at).toLocaleDateString("en-IN"),
     sellerGSTIN: config.seller.gstin,
     buyerName: order.receiver_name || order.users?.name || "",
+    buyerAddress: order.address || "",
+    placeOfSupply: state?.name || "",
+    placeOfSupplyCode: state?.code || "",
+    lineItems: (invoiceItems || []).map((i) => ({
+      name: i.name,
+      hsn: i.hsn,
+      qty: i.qty,
+      taxable: i.taxable,
+      cgstAmt: i.cgstAmt,
+      sgstAmt: i.sgstAmt,
+      cessAmt: i.cessAmt,
+      total: i.total,
+    })),
+    totals,
     total: String(order.total),
   });
   return QRCode.toBuffer(qrData, { type: "png", width: 90, margin: 1 });
@@ -114,7 +130,7 @@ export async function buildInvoicePDF(order, config) {
     )
   );
   const totals = computeTotals(invoiceItems);
-  const qrBuffer = await generateQRBuffer(order, config);
+  const qrBuffer = await generateQRBuffer(order, config, invoiceItems, totals, state);
 
   const pageW = doc.page.width - 56;
   const startX = 28;
@@ -139,7 +155,7 @@ export async function buildInvoicePDF(order, config) {
   const metaColW = pageW / 2;
   const metaRowH = 16;
   [
-    [`Invoice No.: ${order.id}`, `Place Of Supply: ${state.name} (${state.code})`],
+    [`Invoice No.: ${order.invoice_number || order.id}`, `Place Of Supply: ${state.name} (${state.code})`],
     [`Order No.: ${order.id}`, `Date: ${invoiceDate}`],
   ].forEach((row) => {
     drawTableRow(
@@ -150,6 +166,21 @@ export async function buildInvoicePDF(order, config) {
     y += metaRowH;
   });
   y += 4;
+
+  // Reference numbers
+  drawTableRow(
+    doc,
+    [{ x: startX, w: metaColW, align: "left" }, { x: startX + metaColW, w: metaColW, align: "left" }],
+    [
+      `Invoice Reference Number (IRN): ${order.irn || ""}`,
+      `Order Reference Number (ORN): ${order.orn || ""}`,
+    ],
+    y,
+    16,
+    8,
+    true
+  );
+  y += 20;
 
   // Address table
   const addrColW = pageW / 2;

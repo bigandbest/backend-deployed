@@ -22,6 +22,7 @@ import walletDao from "../dao/wallet.dao.js";
 import { findWarehouseForProducts } from "../services/warehouseService.js";
 import cache from "../utils/cache.js";
 import { publishJob } from "../utils/publishJob.js";
+import { generateInvoiceIdentity } from "../utils/invoiceIdentity.js";
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -456,6 +457,8 @@ export const placeOrder = async (req, res) => {
     // ✅ Generate single OTP for all sub-orders (zonal, division, etc.)
     const deliveryOtp = Math.floor(100000 + Math.random() * 900000).toString();
 
+    const identity = await prisma.$transaction(async (tx) => generateInvoiceIdentity(tx, "QK"));
+
     const order = await orderDao.create({
       user_id,
       subtotal: parseFloat(subtotal),
@@ -470,6 +473,10 @@ export const placeOrder = async (req, res) => {
       mobile: resolvedMobile,
       receiver_name: resolvedReceiverName,
       delivery_otp: deliveryOtp, // ✅ Save OTP at parent order level
+      invoice_number: identity.invoice_number,
+      irn: identity.irn,
+      orn: identity.orn,
+      invoice_generated_at: identity.invoice_generated_at,
       // Save GPS coordinates directly if provided by client (mobile app)
       ...(bodyLat != null && bodyLon != null ? {
         delivery_latitude: parseFloat(bodyLat),
@@ -877,6 +884,8 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       }
 
       // 2. Create master order
+      const identity = await generateInvoiceIdentity(tx, "QK");
+
       const newOrder = await tx.orders.create({
         data: {
           user_id,
@@ -892,6 +901,10 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
           mobile: resolvedMobile,
           receiver_name: resolvedReceiverName,
           delivery_pincode: deliverabilityValidation.pincode,
+          invoice_number: identity.invoice_number,
+          irn: identity.irn,
+          orn: identity.orn,
+          invoice_generated_at: identity.invoice_generated_at,
           coupon_code: coupon_code || null,
           coupon_discount: coupon_discount ? parseFloat(coupon_discount) : 0,
           is_bulk_order: hasBulkOrder,

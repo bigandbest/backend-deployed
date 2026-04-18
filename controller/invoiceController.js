@@ -3,6 +3,7 @@ import prisma from "../config/prisma.js";
 import archiver from "archiver";
 import invoiceConfig from "../config/invoiceConfig.js";
 import { buildInvoicePDF } from "../services/invoiceService.js";
+import { ensureOrderInvoiceIdentity } from "../utils/invoiceIdentity.js";
 
 // Shared optimized Prisma query — minimal select, no unused joins
 async function fetchOrderForInvoice(orderId) {
@@ -16,6 +17,10 @@ async function fetchOrderForInvoice(orderId) {
       total: true,
       created_at: true,
       user_id: true,
+      invoice_number: true,
+      irn: true,
+      orn: true,
+      invoice_generated_at: true,
       users: {
         select: { id: true, name: true, email: true, phone: true },
       },
@@ -50,7 +55,7 @@ export async function getInvoice(req, res) {
       return res.status(400).json({ success: false, error: "Invalid order ID" });
     }
 
-    const order = await fetchOrderForInvoice(orderId);
+    let order = await fetchOrderForInvoice(orderId);
     if (!order) {
       return res.status(404).json({ success: false, error: "Order not found" });
     }
@@ -64,6 +69,14 @@ export async function getInvoice(req, res) {
 
     if (!order.order_items || order.order_items.length === 0) {
       return res.status(422).json({ success: false, error: "Order has no items" });
+    }
+
+    // Backfill legacy orders once; keep immutable if already set.
+    if (!order.invoice_number || !order.irn || !order.orn || !order.invoice_generated_at) {
+      await prisma.$transaction(async (tx) => {
+        await ensureOrderInvoiceIdentity(tx, order.id, "QK");
+      });
+      order = await fetchOrderForInvoice(orderId);
     }
 
     const pdfBuffer = await buildInvoicePDF(order, invoiceConfig);
@@ -111,6 +124,10 @@ export async function getBatchInvoice(req, res) {
         total: true,
         created_at: true,
         user_id: true,
+        invoice_number: true,
+        irn: true,
+        orn: true,
+        invoice_generated_at: true,
         users: {
           select: { id: true, name: true, email: true, phone: true },
         },
@@ -155,6 +172,16 @@ export async function getBatchInvoice(req, res) {
     for (const order of orders) {
       if (!order.order_items || order.order_items.length === 0) continue;
       try {
+        if (!order.invoice_number || !order.irn || !order.orn || !order.invoice_generated_at) {
+          await prisma.$transaction(async (tx) => {
+            await ensureOrderInvoiceIdentity(tx, order.id, "QK");
+          });
+          const refreshed = await fetchOrderForInvoice(order.id);
+          if (refreshed) {
+            Object.assign(order, refreshed);
+          }
+        }
+
         const pdfBuffer = await buildInvoicePDF(order, invoiceConfig);
         archive.append(pdfBuffer, { name: `invoice-${order.id}.pdf` });
       } catch (err) {

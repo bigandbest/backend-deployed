@@ -35,6 +35,10 @@ model orders {
   customer_address_id    Int?
   idempotency_key        String?          @db.VarChar
   delivery_otp           String?          @db.VarChar(6)
+  invoice_number         String?          @db.VarChar(32)
+  irn                    String?          @db.Uuid
+  orn                    String?          @db.Uuid
+  invoice_generated_at   DateTime?        @db.Timestamptz(6)
 
   // Relations — matching backup schema exactly
   coupon_usage         coupon_usage?
@@ -48,5 +52,6 @@ model orders {
   cod_collections      cod_collections?
 
   @@index([delivery_pincode])
+  @@index([invoice_generated_at])
   @@index([rider_id])
 }

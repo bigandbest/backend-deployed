@@ -542,6 +542,10 @@ model orders {
   delivery_longitude   Decimal?            @db.Decimal(10, 7)
   customer_address_id  Int?
   delivery_otp         String?             @db.VarChar(6)
+  invoice_number       String?             @db.VarChar(32)
+  irn                  String?             @db.Uuid
+  orn                  String?             @db.Uuid
+  invoice_generated_at DateTime?           @db.Timestamptz(6)
   coupon_usage         coupon_usage?
   order_items          order_items[]
   order_tracking       order_tracking[]
@@ -551,6 +555,7 @@ model orders {
   sub_orders           sub_orders[]
 
   @@index([delivery_pincode])
+  @@index([invoice_generated_at])
   @@index([rider_id])
 }
 
