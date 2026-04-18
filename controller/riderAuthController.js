@@ -481,9 +481,12 @@ export const verifyRiderFirebasePhone = async (req, res) => {
             return res.status(400).json({ success: false, message: 'No phone number associated with this token' });
         }
 
+        // Remove country code from Firebase phone number (+91 or +1 etc)
+        const cleanedPhone = firebasePhone.replace(/^\+\d{1,3}/, '');
+
         // Find or create rider user
         let user = await prisma.users.findFirst({
-            where: { phone: firebasePhone, role: 'RIDER' },
+            where: { phone: cleanedPhone, role: 'RIDER' },
             include: { riders: true }
         });
 
@@ -492,9 +495,9 @@ export const verifyRiderFirebasePhone = async (req, res) => {
             const result = await prisma.$transaction(async (tx) => {
                 const newUser = await tx.users.create({
                     data: {
-                        phone: firebasePhone,
-                        email: `rider_${firebasePhone.replace(/\D/g, '')}@riders.local`,
-                        name: `Rider ${firebasePhone}`,
+                        phone: cleanedPhone,
+                        email: `rider_${cleanedPhone.replace(/\D/g, '')}@riders.local`,
+                        name: `Rider ${cleanedPhone}`,
                         role: 'RIDER',
                         is_active: true,
                     }

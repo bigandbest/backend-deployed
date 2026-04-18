@@ -402,9 +402,12 @@ export const verifySellerFirebasePhone = async (req, res) => {
             return res.status(400).json({ success: false, message: 'No phone number associated with this token' });
         }
 
+        // Remove country code from Firebase phone number (+91 or +1 etc)
+        const cleanedPhone = firebasePhone.replace(/^\+\d{1,3}/, '');
+
         // Find seller user by phone - must have existing seller account
         const user = await prisma.users.findFirst({
-            where: { phone: firebasePhone, role: { in: ['SELLER', 'VENDOR'] } },
+            where: { phone: cleanedPhone, role: { in: ['SELLER', 'VENDOR'] } },
             include: { sellers: true }
         });
 
