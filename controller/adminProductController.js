@@ -378,11 +378,13 @@ export const getAllProductsForAdmin = async (req, res) => {
     const categoryId = req.query.category_id;
     const search = req.query.search;
     const active = req.query.active;
+    const source_type = req.query.source_type;
 
     // Build filters
     const filters = {};
     if (categoryId) filters.category_id = categoryId;
     if (active !== undefined) filters.active = active === "true";
+    if (source_type) filters.source_type = source_type;
 
     // Add search filter if provided
     if (search) {
