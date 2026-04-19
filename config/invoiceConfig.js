@@ -13,15 +13,15 @@ const invoiceConfig = {
     fssai: "",
   },
   deliveredFrom: {
-    name: "Big and Best Mart Private Limited",
-    address: "Your Warehouse Address, City, State, PIN",
-    fssai: "YOUR_WAREHOUSE_FSSAI_HERE",
+    name: "Big Best Mart (Opc) Private Limited",
+    address: "37/1, Central Road, K B Sarani, Uttapara, Madhyamgram, North 24 Parganas, Barasat - II, West Bengal, India, 700129",
+    fssai: "",
   },
   platform: {
-    name: "BIG AND BEST MART MARKETPLACE PRIVATE LIMITED",
-    address: "Your Platform Address, City, State, PIN",
-    fssai: "YOUR_PLATFORM_FSSAI_HERE",
-    email: "support@bigandbest.com",
+    name: "BIG BEST MART (OPC) PRIVATE LIMITED",
+    address: "37/1, Central Road, K B Sarani, Uttapara, Madhyamgram, North 24 Parganas, Barasat - II, West Bengal, India, 700129",
+    fssai: "",
+    email: "info@bigbestmart.com",
   },
 };
 
