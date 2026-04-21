@@ -487,7 +487,7 @@ export const verifyRiderFirebasePhone = async (req, res) => {
         // Find or create rider user
         let user = await prisma.users.findFirst({
             where: { phone: cleanedPhone, role: 'RIDER' },
-            include: { riders: true }
+            include: { riders: true },
         });
 
         if (!user) {
@@ -503,16 +503,16 @@ export const verifyRiderFirebasePhone = async (req, res) => {
                     }
                 });
 
-                const rider = await tx.riders.create({
+                const newRider = await tx.riders.create({
                     data: {
                         user_id: newUser.id,
                         verification_status: 'PENDING_VERIFICATION',
                     }
                 });
 
-                return { user: newUser, rider };
+                return { ...newUser, riders: newRider };
             });
-            user = { ...result.user, riders: result.rider };
+            user = result;
         }
 
         // Update last login

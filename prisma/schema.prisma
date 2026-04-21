@@ -1193,6 +1193,7 @@ model riders {
   rider_documents     rider_documents[]
   rider_wage_logs     rider_wage_logs[]
   warehouse_riders    warehouse_riders[]
+  users               users              @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
   @@index([is_available])
@@ -1383,6 +1384,7 @@ model sellers {
   seller_pincode_requests seller_pincode_requests[]
   seller_products         seller_products[]
   warehouse_sellers       warehouse_sellers[]
+  users                   users                     @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
   @@index([seller_type])
@@ -1630,6 +1632,8 @@ model users {
   wallets_wallets_frozen_byTousers                          wallets[]             @relation("wallets_frozen_byTousers")
   wallets_wallets_user_idTousers                            wallets?              @relation("wallets_user_idTousers")
   wishlist_items                                            wishlist_items[]
+  riders                                                    riders?
+  sellers                                                   sellers?
 }
 
 model user_addresses {

@@ -408,7 +408,7 @@ export const verifySellerFirebasePhone = async (req, res) => {
         // Find seller user by phone - must have existing seller account
         const user = await prisma.users.findFirst({
             where: { phone: cleanedPhone, role: { in: ['SELLER', 'VENDOR'] } },
-            include: { sellers: true }
+            include: { sellers: true },
         });
 
         if (!user) {
@@ -430,7 +430,7 @@ export const verifySellerFirebasePhone = async (req, res) => {
             role: user.role,
             name: user.name,
             phone: user.phone,
-            seller_id: user.sellers?.[0]?.id,
+            seller_id: user.sellers?.id,
         });
 
         res.json({
@@ -443,8 +443,8 @@ export const verifySellerFirebasePhone = async (req, res) => {
                 name: user.name,
                 phone: user.phone,
                 role: user.role,
-                seller_id: user.sellers?.[0]?.id,
-                seller_type: user.sellers?.[0]?.seller_type,
+                seller_id: user.sellers?.id,
+                seller_type: user.sellers?.seller_type,
             },
         });
     } catch (err) {
