@@ -10,29 +10,39 @@ export const registerSeller = async (req, res) => {
     try {
         const { email, password, name, phone, role, business_name, business_type, gstin, pan, address, city, state, pincode } = req.body;
 
-        if (!email || !password || !name) {
-            return res.status(400).json({ success: false, error: 'Email, password, and name are required' });
+        // Phone is mandatory; email and password are optional (derived if not provided)
+        if (!name) {
+            return res.status(400).json({ success: false, error: 'Name is required' });
         }
+        if (!phone) {
+            return res.status(400).json({ success: false, error: 'Phone number is required' });
+        }
+
+        // Derive email from phone if not provided
+        const resolvedEmail = email || `91${phone.replace(/\D/g, '')}@bbm.app`;
 
         const sellerRole = (role === 'VENDOR') ? 'VENDOR' : 'SELLER';
 
-        // Check if user exists
-        const existingUser = await prisma.users.findUnique({ where: { email } });
+        // Check if user exists by email or phone
+        const existingUser = await prisma.users.findFirst({
+            where: { OR: [{ email: resolvedEmail }, { phone: phone.replace(/^\+91/, '') }] }
+        });
         if (existingUser) {
-            return res.status(400).json({ success: false, error: 'Email already registered' });
+            return res.status(400).json({ success: false, error: 'An account with this phone or email already exists' });
         }
 
-        // Hash password
-        const hashedPassword = await bcrypt.hash(password, 10);
+        // Hash password (use random if not provided — phone auth doesn't need one)
+        const resolvedPassword = password || Math.random().toString(36).slice(-12) + 'Aa1!';
+        const hashedPassword = await bcrypt.hash(resolvedPassword, 10);
 
         // Create user + seller profile in transaction
         const result = await prisma.$transaction(async (tx) => {
             const user = await tx.users.create({
                 data: {
-                    email,
+                    email: resolvedEmail,
                     password: hashedPassword,
                     name,
-                    phone,
+                    phone: phone.replace(/^\+91/, ''),
                     role: sellerRole,
                     is_active: true,
                 }
@@ -83,6 +93,7 @@ export const registerSeller = async (req, res) => {
         res.status(500).json({ success: false, error: 'Registration failed', message: error.message });
     }
 };
+
 
 /**
  * Seller Login
@@ -412,9 +423,11 @@ export const verifySellerFirebasePhone = async (req, res) => {
         });
 
         if (!user) {
-            return res.status(403).json({
+            // Return 404 with a clear flag so the client knows to show registration form
+            return res.status(404).json({
                 success: false,
-                message: 'No seller account found for this phone number. Please register with email first.'
+                user_exists: false,
+                message: 'No seller account found for this phone number.',
             });
         }
 

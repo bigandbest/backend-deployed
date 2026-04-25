@@ -23,26 +23,38 @@ export const registerRider = async (req, res) => {
     try {
         const { email, password, name, phone, vehicle_type, vehicle_number, license_number, emergency_contact } = req.body;
 
-        if (!email || !password || !name) {
-            return res.status(400).json({ success: false, error: 'Email, password, and name are required' });
+        // Phone is mandatory; name is mandatory; email and password are optional
+        if (!name) {
+            return res.status(400).json({ success: false, error: 'Name is required' });
+        }
+        if (!phone) {
+            return res.status(400).json({ success: false, error: 'Phone number is required' });
         }
 
-        // Check if user exists
-        const existingUser = await prisma.users.findUnique({ where: { email } });
+        // Derive email from phone if not provided
+        const resolvedEmail = email || `91${phone.replace(/\D/g, '')}@bbm.app`;
+
+        // Check if user exists by email or phone
+        const cleanPhone = phone.replace(/^\+91/, '');
+        const existingUser = await prisma.users.findFirst({
+            where: { OR: [{ email: resolvedEmail }, { phone: cleanPhone }] }
+        });
         if (existingUser) {
-            return res.status(400).json({ success: false, error: 'Email already registered' });
+            return res.status(400).json({ success: false, error: 'An account with this phone or email already exists' });
         }
 
-        const hashedPassword = await bcrypt.hash(password, 10);
+        // Hash password (use random if not provided — phone auth doesn't need one)
+        const resolvedPassword = password || Math.random().toString(36).slice(-12) + 'Aa1!';
+        const hashedPassword = await bcrypt.hash(resolvedPassword, 10);
 
         // Create user + rider profile in transaction
         const result = await prisma.$transaction(async (tx) => {
             const user = await tx.users.create({
                 data: {
-                    email,
+                    email: resolvedEmail,
                     password: hashedPassword,
                     name,
-                    phone,
+                    phone: cleanPhone,
                     role: 'RIDER',
                     is_active: true,
                 }
@@ -88,6 +100,7 @@ export const registerRider = async (req, res) => {
         res.status(500).json({ success: false, error: 'Registration failed', message: error.message });
     }
 };
+
 
 // ============ RIDER LOGIN ============
 export const loginRider = async (req, res) => {
