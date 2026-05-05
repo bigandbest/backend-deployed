@@ -28,5 +28,6 @@ model sub_orders {
   @@index([source_id])
   @@index([seller_id])
   @@index([fulfillment_status])
+  @@index([estimated_delivery_at])
   @@index([rider_id])
 }

@@ -77,25 +77,28 @@ export const notifyAtRiskOrders = async () => {
 
     let atRiskCount = 0;
     let delayedCount = 0;
+    const events = [];
 
     for (const subOrder of allActive) {
         const status = checkSLAStatus(subOrder);
+        const payload = {
+            estimated_delivery_at: subOrder.estimated_delivery_at,
+            current_status: subOrder.fulfillment_status,
+        };
 
         if (status === 'at_risk') {
             atRiskCount++;
-            await fulfillmentEventDao.log(subOrder.id, 'sla_at_risk', {
-                estimated_delivery_at: subOrder.estimated_delivery_at,
-                current_status: subOrder.fulfillment_status,
-            });
+            events.push({ sub_order_id: subOrder.id, event_type: 'sla_at_risk', payload });
             // TODO: Send notification to customer
         } else if (status === 'delayed') {
             delayedCount++;
-            await fulfillmentEventDao.log(subOrder.id, 'sla_breached', {
-                estimated_delivery_at: subOrder.estimated_delivery_at,
-                current_status: subOrder.fulfillment_status,
-            });
+            events.push({ sub_order_id: subOrder.id, event_type: 'sla_breached', payload });
             // TODO: Send notification to customer + escalate
         }
+    }
+
+    if (events.length > 0) {
+        await fulfillmentEventDao.logMany(events);
     }
 
     return { checked: allActive.length, at_risk: atRiskCount, delayed: delayedCount };

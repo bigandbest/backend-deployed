@@ -20,4 +20,5 @@ model inventory {
   @@unique([variant_id, warehouse_id])
   @@index([stock_qty])
   @@index([warehouse_id])
+  @@index([soft_reserve_expires_at])
 }

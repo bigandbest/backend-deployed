@@ -51,6 +51,9 @@ model orders {
   rider_assignments    rider_assignments[]
   cod_collections      cod_collections?
 
+  @@index([user_id])
+  @@index([status])
+  @@index([created_at(sort: Desc)])
   @@index([delivery_pincode])
   @@index([invoice_generated_at])
   @@index([rider_id])

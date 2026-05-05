@@ -455,6 +455,7 @@ model inventory {
   @@unique([variant_id, warehouse_id])
   @@index([stock_qty])
   @@index([warehouse_id])
+  @@index([soft_reserve_expires_at])
 }
 
 model order_execution_logs {
@@ -554,6 +555,9 @@ model orders {
   rider_assignments    rider_assignments[]
   sub_orders           sub_orders[]
 
+  @@index([user_id])
+  @@index([status])
+  @@index([created_at(sort: Desc)])
   @@index([delivery_pincode])
   @@index([invoice_generated_at])
   @@index([rider_id])
@@ -1552,6 +1556,7 @@ model sub_orders {
   @@index([source_id])
   @@index([seller_id])
   @@index([fulfillment_status])
+  @@index([estimated_delivery_at])
   @@index([rider_id])
 }
 
