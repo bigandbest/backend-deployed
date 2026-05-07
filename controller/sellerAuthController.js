@@ -23,26 +23,110 @@ export const registerSeller = async (req, res) => {
 
         const sellerRole = (role === 'VENDOR') ? 'VENDOR' : 'SELLER';
 
-        // Check if user exists by email or phone
+        const cleanedPhone = phone.replace(/^\+91/, '');
+
+        // Check if user exists by phone or email
         const existingUser = await prisma.users.findFirst({
-            where: { OR: [{ email: resolvedEmail }, { phone: phone.replace(/^\+91/, '') }] }
+            where: { OR: [{ email: resolvedEmail }, { phone: cleanedPhone }] },
+            include: { sellers: true },
         });
+
         if (existingUser) {
-            return res.status(400).json({ success: false, error: 'An account with this phone or email already exists' });
+            const isSellerRole = ['SELLER', 'VENDOR'].includes(existingUser.role);
+
+            if (isSellerRole && existingUser.sellers) {
+                // Fully registered seller — return a login response so client can proceed
+                await prisma.users.update({ where: { id: existingUser.id }, data: { last_login: new Date() } });
+                const token = generateToken({
+                    id: existingUser.id,
+                    email: existingUser.email,
+                    role: existingUser.role,
+                    name: existingUser.name,
+                    phone: existingUser.phone,
+                    seller_id: existingUser.sellers.id,
+                });
+                return res.status(200).json({
+                    success: true,
+                    token,
+                    data: {
+                        id: existingUser.id,
+                        email: existingUser.email,
+                        name: existingUser.name,
+                        role: existingUser.role,
+                        seller_id: existingUser.sellers.id,
+                        seller_type: existingUser.sellers.seller_type,
+                        verification_status: existingUser.sellers.verification_status,
+                    },
+                    message: 'Seller account already exists. Logged in successfully.',
+                });
+            }
+
+            // User exists but has no seller record (incomplete registration or wrong role)
+            // Upgrade them to SELLER and create the sellers record
+            const result = await prisma.$transaction(async (tx) => {
+                const updatedUser = await tx.users.update({
+                    where: { id: existingUser.id },
+                    data: {
+                        role: sellerRole,
+                        name: name || existingUser.name,
+                        last_login: new Date(),
+                    },
+                });
+
+                const seller = await tx.sellers.create({
+                    data: {
+                        user_id: existingUser.id,
+                        business_name: business_name || name || existingUser.name,
+                        business_type,
+                        seller_type: sellerRole,
+                        gstin,
+                        pan,
+                        address,
+                        city,
+                        state,
+                        pincode,
+                    },
+                });
+
+                return { user: updatedUser, seller };
+            });
+
+            const token = generateToken({
+                id: result.user.id,
+                email: result.user.email,
+                role: result.user.role,
+                name: result.user.name,
+                seller_id: result.seller.id,
+            });
+
+            return res.status(201).json({
+                success: true,
+                token,
+                data: {
+                    id: result.user.id,
+                    email: result.user.email,
+                    name: result.user.name,
+                    role: result.user.role,
+                    seller_id: result.seller.id,
+                    seller_type: result.seller.seller_type,
+                    verification_status: result.seller.verification_status,
+                },
+                message: 'Seller registered successfully',
+            });
         }
 
         // Hash password (use random if not provided — phone auth doesn't need one)
         const resolvedPassword = password || Math.random().toString(36).slice(-12) + 'Aa1!';
         const hashedPassword = await bcrypt.hash(resolvedPassword, 10);
 
-        // Create user + seller profile in transaction
+        // Create new user + seller profile in transaction
         const result = await prisma.$transaction(async (tx) => {
             const user = await tx.users.create({
                 data: {
                     email: resolvedEmail,
                     password: hashedPassword,
                     name,
-                    phone: phone.replace(/^\+91/, ''),
+                    phone: cleanedPhone,
                     role: sellerRole,
                     is_active: true,
                 }
@@ -85,6 +169,7 @@ export const registerSeller = async (req, res) => {
                 role: result.user.role,
                 seller_id: result.seller.id,
                 seller_type: result.seller.seller_type,
+                verification_status: result.seller.verification_status,
             },
             message: 'Seller registered successfully',
         });
@@ -416,9 +501,12 @@ export const verifySellerFirebasePhone = async (req, res) => {
         // Remove country code from Firebase phone number (+91 or +1 etc)
         const cleanedPhone = firebasePhone.replace(/^\+\d{1,3}/, '');
 
-        // Find seller user by phone - must have existing seller account
+        // Find seller user — try both 10-digit and full E.164 variants in case of legacy data
         const user = await prisma.users.findFirst({
-            where: { phone: cleanedPhone, role: { in: ['SELLER', 'VENDOR'] } },
+            where: {
+                phone: { in: [cleanedPhone, firebasePhone] },
+                role: { in: ['SELLER', 'VENDOR'] },
+            },
             include: { sellers: true },
         });
 
