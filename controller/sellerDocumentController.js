@@ -77,17 +77,7 @@ export const uploadSellerDocument = async (req, res) => {
             }
         });
 
-        // Set seller status to PENDING_VERIFICATION if currently ACTION_REQUIRED
-        if (seller.verification_status === 'ACTION_REQUIRED') {
-            const allDocs = await prisma.seller_documents.findMany({ where: { seller_id: seller.id } });
-            const hasRejected = allDocs.some(d => d.status === 'REJECTED');
-            if (!hasRejected) {
-                await prisma.sellers.update({
-                    where: { id: seller.id },
-                    data: { verification_status: 'PENDING_VERIFICATION', updated_at: new Date() }
-                });
-            }
-        }
+        // Note: We no longer auto-submit docs. The user must manually click submit.
 
         res.status(200).json({
             success: true,

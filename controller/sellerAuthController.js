@@ -56,6 +56,7 @@ export const registerSeller = async (req, res) => {
                         seller_id: existingUser.sellers.id,
                         seller_type: existingUser.sellers.seller_type,
                         verification_status: existingUser.sellers.verification_status,
+                        is_verified: existingUser.sellers.is_verified,
                     },
                     message: 'Seller account already exists. Logged in successfully.',
                 });
@@ -85,6 +86,7 @@ export const registerSeller = async (req, res) => {
                         city,
                         state,
                         pincode,
+                        verification_status: 'ACTION_REQUIRED',
                     },
                 });
 
@@ -110,6 +112,7 @@ export const registerSeller = async (req, res) => {
                     seller_id: result.seller.id,
                     seller_type: result.seller.seller_type,
                     verification_status: result.seller.verification_status,
+                    is_verified: result.seller.is_verified,
                 },
                 message: 'Seller registered successfully',
             });
@@ -144,6 +147,7 @@ export const registerSeller = async (req, res) => {
                     city,
                     state,
                     pincode,
+                    verification_status: 'ACTION_REQUIRED',
                 }
             });
 
@@ -170,6 +174,7 @@ export const registerSeller = async (req, res) => {
                 seller_id: result.seller.id,
                 seller_type: result.seller.seller_type,
                 verification_status: result.seller.verification_status,
+                is_verified: result.seller.is_verified,
             },
             message: 'Seller registered successfully',
         });
@@ -249,6 +254,7 @@ export const loginSeller = async (req, res) => {
                 seller_type: user.sellers?.seller_type,
                 business_name: user.sellers?.business_name,
                 is_verified: user.sellers?.is_verified,
+                verification_status: user.sellers?.verification_status,
             },
         });
     } catch (error) {
@@ -546,6 +552,8 @@ export const verifySellerFirebasePhone = async (req, res) => {
                 role: user.role,
                 seller_id: user.sellers?.id,
                 seller_type: user.sellers?.seller_type,
+                verification_status: user.sellers?.verification_status,
+                is_verified: user.sellers?.is_verified,
             },
         });
     } catch (err) {

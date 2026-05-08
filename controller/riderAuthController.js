@@ -67,7 +67,7 @@ export const registerRider = async (req, res) => {
                     vehicle_number,
                     license_number,
                     emergency_contact,
-                    verification_status: 'PENDING_VERIFICATION',
+                    verification_status: 'ACTION_REQUIRED',
                 }
             });
 
@@ -379,18 +379,7 @@ export const uploadDocument = async (req, res) => {
             }
         });
 
-        // Set rider status to PENDING_VERIFICATION if currently ACTION_REQUIRED
-        if (rider.verification_status === 'ACTION_REQUIRED') {
-            // Check if all rejected docs are now re-uploaded
-            const allDocs = await prisma.rider_documents.findMany({ where: { rider_id: rider.id } });
-            const hasRejected = allDocs.some(d => d.status === 'REJECTED');
-            if (!hasRejected) {
-                await prisma.riders.update({
-                    where: { id: rider.id },
-                    data: { verification_status: 'PENDING_VERIFICATION', updated_at: new Date() }
-                });
-            }
-        }
+        // Note: We no longer auto-submit docs. The user must manually click submit.
 
         res.status(200).json({
             success: true,
@@ -519,7 +508,7 @@ export const verifyRiderFirebasePhone = async (req, res) => {
                 const newRider = await tx.riders.create({
                     data: {
                         user_id: newUser.id,
-                        verification_status: 'PENDING_VERIFICATION',
+                        verification_status: 'ACTION_REQUIRED',
                     }
                 });
 
@@ -555,6 +544,7 @@ export const verifyRiderFirebasePhone = async (req, res) => {
                 role: user.role,
                 rider_id: user.riders?.id,
                 verification_status: user.riders?.verification_status,
+                is_verified: user.riders?.is_verified,
             },
         });
     } catch (err) {
