@@ -504,26 +504,39 @@ export const verifySellerFirebasePhone = async (req, res) => {
             return res.status(400).json({ success: false, message: 'No phone number associated with this token' });
         }
 
-        // Remove country code from Firebase phone number (+91 or +1 etc)
-        const cleanedPhone = firebasePhone.replace(/^\+\d{1,3}/, '');
+        // Remove +91 country code from Firebase phone number
+        const cleanedPhone = firebasePhone.replace(/^\+91/, '');
 
-        // Find seller user — try both 10-digit and full E.164 variants in case of legacy data
-        const user = await prisma.users.findFirst({
+        // First check if ANY user exists with this phone (regardless of role)
+        const existingUser = await prisma.users.findFirst({
             where: {
                 phone: { in: [cleanedPhone, firebasePhone] },
-                role: { in: ['SELLER', 'VENDOR'] },
             },
             include: { sellers: true },
         });
 
-        if (!user) {
-            // Return 404 with a clear flag so the client knows to show registration form
+        if (!existingUser) {
+            // No user at all — client should show registration form
             return res.status(404).json({
                 success: false,
                 user_exists: false,
-                message: 'No seller account found for this phone number.',
+                message: 'No account found for this phone number.',
             });
         }
+
+        // User exists but is not a seller — tell client to show seller registration
+        // (registerSeller will upgrade the role and create the sellers record)
+        if (!['SELLER', 'VENDOR'].includes(existingUser.role) || !existingUser.sellers) {
+            return res.status(404).json({
+                success: false,
+                user_exists: true,
+                needs_seller_registration: true,
+                message: 'User exists but no seller profile. Please complete seller registration.',
+                prefill: { name: existingUser.name, phone: existingUser.phone },
+            });
+        }
+
+        const user = existingUser;
 
         // Update last login
         await prisma.users.update({
