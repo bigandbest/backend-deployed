@@ -214,7 +214,7 @@ export const createProduct = async (req, res) => {
       productData.variants = {
         create: product_variants.map((v) => {
           const variantData = {
-            title: v.variant_name || v.title,
+            title: v.variant_name ?? v.title ?? "",
             sku:
               v.sku ||
               `${name.substring(0, 3).toUpperCase()}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -244,6 +244,7 @@ export const createProduct = async (req, res) => {
               ? parseInt(v.bulk_discount_percentage)
               : 0,
             bulk_price: v.bulk_price ? parseFloat(v.bulk_price) : 0,
+            updated_at: new Date(),
           };
 
           // Handle Inventory (Nested Create)
@@ -272,16 +273,16 @@ export const createProduct = async (req, res) => {
     }
 
     // Create via DAO (Pass strict data)
-    console.log("\n=== BACKEND: Final Product Data to be Created ===");
-    console.log(JSON.stringify(productData, null, 2));
-    console.log("=== END Final Product Data ===");
+    // console.log("\n=== BACKEND: Final Product Data to be Created ===");
+    // console.log(JSON.stringify(productData, null, 2));
+    // console.log("=== END Final Product Data ===");
 
     const newProduct = await ProductDAO.createProduct(productData);
 
-    console.log("\n=== BACKEND: Product Created Successfully ===");
-    console.log("Product ID:", newProduct.id);
-    console.log("Product Name:", newProduct.name);
-    console.log("=== END Product Created ===");
+    // console.log("\n=== BACKEND: Product Created Successfully ===");
+    // console.log("Product ID:", newProduct.id);
+    // console.log("Product Name:", newProduct.name);
+    // console.log("=== END Product Created ===");
 
     // Handle Brand Relation (Join Table)
     if (brandId && newProduct) {
@@ -941,7 +942,7 @@ export const updateProduct = async (req, res) => {
           // flexible mapping:
           const variantData = {
             id: v.id, // Important for UPDATE
-            title: v.variant_name || v.title,
+            title: v.variant_name ?? v.title ?? "",
             sku:
               v.sku ||
               (v.id

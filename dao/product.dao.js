@@ -7,7 +7,10 @@ class ProductDAO {
     // --- Product Operations ---
     async createProduct(data) {
         return await prisma.products.create({
-            data,
+            data: {
+                ...data,
+                updated_at: new Date(),
+            },
             include: {
                 variants: {
                     include: {
