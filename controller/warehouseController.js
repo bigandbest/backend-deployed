@@ -232,22 +232,97 @@ export const updateWarehouse = async (req, res) => {
 };
 
 /**
+ * Clear all inventory for a warehouse (before deletion)
+ */
+export const clearWarehouseInventory = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const warehouseId = parseInt(id);
+
+    console.log(`🧹 Clearing data for warehouse ${warehouseId}...`);
+
+    // Run all deletes in parallel for speed
+    const [inventoryDeleted, movementsDeleted, sellersDeleted, ridersDeleted, pincodesDeleted, zonesDeleted] =
+      await Promise.all([
+        // Inventory records
+        prisma.inventory.deleteMany({
+          where: { warehouse_id: warehouseId }
+        }),
+        // Stock movements
+        prisma.stock_movements.deleteMany({
+          where: { warehouse_id: warehouseId }
+        }),
+        // Warehouse sellers
+        prisma.warehouse_sellers.deleteMany({
+          where: { warehouse_id: warehouseId }
+        }),
+        // Warehouse riders
+        prisma.warehouse_riders.deleteMany({
+          where: { warehouse_id: warehouseId }
+        }),
+        // Warehouse pincodes
+        prisma.warehouse_pincodes.deleteMany({
+          where: { warehouse_id: warehouseId }
+        }),
+        // Warehouse zones
+        prisma.warehouse_zones.deleteMany({
+          where: { warehouse_id: warehouseId }
+        })
+      ]);
+
+    const totalCleared =
+      inventoryDeleted.count +
+      movementsDeleted.count +
+      sellersDeleted.count +
+      ridersDeleted.count +
+      pincodesDeleted.count +
+      zonesDeleted.count;
+
+    res.status(200).json({
+      success: true,
+      message: `Cleared ${totalCleared} records`
+    });
+  } catch (error) {
+    console.error("Error clearing warehouse data:", error);
+    res.status(500).json({ success: false, error: "Failed to clear warehouse data", message: error.message });
+  }
+};
+
+/**
  * Delete warehouse
  */
 export const deleteWarehouse = async (req, res) => {
   try {
     const { id } = req.params;
+    const warehouseId = parseInt(id);
 
-    // Check for stock dependency
-    // Simple check: list stocks. If any, block.
-    const stocks = await WarehouseDAO.listStocks(id);
-    if (stocks.length > 0) {
-      return res.status(400).json({ success: false, error: "Cannot delete warehouse with existing stock records" });
+    console.log(`🗑️ Deleting warehouse ${warehouseId}...`);
+
+    // Verify warehouse exists
+    const warehouse = await prisma.warehouses.findUnique({ where: { id: warehouseId } });
+    if (!warehouse) {
+      return res.status(404).json({ success: false, error: "Warehouse not found" });
     }
 
-    await WarehouseDAO.delete(id);
+    // Check for remaining inventory (should be none if clear was called first)
+    const remainingInventory = await prisma.inventory.count({
+      where: { warehouse_id: warehouseId }
+    });
+
+    if (remainingInventory > 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Cannot delete warehouse with existing inventory. Please clear inventory first."
+      });
+    }
+
+    // Delete warehouse
+    await prisma.warehouses.delete({ where: { id: warehouseId } });
+
+    console.log(`✓ Warehouse ${warehouseId} deleted successfully`);
     res.status(200).json({ success: true, message: "Warehouse deleted successfully" });
   } catch (error) {
+    console.error("Error deleting warehouse:", error);
     res.status(500).json({ success: false, error: "Failed to delete warehouse", message: error.message });
   }
 };

@@ -10,10 +10,16 @@ const normalise = (inv) => ({
     stock_quantity: inv.stock_qty,
     reserved_quantity: inv.reserved_qty,
     available_quantity: inv.stock_qty - inv.reserved_qty,
+    product_id: inv.product_variants?.product_id ?? null,
     product_name: inv.product_variants?.products?.name ?? null,
     product_image: inv.product_variants?.products?.media?.[0]?.url ?? null,
+    product_source_type: inv.product_variants?.products?.source_type ?? null,
+    seller_id: inv.product_variants?.products?.seller_id ?? null,
     category: inv.product_variants?.products?.category ?? null,
+    sku: inv.product_variants?.sku ?? null,
     variant_name: inv.product_variants?.title ?? null,
+    minimum_threshold: inv.bulk_stock_threshold ?? 0,
+    is_low_stock: (inv.stock_qty ?? 0) <= (inv.bulk_stock_threshold ?? 10),
     warehouses: inv.warehouses ?? null,
 });
 
@@ -22,7 +28,7 @@ const inventoryInclude = {
         include: {
             products: {
                 select: {
-                    id: true, name: true,
+                    id: true, name: true, source_type: true, seller_id: true,
                     category: { select: { name: true } },
                     media: { where: { is_primary: true }, take: 1, select: { url: true } }
                 }
@@ -32,17 +38,57 @@ const inventoryInclude = {
     warehouses: { select: { id: true, name: true, type: true, parent_warehouse_id: true } }
 };
 
-// ─── Admin: get all inventory for a warehouse ────────────────────────────────
+// ─── Admin: get inventory for a warehouse (paginated + filtered) ─────────────
 
 export const getWarehouseInventory = async (req, res) => {
     try {
         const warehouseId = parseInt(req.params.warehouseId);
-        const items = await prisma.inventory.findMany({
-            where: { warehouse_id: warehouseId },
-            include: inventoryInclude,
-            orderBy: { updated_at: 'desc' }
+        if (isNaN(warehouseId)) return res.status(400).json({ success: false, message: 'Invalid warehouse ID' });
+
+        // ── Query params ──────────────────────────────────────────────────────
+        const page   = Math.max(1, parseInt(req.query.page)  || 1);
+        const limit  = Math.min(100, Math.max(1, parseInt(req.query.limit) || 25));
+        const search = req.query.search?.trim() || '';
+        // source_type: 'WAREHOUSE' | 'DROP_SHIP' | '' (all)
+        const sourceType = req.query.source_type?.toUpperCase() || '';
+
+        // ── Build where clause ────────────────────────────────────────────────
+        const where = { warehouse_id: warehouseId };
+
+        const productWhere = {};
+        if (sourceType === 'WAREHOUSE') productWhere.source_type = 'WAREHOUSE';
+        else if (sourceType === 'DROP_SHIP') productWhere.source_type = 'DROP_SHIP';
+
+        if (search) {
+            productWhere.name = { contains: search, mode: 'insensitive' };
+        }
+
+        if (Object.keys(productWhere).length > 0) {
+            where.product_variants = { is: { products: { is: productWhere } } };
+        }
+
+        // ── Count + paginate ──────────────────────────────────────────────────
+        const [total, items] = await Promise.all([
+            prisma.inventory.count({ where }),
+            prisma.inventory.findMany({
+                where,
+                include: inventoryInclude,
+                orderBy: { updated_at: 'desc' },
+                skip: (page - 1) * limit,
+                take: limit,
+            }),
+        ]);
+
+        const totalPages = Math.ceil(total / limit);
+
+        res.json({
+            success: true,
+            inventory: items.map(normalise),
+            total,
+            page,
+            limit,
+            totalPages,
         });
-        res.json({ success: true, inventory: items.map(normalise) });
     } catch (error) {
         console.error('getWarehouseInventory error:', error);
         res.status(500).json({ success: false, message: 'Server error', error: error.message });
@@ -125,13 +171,28 @@ export const getWarehouseLowStock = async (req, res) => {
     try {
         const warehouseId = parseInt(req.params.warehouseId);
         const threshold = parseInt(req.query.threshold ?? 10);
+        const page  = Math.max(1, parseInt(req.query.page)  || 1);
+        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 25));
 
-        const items = await prisma.inventory.findMany({
-            where: { warehouse_id: warehouseId, stock_qty: { lt: threshold } },
-            include: inventoryInclude
-        });
+        const where = {
+            warehouse_id: warehouseId,
+            stock_qty: { lt: threshold },
+            // Only show WAREHOUSE-source low stock to admins; sellers manage their own
+            product_variants: { is: { products: { is: { source_type: 'WAREHOUSE' } } } },
+        };
 
-        res.json({ success: true, data: items.map(normalise) });
+        const [total, items] = await Promise.all([
+            prisma.inventory.count({ where }),
+            prisma.inventory.findMany({
+                where,
+                include: inventoryInclude,
+                orderBy: { stock_qty: 'asc' },
+                skip: (page - 1) * limit,
+                take: limit,
+            }),
+        ]);
+
+        res.json({ success: true, data: items.map(normalise), total, page, limit, totalPages: Math.ceil(total / limit) });
     } catch (error) {
         console.error('getWarehouseLowStock error:', error);
         res.status(500).json({ success: false, message: 'Server error' });
@@ -143,14 +204,19 @@ export const getWarehouseLowStock = async (req, res) => {
 export const getWarehouseMovements = async (req, res) => {
     try {
         const warehouseId = parseInt(req.params.warehouseId);
-        const limit = parseInt(req.query.limit ?? 50);
+        const page  = Math.max(1, parseInt(req.query.page) || 1);
+        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 25));
 
-        const movements = await prisma.stock_movements.findMany({
-            where: { warehouse_id: warehouseId },
-            include: { warehouses: { select: { name: true } } },
-            orderBy: { created_at: 'desc' },
-            take: limit
-        });
+        const [total, movements] = await Promise.all([
+            prisma.stock_movements.count({ where: { warehouse_id: warehouseId } }),
+            prisma.stock_movements.findMany({
+                where: { warehouse_id: warehouseId },
+                include: { warehouses: { select: { name: true } } },
+                orderBy: { created_at: 'desc' },
+                skip: (page - 1) * limit,
+                take: limit,
+            }),
+        ]);
 
         const productIds = [...new Set(movements.map(m => m.product_id))];
         const products = await prisma.products.findMany({
@@ -165,7 +231,11 @@ export const getWarehouseMovements = async (req, res) => {
                 ...m,
                 product_name: productMap[m.product_id] ?? 'Unknown',
                 warehouse_name: m.warehouses?.name
-            }))
+            })),
+            total,
+            page,
+            limit,
+            totalPages: Math.ceil(total / limit),
         });
     } catch (error) {
         console.error('getWarehouseMovements error:', error);

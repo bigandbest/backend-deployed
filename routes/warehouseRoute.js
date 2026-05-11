@@ -4,6 +4,7 @@ import {
   createWarehouse,
   updateWarehouse,
   deleteWarehouse,
+  clearWarehouseInventory,
   getAllWarehouses,
   getSingleWarehouse,
   getWarehouseProducts,
@@ -44,6 +45,7 @@ router.get("/:id/available-products", getAvailableProductsForWarehouse);
 router.post("/:id/products", addProductToWarehouse);
 router.put("/:id/products/:productId", updateWarehouseProduct);
 router.delete("/:id/products/:productId", removeProductFromWarehouse);
+router.delete("/:id/inventory/clear", clearWarehouseInventory);
 router.put("/:id", updateWarehouse);
 router.delete("/:id", deleteWarehouse);
 
