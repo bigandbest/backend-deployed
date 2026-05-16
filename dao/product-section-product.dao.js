@@ -65,13 +65,29 @@ class ProductSectionProductDAO {
         });
     }
 
-    async listBySection(sectionId) {
+    async listBySection(sectionId, { offset = 0, limit = 50, categoryIds = null } = {}) {
         return await prisma.product_section_products.findMany({
-            where: { section_id: sectionId },
-            include: {
-                product: true
+            where: {
+                section_id: sectionId,
+                ...(categoryIds && categoryIds.length > 0
+                    ? { product: { category_id: { in: categoryIds } } }
+                    : {})
             },
-            orderBy: { display_order: 'asc' }
+            include: { product: true },
+            orderBy: { display_order: 'asc' },
+            skip: offset,
+            take: limit,
+        });
+    }
+
+    async countBySection(sectionId, { categoryIds = null } = {}) {
+        return await prisma.product_section_products.count({
+            where: {
+                section_id: sectionId,
+                ...(categoryIds && categoryIds.length > 0
+                    ? { product: { category_id: { in: categoryIds } } }
+                    : {})
+            },
         });
     }
 }

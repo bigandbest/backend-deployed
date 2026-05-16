@@ -31,34 +31,30 @@ class InventoryDAO {
             }
         }
 
-        const warehouseResults = await prisma.inventory.findMany({
-            where,
-            select: { variant_id: true, stock_qty: true, reserved_qty: true, warehouse_id: true, warehouses: { select: { id: true, name: true, type: true } } },
-        });
-        warehouseResults.forEach(r => { r.stock_quantity = r.stock_qty; r.reserved_quantity = r.reserved_qty; });
-
-        // Also query seller_products for seller stock
-        const sellerResults = await prisma.seller_products.findMany({
-            where: {
-                variant_id: { in: variantIds.slice(0, 1000), not: null },
-                status: 'APPROVED',
-                is_active: true,
-                ...(where.warehouse_id ? { warehouse_id: where.warehouse_id } : {})
-            },
-            select: {
-                variant_id: true,
-                stock_quantity: true,
-                reserved_quantity: true,
-                warehouse_id: true,
-                warehouses: {
-                    select: {
-                        id: true,
-                        name: true,
-                        type: true,
-                    },
+        // Run both queries in parallel — they are fully independent
+        const [rawWarehouseResults, sellerResults] = await Promise.all([
+            prisma.inventory.findMany({
+                where,
+                select: { variant_id: true, stock_qty: true, reserved_qty: true, warehouse_id: true, warehouses: { select: { id: true, name: true, type: true } } },
+            }),
+            prisma.seller_products.findMany({
+                where: {
+                    variant_id: { in: variantIds.slice(0, 1000), not: null },
+                    status: 'APPROVED',
+                    is_active: true,
+                    ...(where.warehouse_id ? { warehouse_id: where.warehouse_id } : {}),
                 },
-            },
-        });
+                select: {
+                    variant_id: true,
+                    stock_quantity: true,
+                    reserved_quantity: true,
+                    warehouse_id: true,
+                    warehouses: { select: { id: true, name: true, type: true } },
+                },
+            }),
+        ]);
+        const warehouseResults = rawWarehouseResults;
+        warehouseResults.forEach(r => { r.stock_quantity = r.stock_qty; r.reserved_quantity = r.reserved_qty; });
 
         const stockMap = new Map();
         const allResults = [...warehouseResults, ...sellerResults];

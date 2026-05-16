@@ -75,6 +75,14 @@ class WarehouseDAO {
         });
     }
 
+    async listByIds(ids) {
+        const numericIds = ids.map((id) => parseInt(id, 10)).filter((id) => !isNaN(id));
+        if (numericIds.length === 0) return [];
+        return await prisma.warehouses.findMany({
+            where: { id: { in: numericIds } }
+        });
+    }
+
     async getHierarchy() {
         return await prisma.warehouses.findMany({
             where: { hierarchy_level: 0 },

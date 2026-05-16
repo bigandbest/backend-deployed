@@ -168,9 +168,11 @@ export const createProductWithWarehouse = async (req, res) => {
       warehouse_mapping_type === "zonal" ||
       assigned_warehouse_ids.length > 0
     ) {
-      // Add to specified zonal warehouses
+      // Single batch query instead of N parallel queries
+      const fetchedWarehouses = await warehouseDao.listByIds(assigned_warehouse_ids);
+      const warehouseMap = new Map(fetchedWarehouses.map((w) => [String(w.id), w]));
       for (const warehouseId of assigned_warehouse_ids) {
-        const warehouse = await getWarehouseById(warehouseId);
+        const warehouse = warehouseMap.get(String(warehouseId));
         if (warehouse) {
           warehouseAssignments.push({
             warehouse_id: warehouseId,
@@ -224,20 +226,22 @@ export const createProductWithWarehouse = async (req, res) => {
       );
     }
 
-    // Step 6: Create stock movement logs
-    for (const assignment of warehouseAssignments) {
-      await logStockMovement({
-        product_id: product.id,
-        warehouse_id: assignment.warehouse_id,
-        movement_type: "inbound",
-        quantity: assignment.stock_quantity,
-        previous_stock: 0,
-        new_stock: assignment.stock_quantity,
-        reference_type: "product_creation",
-        reason: "Initial stock assignment during product creation",
-        performed_by: req.user?.id || null,
-      });
-    }
+    // Step 6: Create stock movement logs in parallel
+    await Promise.all(
+      warehouseAssignments.map((assignment) =>
+        logStockMovement({
+          product_id: product.id,
+          warehouse_id: assignment.warehouse_id,
+          movement_type: "inbound",
+          quantity: assignment.stock_quantity,
+          previous_stock: 0,
+          new_stock: assignment.stock_quantity,
+          reference_type: "product_creation",
+          reason: "Initial stock assignment during product creation",
+          performed_by: req.user?.id || null,
+        }),
+      ),
+    );
 
     res.status(201).json({
       success: true,
@@ -377,12 +381,14 @@ export const bulkMapByNames = async (req, res) => {
       return res.status(404).json({ error: "No matching products found." });
     }
 
-    // 3. Map each product to warehouse
-    for (const p of products) {
-      await productWarehouseStockDao.upsertStock(p.id, warehouseData.id, {
-        stock_quantity: 0,
-      });
-    }
+    // 3. Map all products to warehouse in parallel
+    await Promise.all(
+      products.map((p) =>
+        productWarehouseStockDao.upsertStock(p.id, warehouseData.id, {
+          stock_quantity: 0,
+        }),
+      ),
+    );
 
     res.status(201).json({
       message: `Mapped ${products.length} products to warehouse "${warehouse_name}".`,
@@ -511,7 +517,12 @@ export const getProductVisibilityMatrix = async (req, res) => {
       });
     }
 
-    const product = await productDao.getProductById(productId);
+    // All three queries are independent — run in parallel
+    const [product, zoneMappings, stockRows] = await Promise.all([
+      productDao.getProductById(productId),
+      warehouseZoneDao.listActiveMappings(),
+      productWarehouseStockDao.listByProduct(productId),
+    ]);
 
     if (!product) {
       return res.status(404).json({
@@ -520,13 +531,17 @@ export const getProductVisibilityMatrix = async (req, res) => {
       });
     }
 
-    // Map zonal warehouse -> zone details
-    const zoneMappings = await warehouseZoneDao.listActiveMappings();
-
     if (!zoneMappings) {
       return res.status(500).json({
         success: false,
         error: "Failed to load warehouse zone mappings",
+      });
+    }
+
+    if (!stockRows) {
+      return res.status(500).json({
+        success: false,
+        error: "Failed to load product warehouse assignments",
       });
     }
 
@@ -539,15 +554,6 @@ export const getProductVisibilityMatrix = async (req, res) => {
         });
       }
     });
-
-    const stockRows = await productWarehouseStockDao.listByProduct(productId);
-
-    if (!stockRows) {
-      return res.status(500).json({
-        success: false,
-        error: "Failed to load product warehouse assignments",
-      });
-    }
 
     const zoneVisibility = new Map();
 
@@ -634,18 +640,21 @@ export const getProductVisibilityMatrix = async (req, res) => {
       })
       .sort((a, b) => a.zone_name.localeCompare(b.zone_name));
 
+    let zoneAvailableCount = 0;
+    let divisionOnlyCount = 0;
+    for (const zone of zones) {
+      if (zone.visibility === "zone_available") zoneAvailableCount++;
+      else if (zone.visibility === "division_only") divisionOnlyCount++;
+    }
+
     res.status(200).json({
       success: true,
       product,
       zones,
       summary: {
         total_zones: zones.length,
-        zone_available: zones.filter(
-          (zone) => zone.visibility === "zone_available",
-        ).length,
-        division_only: zones.filter(
-          (zone) => zone.visibility === "division_only",
-        ).length,
+        zone_available: zoneAvailableCount,
+        division_only: divisionOnlyCount,
       },
     });
   } catch (error) {
@@ -678,7 +687,11 @@ export const getZoneProductVisibility = async (req, res) => {
       });
     }
 
-    const zoneWarehouseMappings = await warehouseZoneDao.listByZone(zoneId);
+    // Fetch zone mappings and division warehouses in parallel (both independent of each other)
+    const [zoneWarehouseMappings, divisionWarehouses] = await Promise.all([
+      warehouseZoneDao.listByZone(zoneId),
+      warehouseDao.list({ type: "division", active: true }),
+    ]);
 
     if (!zoneWarehouseMappings) {
       return res.status(500).json({
@@ -712,16 +725,11 @@ export const getZoneProductVisibility = async (req, res) => {
       });
     }
 
-    const divisionWarehouses = await warehouseDao.list({
-      type: "division",
-      active: true,
-    });
-
-    // Manual filter for parent_warehouse_id since list doesn't take nested filters easily here
+    // Use Set for O(n) lookup instead of O(n²) includes()
+    const zonalSet = new Set(zonalWarehouseIds);
     const filteredDivisions =
-      divisionWarehouses?.filter((w) =>
-        zonalWarehouseIds.includes(w.parent_warehouse_id),
-      ) || [];
+      divisionWarehouses?.filter((w) => zonalSet.has(w.parent_warehouse_id)) ||
+      [];
 
     if (!divisionWarehouses) {
       return res.status(500).json({
@@ -836,6 +844,13 @@ export const getZoneProductVisibility = async (req, res) => {
       })
       .sort((a, b) => a.name.localeCompare(b.name));
 
+    let zoneAvailableCount = 0;
+    let divisionOnlyCount = 0;
+    for (const product of products) {
+      if (product.visibility === "zone_available") zoneAvailableCount++;
+      else if (product.visibility === "division_only") divisionOnlyCount++;
+    }
+
     res.status(200).json({
       success: true,
       zone: {
@@ -845,12 +860,8 @@ export const getZoneProductVisibility = async (req, res) => {
       products,
       summary: {
         total_products: products.length,
-        zone_available: products.filter(
-          (product) => product.visibility === "zone_available",
-        ).length,
-        division_only: products.filter(
-          (product) => product.visibility === "division_only",
-        ).length,
+        zone_available: zoneAvailableCount,
+        division_only: divisionOnlyCount,
       },
     });
   } catch (error) {
@@ -897,16 +908,19 @@ async function autoDistributeToZonalWarehouses(
       return { success: false, error: "Failed to fetch zonal warehouses" };
     }
 
+    // Batch fetch all existing stocks in one query instead of N+1
+    const existingStocksList =
+      await productWarehouseStockDao.listByProduct(productId);
+    const existingStockMap = new Map(
+      (existingStocksList || []).map((s) => [s.warehouse_id, s]),
+    );
+
     const distributions = [];
     const stockInserts = [];
+    const toUpdate = []; // collect force-update operations for parallel execution
 
     for (const warehouse of zonalWarehouses) {
-      // Check if product already exists in this warehouse
-      const existingStock =
-        await productWarehouseStockDao.getByProductAndWarehouse(
-          productId,
-          warehouse.id,
-        );
+      const existingStock = existingStockMap.get(warehouse.id);
 
       if (existingStock && !forceDistribution) {
         distributions.push({
@@ -920,12 +934,7 @@ async function autoDistributeToZonalWarehouses(
       }
 
       if (existingStock && forceDistribution) {
-        // Update existing stock
-        const newStock = existingStock.stock_quantity + quantityPerZone;
-        await productWarehouseStockDao.updateStock(existingStock.id, {
-          stock_quantity: newStock,
-          last_restocked_at: new Date().toISOString(),
-        });
+        toUpdate.push({ warehouse, existingStock });
         distributions.push({
           warehouse_id: warehouse.id,
           warehouse_name: warehouse.name,
@@ -933,20 +942,7 @@ async function autoDistributeToZonalWarehouses(
           added_quantity: quantityPerZone,
           new_stock: existingStock.stock_quantity + quantityPerZone,
         });
-
-        // Log stock movement
-        await logStockMovement({
-          product_id: productId,
-          warehouse_id: warehouse.id,
-          movement_type: "inbound",
-          quantity: quantityPerZone,
-          previous_stock: existingStock.stock_quantity,
-          new_stock: existingStock.stock_quantity + quantityPerZone,
-          reference_type: "zone_distribution",
-          reason: "Auto-distribution from central warehouse",
-        });
       } else {
-        // Create new stock entry
         stockInserts.push({
           product_id: productId,
           warehouse_id: warehouse.id,
@@ -957,7 +953,6 @@ async function autoDistributeToZonalWarehouses(
           last_restocked_at: new Date().toISOString(),
           is_active: true,
         });
-
         distributions.push({
           warehouse_id: warehouse.id,
           warehouse_name: warehouse.name,
@@ -967,21 +962,39 @@ async function autoDistributeToZonalWarehouses(
       }
     }
 
-    // Insert new stock entries in batch
-    if (stockInserts.length > 0) {
-      try {
-        await productWarehouseStockDao.createMany(stockInserts);
-      } catch (insertError) {
-        console.error("Error inserting zonal stock:", insertError);
-        return {
-          success: false,
-          error: "Failed to distribute to some warehouses",
-        };
-      }
+    // Run all updates + inserts + logs in parallel
+    const now = new Date().toISOString();
 
-      // Log stock movements for new entries
-      for (const insert of stockInserts) {
-        await logStockMovement({
+    const updateOps = toUpdate.map(({ warehouse, existingStock }) => {
+      const newStock = existingStock.stock_quantity + quantityPerZone;
+      return Promise.all([
+        productWarehouseStockDao.updateStock(existingStock.id, {
+          stock_quantity: newStock,
+          last_restocked_at: now,
+        }),
+        logStockMovement({
+          product_id: productId,
+          warehouse_id: warehouse.id,
+          movement_type: "inbound",
+          quantity: quantityPerZone,
+          previous_stock: existingStock.stock_quantity,
+          new_stock: newStock,
+          reference_type: "zone_distribution",
+          reason: "Auto-distribution from central warehouse",
+        }),
+      ]);
+    });
+
+    if (stockInserts.length > 0) {
+      const insertOp = productWarehouseStockDao
+        .createMany(stockInserts)
+        .catch((insertError) => {
+          console.error("Error inserting zonal stock:", insertError);
+          throw insertError;
+        });
+
+      const logOps = stockInserts.map((insert) =>
+        logStockMovement({
           product_id: insert.product_id,
           warehouse_id: insert.warehouse_id,
           movement_type: "inbound",
@@ -990,8 +1003,19 @@ async function autoDistributeToZonalWarehouses(
           new_stock: insert.stock_quantity,
           reference_type: "zone_distribution",
           reason: "Auto-distribution from central warehouse",
-        });
+        }),
+      );
+
+      try {
+        await Promise.all([insertOp, ...updateOps, ...logOps]);
+      } catch {
+        return {
+          success: false,
+          error: "Failed to distribute to some warehouses",
+        };
       }
+    } else if (updateOps.length > 0) {
+      await Promise.all(updateOps);
     }
 
     return { success: true, distributions };

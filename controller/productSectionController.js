@@ -8,6 +8,7 @@ import videoCardDao from "../dao/video-card.dao.js";
 import brandDao from "../dao/brand.dao.js";
 import prisma from '../config/prisma.js';
 import cartAvailabilityDAO from '../dao/cart-availability.dao.js';
+import productDAO from '../dao/product.dao.js';
 import redis from '../config/redis.js';
 
 const SECTION_CACHE_TTL = parseInt(process.env.SECTION_CACHE_TTL || '300', 10);
@@ -295,16 +296,21 @@ export const getProductsInSection = async (req, res) => {
     const { id } = req.params;
     const { page = 1, limit = 50, warehouse_id } = req.query;
     const sectionId = parseInt(id);
+    const pageInt = parseInt(page);
+    const limitInt = parseInt(limit);
+    const offset = (pageInt - 1) * limitInt;
     const warehouseKey = warehouse_id ? parseInt(warehouse_id) : 0;
-    const cacheKey = `${CACHE_KEYS.sectionProducts(sectionId)}:wh${warehouseKey}`;
+    // Per-page cache key — avoids storing the entire section in one huge Redis value
+    const cacheKey = `${CACHE_KEYS.sectionProducts(sectionId)}:wh${warehouseKey}:p${pageInt}:l${limitInt}`;
 
     const userPincode = req.headers['x-user-pincode'];
+    const validPincode = userPincode && /^\d{6}$/.test(userPincode);
 
-    // Serve base product list from cache, then re-enrich availability per-user
+    // Serve paginated base list from cache, re-enrich availability per-user
     const cachedRaw = await redis.get(cacheKey).catch(() => null);
     if (cachedRaw) {
       const cached = JSON.parse(cachedRaw);
-      if (userPincode && /^\d{6}$/.test(userPincode) && cached.data?.length > 0) {
+      if (validPincode && cached.data?.length > 0) {
         const items = cached.data.filter(p => p.id).map(p => ({
           product_id: p.id,
           variant_id: p.variants?.[0]?.id || p.default_variant_id || null,
@@ -318,10 +324,17 @@ export const getProductsInSection = async (req, res) => {
       return res.status(200).json(cached);
     }
 
+    // 1. Fetch category mappings (small table, fast — needed before pagination query)
     const mappedCategories = await productSectionCategoryDao.listBySection(sectionId);
-    const data = await productSectionProductDao.listBySection(sectionId);
+    const categoryIds = mappedCategories.length > 0 ? mappedCategories.map(mc => mc.category_id) : null;
 
-    // Flatten product details
+    // 2. DB-level pagination + total count in parallel — only the current page comes back
+    const [data, total] = await Promise.all([
+      productSectionProductDao.listBySection(sectionId, { offset, limit: limitInt, categoryIds }),
+      productSectionProductDao.countBySection(sectionId, { categoryIds }),
+    ]);
+
+    // 3. Flatten product details for this page only
     let products = data.map(item => ({
       assignment_id: item.id,
       display_order: item.display_order,
@@ -329,84 +342,46 @@ export const getProductsInSection = async (req, res) => {
       ...item.product
     }));
 
-    // Filter by mapped categories if any exist
-    if (mappedCategories && mappedCategories.length > 0) {
-      const categoryIds = mappedCategories.map(mc => mc.category_id);
-      products = products.filter(product =>
-        product.category_id && categoryIds.includes(product.category_id)
-      );
-    }
-
-    // PERFORMANCE OPTIMIZATION: Enrich with inventory data in batch
-    const productDAO = (await import('../dao/product.dao.js')).default;
+    // 4. Inventory enrichment — batch query for this page only (not entire section)
     products = await productDAO.enrichProductsWithInventory(
       products,
       warehouse_id ? parseInt(warehouse_id) : null
     );
 
-    // Map enriched stock info to top-level fields
-    products = products.map(p => {
-      const stockQty = p.stock_info?.available_stock || 0;
-      return {
-        ...p,
-        stock: stockQty,
-        stock_quantity: stockQty,
-        inStock: stockQty > 0,
-        is_in_stock: stockQty > 0
-      };
-    });
-
-    // Cache the base product list (without per-user availability)
-    const basePayload = {
-      success: true,
-      data: products,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total: products.length,
-        totalPages: Math.ceil(products.length / parseInt(limit)),
-      },
-      filtered_by_categories: mappedCategories && mappedCategories.length > 0,
-      mapped_category_count: mappedCategories ? mappedCategories.length : 0,
-    };
-    redis.setex(cacheKey, SECTION_CACHE_TTL, JSON.stringify(basePayload)).catch(() => {});
-
-    // Enrich with pincode-based availability (user-specific, not cached)
-    if (userPincode && /^\d{6}$/.test(userPincode) && products.length > 0) {
-      try {
-        const items = products.filter(p => p.id).map(p => ({
-          product_id: p.id,
-          variant_id: p.variants?.[0]?.id || p.default_variant_id || null,
-          quantity: 1,
-        }));
-        if (items.length > 0) {
-          const availability = await cartAvailabilityDAO.checkBulkAvailability(items, userPincode);
-          products = products.map(p => {
-            p.availability = availability[p.id] ?? { available: true };
-            return p;
-          });
-        }
-      } catch (err) {
-        console.warn('[Availability] Enrichment failed:', err.message);
+    // 5. Availability check — this page only, run in parallel with nothing else needed
+    let availabilityMap = {};
+    if (validPincode && products.length > 0) {
+      const items = products.filter(p => p.id).map(p => ({
+        product_id: p.id,
+        variant_id: p.variants?.[0]?.id || p.default_variant_id || null,
+        quantity: 1,
+      }));
+      if (items.length > 0) {
+        availabilityMap = await cartAvailabilityDAO.checkBulkAvailability(items, userPincode).catch(() => ({}));
       }
     }
 
-    // Manual pagination as the list is relatively small
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    const paginatedProducts = products.slice(offset, offset + parseInt(limit));
-
-    res.status(200).json({
-      success: true,
-      data: paginatedProducts,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total: products.length,
-        totalPages: Math.ceil(products.length / parseInt(limit)),
-      },
-      filtered_by_categories: mappedCategories && mappedCategories.length > 0,
-      mapped_category_count: mappedCategories ? mappedCategories.length : 0,
+    // 6. Single map pass — stock fields only (no availability); base payload cached without user data
+    const baseProducts = products.map(p => {
+      const stockQty = p.stock_info?.available_stock || 0;
+      return { ...p, stock: stockQty, stock_quantity: stockQty, inStock: stockQty > 0, is_in_stock: stockQty > 0 };
     });
+
+    const basePayload = {
+      success: true,
+      data: baseProducts,
+      pagination: { page: pageInt, limit: limitInt, total, totalPages: Math.ceil(total / limitInt) },
+      filtered_by_categories: mappedCategories.length > 0,
+      mapped_category_count: mappedCategories.length,
+    };
+    redis.setex(cacheKey, SECTION_CACHE_TTL, JSON.stringify(basePayload)).catch(() => {});
+
+    // Attach per-user availability to the response (not cached)
+    const responseData = validPincode
+      ? baseProducts.map(p => ({ ...p, availability: availabilityMap[p.id] ?? { available: true } }))
+      : baseProducts;
+
+    res.status(200).json({ ...basePayload, data: responseData });
   } catch (error) {
     console.error("Error fetching products in section:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -597,6 +572,7 @@ export const getSectionWithContent = async (req, res) => {
     const warehouseIdInt = warehouse_id ? parseInt(warehouse_id) : null;
     const sectionId = parseInt(id);
     const userPincode = req.headers['x-user-pincode'];
+    const validPincode = userPincode && /^\d{6}$/.test(userPincode);
 
     // Cache key excludes pincode — availability is enriched per-item via Redis in checkBulkAvailability
     const cacheKey = `section:${sectionId}:wh${warehouseIdInt || 0}`;
@@ -604,8 +580,7 @@ export const getSectionWithContent = async (req, res) => {
       const cached = await redis.get(cacheKey);
       if (cached) {
         const parsed = JSON.parse(cached);
-        // Re-enrich availability for this specific user pincode if provided
-        if (userPincode && /^\d{6}$/.test(userPincode) && parsed.products?.length > 0) {
+        if (validPincode && parsed.products?.length > 0) {
           const items = parsed.products
             .filter(p => p.id)
             .map(p => ({
@@ -615,10 +590,10 @@ export const getSectionWithContent = async (req, res) => {
             }));
           if (items.length > 0) {
             const availability = await cartAvailabilityDAO.checkBulkAvailability(items, userPincode);
-            parsed.products = parsed.products.map(p => {
-              p.availability = availability[p.id] ?? { available: true };
-              return p;
-            });
+            parsed.products = parsed.products.map(p => ({
+              ...p,
+              availability: availability[p.id] ?? { available: true },
+            }));
           }
         }
         return res.status(200).json({ success: true, data: parsed });
@@ -627,139 +602,101 @@ export const getSectionWithContent = async (req, res) => {
       // Redis unavailable — proceed to DB
     }
 
-    // 1. Fetch Section Metadata
-    const section = await productSectionDao.getById(sectionId);
+    // 1. Fetch section metadata + all mapping tables in parallel
+    const [section, groupMappings, storeMappings, categoryMappings] = await Promise.all([
+      productSectionDao.getById(sectionId),
+      productSectionGroupDao.listBySection(sectionId),
+      storeSectionMappingDao.getStoreMappingsBySection
+        ? storeSectionMappingDao.getStoreMappingsBySection(sectionId)
+        : Promise.resolve([]),
+      productSectionCategoryDao.listBySection(sectionId),
+    ]);
+
     if (!section) {
       return res.status(404).json({ error: "Section not found" });
     }
 
-    // 2. Fetch skeleton data for mappings (parallel)
-    // Note: Use try-catch or safe listing if DAOs are missing methods
-    const [
-      groupMappings,
-      storeMappings,
-      categoryMappings
-    ] = await Promise.all([
-      productSectionGroupDao.listBySection(sectionId),
-      storeSectionMappingDao.getStoreMappingsBySection ? storeSectionMappingDao.getStoreMappingsBySection(sectionId) : [],
-      productSectionCategoryDao.listBySection(sectionId)
+    const groupIds = groupMappings?.map(m => m.group_id) ?? [];
+    const storeIds = storeMappings?.map(m => m.store_id) ?? [];
+    const categoryIds = categoryMappings?.map(m => m.category_id) ?? [];
+
+    // 2. Parallel: fetch group details, store products, category products, and special components
+    //    (Group products need subcategoryIds from group details, so groups are fetched here
+    //    and group products are fetched in step 3 — store/category/special run fully in parallel)
+    const productInclude = {
+      variants: { where: { active: true, is_default: true } },
+      media: { where: { is_primary: true }, take: 1 },
+      brands: { include: { brand: true } },
+    };
+
+    const isVideos = section.component_name === 'VideoCardSection';
+    const isBanners = ['PromoBanner', 'DynamicMegaSale'].includes(section.component_name) || section.section_key.includes('banner');
+    const isBrands = section.component_name === 'BrandVista';
+
+    const [groups, storeProducts, categoryProducts, videos, banners, brandsResult] = await Promise.all([
+      groupIds.length
+        ? prisma.groups.findMany({ where: { id: { in: groupIds } }, select: { id: true, name: true, image_url: true, subcategory_id: true } })
+        : Promise.resolve([]),
+      storeIds.length
+        ? prisma.products.findMany({ where: { store_id: { in: storeIds }, is_active: true, is_deleted: false }, include: productInclude, take: 20 })
+        : Promise.resolve([]),
+      categoryIds.length
+        ? prisma.products.findMany({ where: { category_id: { in: categoryIds }, active: true }, include: productInclude, take: 20 })
+        : Promise.resolve([]),
+      isVideos ? videoCardDao.getActive() : Promise.resolve([]),
+      isBanners ? prisma.promo_banners.findMany({ where: { active: true } }) : Promise.resolve([]),
+      isBrands ? brandDao.listBrands({ limit: 50 }) : Promise.resolve({ items: [] }),
     ]);
 
-    let products = [];
-    let mappedContent = {};
-
-    // 3. Fetch specific content based on mappings
-
-    // A. Groups — products are linked via subcategory_id, not group_id
-    if (groupMappings && groupMappings.length > 0) {
-      const groupIds = groupMappings.map(m => m.group_id);
-
-      // Fetch the groups to get their subcategory_ids (products have subcategory_id, not group_id)
-      const groups = await prisma.groups.findMany({
-        where: { id: { in: groupIds } },
-        select: { id: true, name: true, image_url: true, subcategory_id: true }
-      });
-
-      const subcategoryIds = groups
-        .map(g => g.subcategory_id)
-        .filter(Boolean);
-
-      let groupProducts = [];
-      if (subcategoryIds.length > 0) {
-        groupProducts = await prisma.products.findMany({
+    // 3. Fetch group products (depends on subcategoryIds from step 2 groups query)
+    const subcategoryIds = groups.map(g => g.subcategory_id).filter(Boolean);
+    const groupProducts = subcategoryIds.length
+      ? await prisma.products.findMany({
           where: { subcategory_id: { in: subcategoryIds }, active: true },
-          include: {
-            variants: { where: { active: true, is_default: true } },
-            media: { where: { is_primary: true }, take: 1 },
-            brands: { include: { brand: true } }
-          },
-          take: 50
-        });
-      }
+          include: productInclude,
+          take: 50,
+        })
+      : [];
 
-      // Build a map from subcategory_id to products for grouping
+    // 4. Build mappedContent + deduplicate products using Map (prevents duplicate inventory calls)
+    const productMap = new Map();
+    const mappedContent = {};
+
+    if (groupIds.length > 0) {
       const subcatProductsMap = {};
-      groupProducts.forEach(product => {
-        if (!subcatProductsMap[product.subcategory_id]) subcatProductsMap[product.subcategory_id] = [];
-        subcatProductsMap[product.subcategory_id].push(product);
+      // Single forEach: build productMap + subcatProductsMap simultaneously
+      groupProducts.forEach(p => {
+        productMap.set(p.id, p);
+        (subcatProductsMap[p.subcategory_id] ??= []).push(p);
       });
-
-      // Build a map from group_id to group info
-      const groupInfoMap = {};
-      groups.forEach(g => { groupInfoMap[g.id] = g; });
-
+      const groupInfoMap = new Map(groups.map(g => [g.id, g]));
       mappedContent.groups = groupMappings.map(m => {
-        const groupInfo = groupInfoMap[m.group_id] || {};
+        const g = groupInfoMap.get(m.group_id) || {};
         return {
-          id: groupInfo.id,
-          name: groupInfo.name || m.group_name,
-          image_url: groupInfo.image_url || m.image_url,
-          preview_products: subcatProductsMap[groupInfo.subcategory_id] || []
+          id: g.id,
+          name: g.name || m.group_name,
+          image_url: g.image_url || m.image_url,
+          // preview_products populated after enrichment below
+          _subcatId: g.subcategory_id,
         };
       });
-      mappedContent.groups.forEach(g => products.push(...g.preview_products));
     }
 
-    // B. Stores
-    if (storeMappings && storeMappings.length > 0) {
-      const storeIds = storeMappings.map(m => m.store_id);
-      const storeProducts = await prisma.products.findMany({
-        where: { store_id: { in: storeIds }, is_active: true, is_deleted: false },
-        include: {
-          variants: { where: { active: true, is_default: true } },
-          media: { where: { is_primary: true }, take: 1 },
-          brands: { include: { brand: true } }
-        },
-        take: 20
-      });
-      products.push(...storeProducts);
+    if (storeIds.length > 0) {
+      storeProducts.forEach(p => productMap.set(p.id, p));
       mappedContent.stores = storeMappings.map(m => m.recommended_store);
     }
 
-    // C. Categories
-    if (categoryMappings && categoryMappings.length > 0) {
-      const categoryIds = categoryMappings.map(m => m.category_id);
-      const categoryProducts = await prisma.products.findMany({
-        where: { category_id: { in: categoryIds }, active: true },
-        include: {
-          variants: { where: { active: true, is_default: true } },
-          media: { where: { is_primary: true }, take: 1 },
-          brands: { include: { brand: true } }
-        },
-        take: 20
-      });
-      products.push(...categoryProducts);
-    }
+    categoryProducts.forEach(p => productMap.set(p.id, p));
 
-    // D. Manual Products — REMOVED
-    // Direct product-section assignments (product_section_products) are no longer used.
-    // Products are sourced only through group, store, or category mappings.
+    // Track real product IDs BEFORE pushing special items (for availability filter)
+    const realProductIds = new Set(productMap.keys());
 
-    // E. Special Components
-    if (section.component_name === 'VideoCardSection') {
-      const videos = await videoCardDao.getActive();
-      products.push(...videos);
-    }
-    if (['PromoBanner', 'DynamicMegaSale'].includes(section.component_name) || section.section_key.includes('banner')) {
-      const banners = await prisma.promo_banners.findMany({ where: { active: true } });
-      products.push(...banners);
-    }
-    if (section.component_name === 'BrandVista') {
-      const { items: brands } = await brandDao.listBrands({ limit: 50 }); // Fetch sufficient brands
-      products.push(...brands);
-    }
-
-    // 4. Enrich Inventory (Standardized)
-    const productDAO = (await import('../dao/product.dao.js')).default;
+    // 5. Inventory enrichment + single map pass — stock fields transformation
+    let products = Array.from(productMap.values());
     if (products.length > 0) {
-      products = await productDAO.enrichProductsWithInventory(
-        products,
-        warehouseIdInt
-      );
-
-      // Ensures fields match frontend expectation (similar to transformProduct)
+      products = await productDAO.enrichProductsWithInventory(products, warehouseIdInt);
       products = products.map(p => {
-        // Default to in-stock (99) if no inventory data at all
         const hasInventory = p.stock_info != null || p.stock_quantity != null || p.stock != null;
         const stockQty = p.stock_info?.available_stock ?? p.stock_quantity ?? p.stock ?? (hasInventory ? 0 : 99);
         return {
@@ -768,46 +705,59 @@ export const getSectionWithContent = async (req, res) => {
           stock_quantity: stockQty,
           inStock: stockQty > 0,
           is_in_stock: stockQty > 0,
-          // Ensure image field is set correctly if missing
-          image: p.image || p.media?.find(m => m.is_primary)?.url || p.media?.[0]?.url || "",
+          // media is already filtered to is_primary:true — no need for .find()
+          image: p.image || p.media?.[0]?.url || "",
           images: p.images || p.media?.map(m => m.url) || [],
-          brand: p.brands?.[0]?.brand?.name || p.brand || "BigandBest"
+          brand: p.brands?.[0]?.brand?.name || p.brand || "BigandBest",
         };
       });
     }
 
-    // Build base response BEFORE per-user enrichment so we never cache user-specific availability
+    // Rebuild groups.preview_products using the enriched product objects (fixes stale cache bug)
+    if (mappedContent.groups) {
+      const enrichedMap = new Map(products.map(p => [p.id, p]));
+      mappedContent.groups = mappedContent.groups.map(({ _subcatId, ...g }) => ({
+        ...g,
+        preview_products: groupProducts
+          .filter(p => p.subcategory_id === _subcatId)
+          .map(p => enrichedMap.get(p.id) || p),
+      }));
+    }
+
+    // Append special-component items AFTER real products (skip dedup/inventory/availability)
+    products.push(...videos, ...banners, ...(brandsResult.items ?? []));
+
+    // Cache base response (no per-user availability)
     const responseData = { ...section, products, ...mappedContent };
     redis.setex(cacheKey, SECTION_CACHE_TTL, JSON.stringify(responseData)).catch(() => {});
 
-    // 5. Enrich with pincode-based availability (user-specific, never cached)
+    // 6. Availability — only for real products (not videos/banners/brands)
     let enrichedProducts = products;
-    if (userPincode && /^\d{6}$/.test(userPincode) && products.length > 0) {
+    if (validPincode && realProductIds.size > 0) {
       try {
         const items = products
-          .filter(p => p.id) // only real products (not banners/videos)
+          .filter(p => realProductIds.has(p.id))
           .map(p => ({
             product_id: p.id,
             variant_id: p.variants?.[0]?.id || p.default_variant_id || null,
             quantity: 1,
           }));
-
         if (items.length > 0) {
           const availability = await cartAvailabilityDAO.checkBulkAvailability(items, userPincode);
           enrichedProducts = products.map(p => ({
             ...p,
-            availability: availability[p.id] ?? { available: true },
+            ...(realProductIds.has(p.id) ? { availability: availability[p.id] ?? { available: true } } : {}),
           }));
         }
       } catch (err) {
-        // Availability enrichment failure should never break the product response
         console.warn('[Availability] Enrichment failed, returning products without availability:', err.message);
       }
     }
 
+    // Avoid spreading responseData then overriding products — build final object directly
     res.status(200).json({
       success: true,
-      data: { ...responseData, products: enrichedProducts }
+      data: { ...responseData, products: enrichedProducts },
     });
 
   } catch (error) {
