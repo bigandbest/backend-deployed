@@ -140,7 +140,10 @@ class ProductDAO {
         const variantsSelect = filters.includeAllVariants
             ? {
                 include: {
-                    inventory: true,
+                    // Only fetch the fields needed for admin list — avoids loading all N-warehouse inventory rows
+                    inventory: {
+                        select: { id: true, warehouse_id: true, stock_qty: true, reserved_qty: true },
+                    },
                     variant_attributes: true,
                 }
             }
@@ -473,40 +476,45 @@ class ProductDAO {
         });
     }
 
-    async getNewArrivals(limit = 100) {
-        return await prisma.products.findMany({
-            where: {
-                active: true,
+    async getNewArrivals(limit = 24, page = 1) {
+        const offset = (page - 1) * limit;
+        const include = {
+            category: { select: { id: true, name: true } },
+            subcategory: { select: { id: true, name: true } },
+            group: { select: { id: true, name: true } },
+            store: { select: { id: true, name: true } },
+            brands: {
+                select: { brand: { select: { id: true, name: true } } },
+                take: 1,
             },
-            take: limit,
-            include: {
-                category: { select: { id: true, name: true } },
-                subcategory: { select: { id: true, name: true } },
-                group: { select: { id: true, name: true } },
-                store: { select: { id: true, name: true } },
-                brands: {
-                    select: { brand: { select: { id: true, name: true } } },
-                    take: 1,
-                },
-                variants: {
-                    where: { active: true },
-                    include: {
-                        inventory: { select: { stock_qty: true, reserved_qty: true, warehouse_id: true } },
-                        seller_products: {
-                            where: { status: 'APPROVED', is_active: true },
-                            select: { stock_quantity: true, reserved_quantity: true, status: true, is_active: true }
-                        }
-                    },
-                },
-                media: {
-                    where: { is_primary: true },
-                    orderBy: { sort_order: 'asc' },
-                    take: 1,
-                    select: { url: true, media_type: true },
+            variants: {
+                where: { active: true },
+                include: {
+                    inventory: { select: { stock_qty: true, reserved_qty: true, warehouse_id: true } },
+                    seller_products: {
+                        where: { status: 'APPROVED', is_active: true },
+                        select: { stock_quantity: true, reserved_quantity: true, status: true, is_active: true }
+                    }
                 },
             },
-            orderBy: { created_at: "desc" },
-        });
+            media: {
+                where: { is_primary: true },
+                orderBy: { sort_order: 'asc' },
+                take: 1,
+                select: { url: true, media_type: true },
+            },
+        };
+        const [items, total] = await Promise.all([
+            prisma.products.findMany({
+                where: { active: true },
+                take: limit,
+                skip: offset,
+                include,
+                orderBy: { created_at: "desc" },
+            }),
+            prisma.products.count({ where: { active: true } }),
+        ]);
+        return { items, total };
     }
 
     async getSuperSaver(limit = 50) {

@@ -1,5 +1,6 @@
 import prisma from '../config/prisma.js';
 import stockMovementDao from '../dao/stock-movement.dao.js';
+import inventoryDAO from '../dao/inventory.dao.js';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -63,9 +64,10 @@ export const getWarehouseInventory = async (req, res) => {
             productWhere.name = { contains: search, mode: 'insensitive' };
         }
 
-        if (Object.keys(productWhere).length > 0) {
-            where.product_variants = { is: { products: { is: productWhere } } };
-        }
+        // Only show products explicitly mapped to this warehouse via product_warehouse_stock
+        productWhere.product_warehouse_stock = { some: { warehouse_id: warehouseId, is_active: true } };
+
+        where.product_variants = { is: { products: { is: productWhere } } };
 
         // ── Count + paginate ──────────────────────────────────────────────────
         const [total, items] = await Promise.all([
@@ -105,31 +107,68 @@ export const updateWarehouseInventory = async (req, res) => {
             return res.status(400).json({ success: false, message: 'warehouse_id, variant_id and stock_quantity are required' });
         }
 
-        const existing = await prisma.inventory.findFirst({
-            where: { variant_id, warehouse_id: parseInt(warehouse_id) }
-        });
+        const whId = parseInt(warehouse_id);
+        if (isNaN(whId)) return res.status(400).json({ success: false, message: 'Invalid warehouse_id' });
+
+        // Resolve product_id + check existing inventory in parallel (independent reads)
+        const [variant, existing] = await Promise.all([
+            prisma.product_variants.findUnique({ where: { id: variant_id }, select: { product_id: true } }),
+            prisma.inventory.findFirst({ where: { variant_id, warehouse_id: whId } }),
+        ]);
+        const product_id = variant?.product_id;
 
         let result;
         if (existing) {
             const prev = existing.stock_qty;
             result = await prisma.inventory.update({
                 where: { id: existing.id },
-                data: { stock_qty: parseInt(stock_quantity) }
+                data: { stock_qty: parseInt(stock_quantity), updated_at: new Date() }
             });
-            await stockMovementDao.create({
-                product_id: (await prisma.product_variants.findUnique({ where: { id: variant_id }, select: { product_id: true } }))?.product_id,
-                warehouse_id: parseInt(warehouse_id),
-                movement_type: parseInt(stock_quantity) >= prev ? 'inbound' : 'outbound',
-                quantity: Math.abs(parseInt(stock_quantity) - prev),
-                previous_stock: prev,
-                new_stock: parseInt(stock_quantity),
-                reference_type: 'admin_update',
-                reason: 'Admin stock adjustment'
-            });
+            if (product_id) {
+                await stockMovementDao.create({
+                    product_id,
+                    warehouse_id: whId,
+                    movement_type: parseInt(stock_quantity) >= prev ? 'inbound' : 'outbound',
+                    quantity: Math.abs(parseInt(stock_quantity) - prev),
+                    previous_stock: prev,
+                    new_stock: parseInt(stock_quantity),
+                    reference_type: 'admin_update',
+                    reason: 'Admin stock adjustment'
+                });
+            }
         } else {
             result = await prisma.inventory.create({
-                data: { variant_id, warehouse_id: parseInt(warehouse_id), stock_qty: parseInt(stock_quantity), reserved_qty: 0, updated_at: new Date() }
+                data: { variant_id, warehouse_id: whId, stock_qty: parseInt(stock_quantity), reserved_qty: 0, updated_at: new Date() }
             });
+            if (product_id) {
+                await stockMovementDao.create({
+                    product_id,
+                    warehouse_id: whId,
+                    movement_type: 'inbound',
+                    quantity: parseInt(stock_quantity),
+                    previous_stock: 0,
+                    new_stock: parseInt(stock_quantity),
+                    reference_type: 'admin_update',
+                    reason: 'Admin stock creation'
+                });
+            }
+        }
+
+        // Ensure the product is mapped to this warehouse so it shows up in inventory list
+        if (product_id) {
+            const existingMapping = await prisma.product_warehouse_stock.findFirst({
+                where: { product_id, warehouse_id: whId }
+            });
+            if (existingMapping) {
+                await prisma.product_warehouse_stock.update({
+                    where: { id: existingMapping.id },
+                    data: { is_active: true, updated_at: new Date() }
+                });
+            } else {
+                await prisma.product_warehouse_stock.create({
+                    data: { product_id, warehouse_id: whId, is_active: true, created_at: new Date(), updated_at: new Date() }
+                });
+            }
         }
 
         res.json({ success: true, message: 'Inventory updated successfully', data: normalise({ ...result, variant: null, warehouses: null }) });
@@ -145,10 +184,15 @@ export const getWarehouseAnalytics = async (req, res) => {
     try {
         const warehouseId = parseInt(req.params.warehouseId);
 
+        const mappedWhere = {
+            warehouse_id: warehouseId,
+            product_variants: { is: { products: { is: { product_warehouse_stock: { some: { warehouse_id: warehouseId, is_active: true } } } } } },
+        };
+
         const [totalItems, agg, lowStock] = await Promise.all([
-            prisma.inventory.count({ where: { warehouse_id: warehouseId } }),
-            prisma.inventory.aggregate({ where: { warehouse_id: warehouseId }, _sum: { stock_qty: true } }),
-            prisma.inventory.count({ where: { warehouse_id: warehouseId, stock_qty: { lt: 10 } } })
+            prisma.inventory.count({ where: mappedWhere }),
+            prisma.inventory.aggregate({ where: mappedWhere, _sum: { stock_qty: true } }),
+            prisma.inventory.count({ where: { ...mappedWhere, stock_qty: { lt: 10 } } })
         ]);
 
         res.json({
@@ -177,8 +221,11 @@ export const getWarehouseLowStock = async (req, res) => {
         const where = {
             warehouse_id: warehouseId,
             stock_qty: { lt: threshold },
-            // Only show WAREHOUSE-source low stock to admins; sellers manage their own
-            product_variants: { is: { products: { is: { source_type: 'WAREHOUSE' } } } },
+            // Only show WAREHOUSE-source, explicitly-mapped products
+            product_variants: { is: { products: { is: {
+                source_type: 'WAREHOUSE',
+                product_warehouse_stock: { some: { warehouse_id: warehouseId, is_active: true } },
+            } } } },
         };
 
         const [total, items] = await Promise.all([
@@ -272,18 +319,128 @@ export const getProductsByPincode = async (req, res) => {
             return res.json({ success: true, data: [], message: 'No warehouses serve this pincode' });
         }
 
-        const inventory = await prisma.inventory.findMany({
-            where: {
-                warehouse_id: { in: [...warehouseIds] },
-                stock_qty: { gt: 0 }
-            },
-            include: inventoryInclude
-        });
+        const page  = Math.max(1, parseInt(req.query.page)  || 1);
+        const limit = Math.min(100, parseInt(req.query.limit) || 50);
+        const inventoryWhere = { warehouse_id: { in: [...warehouseIds] }, stock_qty: { gt: 0 } };
 
-        res.json({ success: true, data: inventory.map(normalise), total: inventory.length });
+        const [total, inventory] = await Promise.all([
+            prisma.inventory.count({ where: inventoryWhere }),
+            prisma.inventory.findMany({
+                where: inventoryWhere,
+                include: inventoryInclude,
+                take: limit,
+                skip: (page - 1) * limit,
+            }),
+        ]);
+
+        res.json({ success: true, data: inventory.map(normalise), total, page, limit, totalPages: Math.ceil(total / limit) });
     } catch (error) {
         console.error('getProductsByPincode error:', error);
         res.status(500).json({ success: false, message: 'Server error', error: error.message });
+    }
+};
+
+// ─── Delete stock record ─────────────────────────────────────────────────────
+
+export const deleteStock = async (req, res) => {
+    try {
+        const { stockId } = req.params;
+        const id = parseInt(stockId);
+        if (isNaN(id)) return res.status(400).json({ success: false, message: 'Invalid stock ID' });
+        await prisma.inventory.delete({ where: { id } });
+        res.json({ success: true, message: 'Stock record deleted' });
+    } catch (error) {
+        console.error('deleteStock error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// ─── Batch check availability ─────────────────────────────────────────────────
+
+export const checkAvailability = async (req, res) => {
+    const { items, warehouse_id } = req.body;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ success: false, error: 'items array is required' });
+    }
+
+    try {
+        const availability = await inventoryDAO.checkBulkAvailability(
+            items,
+            warehouse_id ? parseInt(warehouse_id) : null
+        );
+        res.json({
+            success: true,
+            data: availability,
+            total_items: items.length,
+            all_available: availability.every(item => item.can_fulfill)
+        });
+    } catch (error) {
+        console.error('checkAvailability error:', error);
+        res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+};
+
+// ─── Get stock for a single variant ──────────────────────────────────────────
+
+export const getVariantStock = async (req, res) => {
+    const { variantId } = req.params;
+    const { warehouse_id } = req.query;
+
+    try {
+        const stockInfo = await inventoryDAO.getAvailableStock(
+            variantId,
+            warehouse_id ? parseInt(warehouse_id) : null
+        );
+        res.json({ success: true, data: stockInfo });
+    } catch (error) {
+        console.error('getVariantStock error:', error);
+        res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+};
+
+// ─── Reserve stock ────────────────────────────────────────────────────────────
+
+export const reserveStock = async (req, res) => {
+    const { variant_id, quantity, warehouse_id } = req.body;
+
+    if (!variant_id || !quantity || !warehouse_id) {
+        return res.status(400).json({
+            success: false,
+            error: 'variant_id, quantity, and warehouse_id are required'
+        });
+    }
+
+    try {
+        const result = await inventoryDAO.reserveStock(
+            variant_id,
+            parseInt(quantity),
+            parseInt(warehouse_id)
+        );
+        res.json({ success: true, data: result, message: 'Stock reserved successfully' });
+    } catch (error) {
+        console.error('reserveStock error:', error);
+        res.status(error.message.includes('Insufficient') ? 400 : 500).json({
+            success: false,
+            error: error.message || 'Internal server error'
+        });
+    }
+};
+
+// ─── Get low stock items (global) ─────────────────────────────────────────────
+
+export const getLowStock = async (req, res) => {
+    const { threshold = 10, warehouse_id } = req.query;
+
+    try {
+        const lowStockItems = await inventoryDAO.getLowStockItems(
+            parseInt(threshold),
+            warehouse_id ? parseInt(warehouse_id) : null
+        );
+        res.json({ success: true, data: lowStockItems, total: lowStockItems.length });
+    } catch (error) {
+        console.error('getLowStock error:', error);
+        res.status(500).json({ success: false, error: 'Internal server error' });
     }
 };
 
@@ -321,12 +478,22 @@ export const checkProductAvailability = async (req, res) => {
         });
 
         if (zonePin) {
-            for (const wz of zonePin.zone?.warehouse_zones ?? []) {
-                const inv = await prisma.inventory.findFirst({
-                    where: { warehouse_id: wz.warehouse_id, product_variants: { product_id: productId } }
+            const warehouseZones = zonePin.zone?.warehouse_zones ?? [];
+            if (warehouseZones.length > 0) {
+                const zonalWarehouseIds = warehouseZones.map(wz => wz.warehouse_id);
+                const zonalInvs = await prisma.inventory.findMany({
+                    where: {
+                        warehouse_id: { in: zonalWarehouseIds },
+                        product_variants: { product_id: productId },
+                    },
+                    select: { warehouse_id: true, stock_qty: true, reserved_qty: true },
                 });
-                if (inv && (inv.stock_qty - inv.reserved_qty) > 0) {
-                    return res.json({ success: true, data: { is_available: true, warehouse_type: 'zonal', warehouse_name: wz.warehouses?.name, delivery_time: 'Same Day', available_quantity: inv.stock_qty - inv.reserved_qty } });
+                const whZoneMap = new Map(warehouseZones.map(wz => [wz.warehouse_id, wz]));
+                for (const inv of zonalInvs) {
+                    if ((inv.stock_qty - inv.reserved_qty) > 0) {
+                        const wz = whZoneMap.get(inv.warehouse_id);
+                        return res.json({ success: true, data: { is_available: true, warehouse_type: 'zonal', warehouse_name: wz?.warehouses?.name, delivery_time: 'Same Day', available_quantity: inv.stock_qty - inv.reserved_qty } });
+                    }
                 }
             }
         }

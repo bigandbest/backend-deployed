@@ -620,265 +620,166 @@ export const getProductsByDeliveryZone = async (req, res) => {
 // Get Quick Picks - products that are popular, most_orders, or top_sale
 export const getQuickPicks = async (req, res) => {
   try {
-    const { limit = 30, filter, section_key } = req.query;
+    const { limit: limitRaw = 30, filter, section_key } = req.query;
+    // Guard against NaN / out-of-range values from user input
+    const limitInt = Math.min(100, Math.max(1, parseInt(limitRaw) || 30));
+
+    // Shared Prisma include + normaliser used by every branch
+    const prodInclude = {
+      variants: { where: { active: true } },
+      media: { select: { url: true, media_type: true, is_primary: true, sort_order: true } },
+    };
+    // Alias variants → product_variants so downstream transform logic is unchanged
+    const toProd = (p) => ({ ...p, product_variants: p.variants });
 
     let products = [];
 
-    // If section_key is provided, fetch products from section mappings
+    // ── section_key branch ───────────────────────────────────────────────────
     if (section_key) {
-      // Get section info
-      const { data: sectionData, error: sectionError } = await supabase
-        .from("product_sections")
-        .select("*")
-        .eq("section_key", section_key)
-        .eq("is_active", true)
-        .maybeSingle();
+      const sectionData = await prisma.product_sections.findFirst({
+        where: { section_key, is_active: true },
+        select: { id: true },
+      });
 
-      if (!sectionError && sectionData) {
-        // Get direct section-product mappings
-        const { data: directMappings, error: directMappingsError } =
-          await supabase
-            .from("store_section_mappings")
-            .select(
-              `
-            products!inner(
-              *,
-              product_variants(*),
-              product_media(url, media_type, is_primary, sort_order)
-            )
-          `
-            )
-            .eq("section_id", sectionData.id)
-            .eq("mapping_type", "section_product")
-            .eq("is_active", true)
-            .limit(parseInt(limit));
-
-        if (!directMappingsError && directMappings) {
-          products = directMappings.map((mapping) => mapping.products);
-        }
-      }
-
-      // If no products found from section mappings, fall back to latest products
-      if (products.length === 0) {
-        const { data: latestData, error: latestError } = await supabase
-          .from("products")
-          .select(`*, ${VARIANT_JOIN}, ${MEDIA_JOIN}`)
-          .eq("active", true)
-          .order("created_at", { ascending: false })
-          .limit(parseInt(limit));
-
-        if (!latestError && latestData) {
-          products = latestData;
-        }
-      }
-    } else if (filter === "new_arrivals") {
-      // Get latest products
-      const { data: productDetails, error: detailsError } = await supabase
-        .from("products")
-        .select(`*, ${VARIANT_JOIN}, ${MEDIA_JOIN}`)
-        .eq("active", true)
-        .order("created_at", { ascending: false })
-        .limit(parseInt(limit));
-
-      if (!detailsError && productDetails) {
-        products = productDetails;
-      }
-    } else if (filter === "best_sellers" || !filter) {
-      // Default to best sellers (current logic)
-      // First, get top selling products based on order_items quantity
-      const { data: orderItems, error: orderError } = await supabase
-        .from("order_items")
-        .select("product_id, quantity");
-
-      let topSellingProductIds = [];
-
-      if (!orderError && orderItems) {
-        // Aggregate quantities by product_id
-        const salesMap = {};
-        orderItems.forEach((item) => {
-          if (item.product_id && item.quantity) {
-            salesMap[item.product_id] =
-              (salesMap[item.product_id] || 0) + item.quantity;
-          }
+      if (sectionData) {
+        const directMappings = await prisma.store_section_mappings.findMany({
+          where: { section_id: sectionData.id, mapping_type: 'section_product', is_active: true },
+          include: { products: { include: prodInclude } },
+          take: limitInt,
         });
+        if (directMappings.length > 0) {
+          products = directMappings.filter(m => m.products).map(m => toProd(m.products));
+        }
+      }
 
-        // Sort by total quantity sold (descending)
-        topSellingProductIds = Object.entries(salesMap)
-          .sort(([, a], [, b]) => b - a)
-          .slice(0, parseInt(limit))
-          .map(([productId]) => productId);
+      // Fallback: latest active products
+      if (products.length === 0) {
+        const latestProds = await prisma.products.findMany({
+          where: { active: true },
+          include: prodInclude,
+          orderBy: { created_at: 'desc' },
+          take: limitInt,
+        });
+        products = latestProds.map(toProd);
+      }
+
+    // ── new_arrivals branch ──────────────────────────────────────────────────
+    } else if (filter === "new_arrivals") {
+      const rawProds = await prisma.products.findMany({
+        where: { active: true },
+        include: prodInclude,
+        orderBy: { created_at: 'desc' },
+        take: limitInt,
+      });
+      products = rawProds.map(toProd);
+
+    // ── best_sellers (default) ───────────────────────────────────────────────
+    } else if (filter === "best_sellers" || !filter) {
+      // DB-level GROUP BY — avoids full order_items table scan
+      let topSellingProductIds = [];
+      try {
+        const topSales = await prisma.order_items.groupBy({
+          by: ['product_id'],
+          where: { product_id: { not: null } },
+          _sum: { quantity: true },
+          orderBy: { _sum: { quantity: 'desc' } },
+          take: limitInt,
+        });
+        topSellingProductIds = topSales.map(r => r.product_id).filter(Boolean);
+      } catch (e) {
+        console.warn('[getQuickPicks] best_sellers aggregation failed:', e.message);
       }
 
       if (topSellingProductIds.length > 0) {
-        // Get product details for top selling products
-        const { data: productDetails, error: detailsError } = await supabase
-          .from("products")
-          .select(
-            `
-            *,
-            product_variants!left(
-              id,
-              variant_name,
-              variant_price,
-              variant_old_price,
-              variant_discount,
-              variant_stock,
-              variant_weight,
-              variant_unit,
-              variant_image,
-              is_default
-            ),
-            product_media(
-              url,
-              media_type,
-              is_primary,
-              sort_order
-            )
-          `
-          )
-          .in("id", topSellingProductIds)
-          .eq("active", true);
-
-        if (!detailsError && productDetails) {
-          // Sort products to match the order of top selling
-          const productMap = productDetails.reduce((map, product) => {
-            map[product.id] = product;
-            return map;
-          }, {});
-
-          products = topSellingProductIds
-            .map((id) => productMap[id])
-            .filter((product) => product); // Remove any null products
-        }
+        const productDetails = await prisma.products.findMany({
+          where: { id: { in: topSellingProductIds }, active: true },
+          include: prodInclude,
+        });
+        const productMap = {};
+        productDetails.forEach(p => { productMap[p.id] = toProd(p); });
+        // Preserve best-seller rank order
+        products = topSellingProductIds.map(id => productMap[id]).filter(Boolean);
       }
 
-      // If we don't have enough top selling products, fill with latest products
-      if (products.length < parseInt(limit)) {
-        const remainingLimit = parseInt(limit) - products.length;
-        const excludeIds = products.map((p) => p.id);
-
-        let latestQuery = supabase
-          .from("products")
-          .select(`*, ${VARIANT_JOIN}, ${MEDIA_JOIN}`)
-          .eq("active", true)
-          .order("created_at", { ascending: false })
-          .limit(remainingLimit);
-
-        if (excludeIds.length > 0) {
-          latestQuery = latestQuery.not(
-            "id",
-            "in",
-            `(${excludeIds.join(",")})`
-          );
-        }
-
-        const { data: latestData, error: latestError } = await latestQuery;
-
-        if (!latestError && latestData) {
-          products = [...products, ...latestData];
-        }
+      // Fill remainder with latest products
+      if (products.length < limitInt) {
+        const remainingLimit = limitInt - products.length;
+        const excludeIds = products.map(p => p.id);
+        const latestProds = await prisma.products.findMany({
+          where: { active: true, ...(excludeIds.length > 0 && { id: { notIn: excludeIds } }) },
+          include: prodInclude,
+          orderBy: { created_at: 'desc' },
+          take: remainingLimit,
+        });
+        products = [...products, ...latestProds.map(toProd)];
       }
+
+    // ── trending branch ──────────────────────────────────────────────────────
     } else if (filter === "trending") {
-      // For trending, use products with recent orders (last 30 days)
+      // DB-level 30-day window aggregate — no full table scan
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      const { data: recentOrderItems, error: recentError } = await supabase
-        .from("order_items")
-        .select("product_id, quantity, orders!inner(created_at)")
-        .gte("orders.created_at", thirtyDaysAgo.toISOString());
-
       let trendingProductIds = [];
-
-      if (!recentError && recentOrderItems) {
-        const trendingMap = {};
-        recentOrderItems.forEach((item) => {
-          if (item.product_id && item.quantity) {
-            trendingMap[item.product_id] =
-              (trendingMap[item.product_id] || 0) + item.quantity;
-          }
+      try {
+        const trendingSales = await prisma.order_items.groupBy({
+          by: ['product_id'],
+          where: {
+            product_id: { not: null },
+            orders: { created_at: { gte: thirtyDaysAgo } },
+          },
+          _sum: { quantity: true },
+          orderBy: { _sum: { quantity: 'desc' } },
+          take: limitInt,
         });
-
-        trendingProductIds = Object.entries(trendingMap)
-          .sort(([, a], [, b]) => b - a)
-          .slice(0, parseInt(limit))
-          .map(([productId]) => productId);
+        trendingProductIds = trendingSales.map(r => r.product_id).filter(Boolean);
+      } catch (e) {
+        console.warn('[getQuickPicks] trending aggregation failed:', e.message);
       }
 
       if (trendingProductIds.length > 0) {
-        const { data: productDetails, error: detailsError } = await supabase
-          .from("products")
-          .select(`*, ${VARIANT_JOIN}, ${MEDIA_JOIN}`)
-          .in("id", trendingProductIds)
-          .eq("active", true);
-
-        if (!detailsError && productDetails) {
-          const productMap = productDetails.reduce((map, product) => {
-            map[product.id] = product;
-            return map;
-          }, {});
-
-          products = trendingProductIds
-            .map((id) => productMap[id])
-            .filter((product) => product);
-        }
+        const productDetails = await prisma.products.findMany({
+          where: { id: { in: trendingProductIds }, active: true },
+          include: prodInclude,
+        });
+        const productMap = {};
+        productDetails.forEach(p => { productMap[p.id] = toProd(p); });
+        products = trendingProductIds.map(id => productMap[id]).filter(Boolean);
       }
 
-      // Fill with latest if needed
-      if (products.length < parseInt(limit)) {
-        const remainingLimit = parseInt(limit) - products.length;
-        const excludeIds = products.map((p) => p.id);
-
-        let latestQuery = supabase
-          .from("products")
-          .select(`*, ${VARIANT_JOIN}, ${MEDIA_JOIN}`)
-          .eq("active", true)
-          .order("created_at", { ascending: false })
-          .limit(remainingLimit);
-
-        if (excludeIds.length > 0) {
-          latestQuery = latestQuery.not(
-            "id",
-            "in",
-            `(${excludeIds.join(",")})`
-          );
-        }
-
-        const { data: latestData, error: latestError } = await latestQuery;
-
-        if (!latestError && latestData) {
-          products = [...products, ...latestData];
-        }
+      // Fill remainder with latest products
+      if (products.length < limitInt) {
+        const remainingLimit = limitInt - products.length;
+        const excludeIds = products.map(p => p.id);
+        const latestProds = await prisma.products.findMany({
+          where: { active: true, ...(excludeIds.length > 0 && { id: { notIn: excludeIds } }) },
+          include: prodInclude,
+          orderBy: { created_at: 'desc' },
+          take: remainingLimit,
+        });
+        products = [...products, ...latestProds.map(toProd)];
       }
+
+    // ── top_sale branch ──────────────────────────────────────────────────────
     } else if (filter === "top_sale") {
-      // Get products marked as top sale
-      const { data: productDetails, error: detailsError } = await supabase
-        .from("products")
-        .select(`*, ${VARIANT_JOIN}, ${MEDIA_JOIN}`)
-        .eq("active", true)
-        .eq("top_sale", true)
-        .order("created_at", { ascending: false })
-        .limit(parseInt(limit));
+      const rawProds = await prisma.products.findMany({
+        where: { active: true, top_sale: true },
+        include: prodInclude,
+        orderBy: { created_at: 'desc' },
+        take: limitInt,
+      });
+      products = rawProds.map(toProd);
 
-      if (!detailsError && productDetails) {
-        products = productDetails;
-      }
+    // ── most_orders branch ───────────────────────────────────────────────────
     } else if (filter === "most_orders") {
-      // Get products marked as most ordered
-      const { data: productDetails, error: detailsError } = await supabase
-        .from("products")
-        .select(`*, ${VARIANT_JOIN}, ${MEDIA_JOIN}`)
-        .eq("active", true)
-        .eq("most_orders", true)
-        .order("created_at", { ascending: false })
-        .limit(parseInt(limit));
-
-      if (!detailsError && productDetails) {
-        products = productDetails;
-      }
+      const rawProds = await prisma.products.findMany({
+        where: { active: true, most_orders: true },
+        include: prodInclude,
+        orderBy: { created_at: 'desc' },
+        take: limitInt,
+      });
+      products = rawProds.map(toProd);
     }
-
-    console.log("Quick picks data:", products.length, "products found");
 
     // Transform the data to match frontend expectations
     const transformedProducts = products.map((product) => {
@@ -913,9 +814,7 @@ export const getQuickPicks = async (req, res) => {
         top_sale: product.top_sale,
         category: product.category,
         category_info: product.categories,
-        weight:
-          product.uom ||
-          `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
+        weight: product.uom || `${product.uom_value || 1} ${product.uom_unit || "kg"}`,
         brand: product.brand_name || "BigandBest",
         shipping_amount: product.shipping_amount || 0,
         specifications: product.specifications,
@@ -937,7 +836,7 @@ export const getQuickPicks = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      products: enrichedProducts.slice(0, parseInt(limit)),
+      products: enrichedProducts.slice(0, limitInt),
       total: enrichedProducts.length,
     });
   } catch (error) {
@@ -1154,15 +1053,20 @@ export const getRelatedProducts = async (req, res) => {
 // Get new arrivals - latest products
 export const getNewArrivals = async (req, res) => {
   try {
-    const { limit = 100 } = req.query;
-    const products = await productDao.getNewArrivals(parseInt(limit));
-    let transformedProducts = products.map(product => transformProduct(product));
+    const { limit = 24, page = 1 } = req.query;
+    const limitInt = parseInt(limit);
+    const pageInt = parseInt(page);
+    const result = await productDao.getNewArrivals(limitInt, pageInt);
+    let transformedProducts = result.items.map(product => transformProduct(product));
     transformedProducts = await enrichWithAvailability(req, transformedProducts);
 
     res.status(200).json({
       success: true,
       products: transformedProducts,
-      total: transformedProducts.length,
+      total: result.total,
+      page: pageInt,
+      limit: limitInt,
+      totalPages: result.total > 0 ? Math.ceil(result.total / limitInt) : 0,
     });
   } catch (error) {
     console.error("getNewArrivals error:", error);
@@ -1585,20 +1489,27 @@ export const checkProductAvailability = async (req, res) => {
     const zonePincode = await zonePincodeDao.getByPincode(pincode);
     if (zonePincode) {
       const zonalWarehouses = await deliveryZoneDao.getZonalWarehouses(zonePincode.zone_id);
-      for (const warehouse of zonalWarehouses) {
-        const zonalStock = await productWarehouseStockDao.getByProductAndWarehouse(product_id, warehouse.id);
-        if (zonalStock && (zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0)) > 0) {
-          return res.json({
-            success: true,
-            available: true,
-            warehouse_type: "zonal",
-            warehouse_id: warehouse.id,
-            warehouse_name: warehouse.name,
-            delivery_days: 0.5, // Representing same day
-            delivery_message: "Same day delivery",
-            available_quantity: zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0),
-            pincode_info: { pincode: zonePincode.pincode, city: zonePincode.city, state: zonePincode.state },
-          });
+      if (zonalWarehouses.length > 0) {
+        // Fetch all zonal stock in parallel instead of sequential for-loop
+        const zonalStocks = await Promise.all(
+          zonalWarehouses.map(w => productWarehouseStockDao.getByProductAndWarehouse(product_id, w.id))
+        );
+        for (let i = 0; i < zonalWarehouses.length; i++) {
+          const zonalStock = zonalStocks[i];
+          const warehouse = zonalWarehouses[i];
+          if (zonalStock && (zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0)) > 0) {
+            return res.json({
+              success: true,
+              available: true,
+              warehouse_type: "zonal",
+              warehouse_id: warehouse.id,
+              warehouse_name: warehouse.name,
+              delivery_days: 0.5, // Representing same day
+              delivery_message: "Same day delivery",
+              available_quantity: zonalStock.stock_quantity - (zonalStock.reserved_quantity || 0),
+              pincode_info: { pincode: zonePincode.pincode, city: zonePincode.city, state: zonePincode.state },
+            });
+          }
         }
       }
     }

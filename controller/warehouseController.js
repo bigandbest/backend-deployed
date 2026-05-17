@@ -9,62 +9,46 @@ export const getWarehouses = async (req, res) => {
   try {
     const { type, is_active } = req.query;
 
-    const filters = {};
-    if (type) filters.type = type;
-    if (is_active !== undefined) filters.active = is_active === "true";
+    // Single query with all needed relations — replaces N+1 (list + N×getById)
+    const warehouses = await prisma.warehouses.findMany({
+      where: {
+        ...(type && { type }),
+        ...(is_active !== undefined && { is_active: is_active === "true" }),
+      },
+      include: {
+        parent_warehouse: { select: { id: true, name: true, type: true } },
+        warehouse_zones: {
+          include: {
+            delivery_zones: {
+              select: { id: true, name: true, zone_pincodes: { select: { pincode: true, city: true } } }
+            }
+          }
+        },
+        warehouse_pincodes: {
+          where: { is_active: true },
+          select: { pincode: true, city: true, state: true, delivery_days: true, is_active: true }
+        },
+        // Sellers/riders only needed when opening edit modal — loaded lazily via getWarehouseById
+      },
+      orderBy: { name: 'asc' },
+    });
 
-    const warehouses = await WarehouseDAO.list(filters);
-
-    // Hydrate with zones/pincodes to match original response structure
-    const warehousesWithZones = await Promise.all(
-      warehouses.map(async (warehouse) => {
-        const detailed = await WarehouseDAO.getById(warehouse.id);
-
-        let zones = [];
-        let pincodes = [];
-        let sellers = [];
-        let riders = [];
-
-        if (warehouse.type === "zonal") {
-          zones = detailed.warehouse_zones?.map(wz => ({
-            ...wz.delivery_zones,
-            pincodes: wz.delivery_zones?.zone_pincodes || []
-          })).filter(Boolean) || [];
-        } else if (warehouse.type === "division") {
-          pincodes = detailed.warehouse_pincodes || [];
-          sellers = detailed.warehouse_sellers?.map(ws => ({
-            id: ws.seller?.id,
-            user_id: ws.seller?.user_id,
-            business_name: ws.seller?.business_name,
-            seller_type: ws.seller?.seller_type,
-            user: ws.seller?.user,
-            assigned_at: ws.assigned_at,
-          })).filter(Boolean) || [];
-          riders = detailed.warehouse_riders?.map(wr => ({
-            id: wr.rider?.id,
-            user_id: wr.rider?.user_id,
-            vehicle_type: wr.rider?.vehicle_type,
-            is_available: wr.rider?.is_available,
-            user: wr.rider?.user,
-            assigned_at: wr.assigned_at,
-          })).filter(Boolean) || [];
-        }
-
-        return {
-          ...warehouse,
-          pincode: warehouse.location,
-          zones: zones,
-          pincodes: pincodes,
-          sellers: sellers,
-          riders: riders,
-        };
-      })
-    );
+    const result = warehouses.map(w => ({
+      ...w,
+      pincode: w.location,
+      zones: w.warehouse_zones?.map(wz => ({
+        ...wz.delivery_zones,
+        pincodes: wz.delivery_zones?.zone_pincodes || [],
+      })).filter(Boolean) || [],
+      pincodes: w.warehouse_pincodes || [],
+      sellers: [],
+      riders: [],
+    }));
 
     res.status(200).json({
       success: true,
-      data: warehousesWithZones,
-      count: warehousesWithZones.length,
+      data: result,
+      count: result.length,
     });
   } catch (error) {
     res.status(500).json({

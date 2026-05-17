@@ -216,9 +216,9 @@ export const updateSectionOrder = async (req, res) => {
       return res.status(400).json({ error: "sections array is required" });
     }
 
-    for (const section of sections) {
-      await productSectionDao.update(parseInt(section.id), { display_order: section.display_order });
-    }
+    await Promise.all(
+      sections.map(section => productSectionDao.update(parseInt(section.id), { display_order: section.display_order }))
+    );
 
     // Order change affects the list caches; individual section content is unchanged
     redis.del(CACHE_KEYS.allSections).catch(() => {});
@@ -290,98 +290,172 @@ export const removeProductFromSection = async (req, res) => {
   }
 };
 
+// Compute stock from pre-loaded variant inventory — no extra DB round-trip
+const computeStockFromVariants = (variants = []) => {
+  return variants
+    .filter(v => v.active !== false)
+    .reduce((sum, v) => {
+      const adminStock = (v.inventory || []).reduce(
+        (s, inv) => s + Math.max((inv.stock_qty || 0) - (inv.reserved_qty || 0), 0), 0
+      );
+      const sellerStock = (v.seller_products || [])
+        .filter(sp => sp.status === 'APPROVED' && sp.is_active !== false)
+        .reduce((s, sp) => s + Math.max((sp.stock_quantity || 0) - (sp.reserved_quantity || 0), 0), 0);
+      return sum + adminStock + sellerStock;
+    }, 0);
+};
+
 // Get all products in a section
 export const getProductsInSection = async (req, res) => {
   try {
     const { id } = req.params;
-    const { page = 1, limit = 50, warehouse_id } = req.query;
-    const sectionId = parseInt(id);
-    const pageInt = parseInt(page);
-    const limitInt = parseInt(limit);
-    const offset = (pageInt - 1) * limitInt;
-    const warehouseKey = warehouse_id ? parseInt(warehouse_id) : 0;
-    // Per-page cache key — avoids storing the entire section in one huge Redis value
-    const cacheKey = `${CACHE_KEYS.sectionProducts(sectionId)}:wh${warehouseKey}:p${pageInt}:l${limitInt}`;
+    const { page = 1, limit = 24, warehouse_id, sort, minPrice, maxPrice, brand } = req.query;
 
-    const userPincode = req.headers['x-user-pincode'];
-    const validPincode = userPincode && /^\d{6}$/.test(userPincode);
-
-    // Serve paginated base list from cache, re-enrich availability per-user
-    const cachedRaw = await redis.get(cacheKey).catch(() => null);
-    if (cachedRaw) {
-      const cached = JSON.parse(cachedRaw);
-      if (validPincode && cached.data?.length > 0) {
-        const items = cached.data.filter(p => p.id).map(p => ({
-          product_id: p.id,
-          variant_id: p.variants?.[0]?.id || p.default_variant_id || null,
-          quantity: 1,
-        }));
-        if (items.length > 0) {
-          const availability = await cartAvailabilityDAO.checkBulkAvailability(items, userPincode).catch(() => ({}));
-          cached.data = cached.data.map(p => ({ ...p, availability: availability[p.id] ?? { available: true } }));
-        }
+    // Accept numeric ID or string section_key
+    let sectionId = parseInt(id);
+    if (isNaN(sectionId)) {
+      const section = await prisma.product_sections.findUnique({
+        where: { section_key: id },
+        select: { id: true },
+      });
+      if (!section) {
+        return res.status(200).json({ success: true, data: [], pagination: { page: 1, limit: parseInt(limit), total: 0, totalPages: 0 } });
       }
-      return res.status(200).json(cached);
+      sectionId = section.id;
     }
 
-    // 1. Fetch category mappings (small table, fast — needed before pagination query)
-    const mappedCategories = await productSectionCategoryDao.listBySection(sectionId);
+    const pageInt  = Math.max(1, parseInt(page)  || 1);
+    const limitInt = Math.min(100, Math.max(1, parseInt(limit) || 24));
+    const offset = (pageInt - 1) * limitInt;
+
+    // Build filter WHERE from query params
+    const priceFilter = {};
+    const minPriceF = minPrice ? parseFloat(minPrice) : NaN;
+    const maxPriceF = maxPrice ? parseFloat(maxPrice) : NaN;
+    if (!isNaN(minPriceF)) priceFilter.gte = minPriceF;
+    if (!isNaN(maxPriceF) && maxPriceF < 50000) priceFilter.lte = maxPriceF;
+    const extraWhere = {
+      ...(Object.keys(priceFilter).length > 0 && { price: priceFilter }),
+      ...(brand && { brand_name: brand }),
+    };
+
+    // Build orderBy from sort param
+    const orderByMap = {
+      lowest_price:   { price: 'asc' },
+      highest_price:  { price: 'desc' },
+      highest_rating: { rating: 'desc' },
+      newest:         { created_at: 'desc' },
+    };
+    const orderBy = orderByMap[sort] || { created_at: 'desc' };
+
+    // Cache key includes filter params (skip cache when filters active for fresh results)
+    const hasFilters = Object.keys(extraWhere).length > 0 || (sort && sort !== 'newest');
+    const cacheKey = hasFilters
+      ? null
+      : `${CACHE_KEYS.sectionProducts(sectionId)}:p${pageInt}:l${limitInt}`;
+
+    if (cacheKey) {
+      const cachedRaw = await redis.get(cacheKey).catch(() => null);
+      if (cachedRaw) return res.status(200).json(JSON.parse(cachedRaw));
+    }
+
+    // 1. Fetch category mappings and determine mode in parallel
+    const [mappedCategories, directCount, groupMappings] = await Promise.all([
+      productSectionCategoryDao.listBySection(sectionId),
+      productSectionProductDao.countBySection(sectionId, {}),
+      productSectionGroupDao.listBySection(sectionId),
+    ]);
     const categoryIds = mappedCategories.length > 0 ? mappedCategories.map(mc => mc.category_id) : null;
 
-    // 2. DB-level pagination + total count in parallel — only the current page comes back
-    const [data, total] = await Promise.all([
-      productSectionProductDao.listBySection(sectionId, { offset, limit: limitInt, categoryIds }),
-      productSectionProductDao.countBySection(sectionId, { categoryIds }),
-    ]);
+    let products = [];
+    let total = 0;
 
-    // 3. Flatten product details for this page only
-    let products = data.map(item => ({
-      assignment_id: item.id,
-      display_order: item.display_order,
-      assigned_at: item.created_at,
-      ...item.product
-    }));
+    // Minimal include — inventory already loaded, no extra enrichment needed
+    const productInclude = {
+      variants: {
+        where: { active: true },
+        include: {
+          inventory: { select: { stock_qty: true, reserved_qty: true } },
+          seller_products: {
+            where: { status: 'APPROVED', is_active: true },
+            select: { stock_quantity: true, reserved_quantity: true, status: true, is_active: true },
+          },
+        },
+      },
+      media: { where: { is_primary: true }, take: 1, select: { url: true } },
+      brands: { select: { brand: { select: { name: true } } }, take: 1 },
+      category: { select: { id: true, name: true } },
+    };
 
-    // 4. Inventory enrichment — batch query for this page only (not entire section)
-    products = await productDAO.enrichProductsWithInventory(
-      products,
-      warehouse_id ? parseInt(warehouse_id) : null
-    );
-
-    // 5. Availability check — this page only, run in parallel with nothing else needed
-    let availabilityMap = {};
-    if (validPincode && products.length > 0) {
-      const items = products.filter(p => p.id).map(p => ({
-        product_id: p.id,
-        variant_id: p.variants?.[0]?.id || p.default_variant_id || null,
-        quantity: 1,
-      }));
-      if (items.length > 0) {
-        availabilityMap = await cartAvailabilityDAO.checkBulkAvailability(items, userPincode).catch(() => ({}));
+    if (directCount > 0) {
+      // Mode A: Directly assigned products — reuse directCount when no category filter active
+      const [data, dataTotal] = await Promise.all([
+        productSectionProductDao.listBySection(sectionId, { offset, limit: limitInt, categoryIds }),
+        categoryIds ? productSectionProductDao.countBySection(sectionId, { categoryIds }) : Promise.resolve(directCount),
+      ]);
+      products = data.map(item => ({ ...item.product }));
+      total = dataTotal;
+    } else if (categoryIds && categoryIds.length > 0) {
+      // Mode B: Category-mapped products
+      const where = { category_id: { in: categoryIds }, active: true, ...extraWhere };
+      const [categoryProds, categoryTotal] = await Promise.all([
+        prisma.products.findMany({ where, include: productInclude, skip: offset, take: limitInt, orderBy }),
+        prisma.products.count({ where }),
+      ]);
+      products = categoryProds;
+      total = categoryTotal;
+    } else if (groupMappings && groupMappings.length > 0) {
+      // Mode C: Group-mapped products
+      const groupIds = groupMappings.map(m => m.group_id);
+      const groups = await prisma.groups.findMany({
+        where: { id: { in: groupIds } },
+        select: { subcategory_id: true },
+      });
+      const subcategoryIds = groups.map(g => g.subcategory_id).filter(Boolean);
+      if (subcategoryIds.length > 0) {
+        const where = { subcategory_id: { in: subcategoryIds }, active: true, ...extraWhere };
+        const [groupProds, groupTotal] = await Promise.all([
+          prisma.products.findMany({ where, include: productInclude, skip: offset, take: limitInt, orderBy }),
+          prisma.products.count({ where }),
+        ]);
+        products = groupProds;
+        total = groupTotal;
       }
     }
 
-    // 6. Single map pass — stock fields only (no availability); base payload cached without user data
+    // Compute stock inline — no extra DB call needed
     const baseProducts = products.map(p => {
-      const stockQty = p.stock_info?.available_stock || 0;
-      return { ...p, stock: stockQty, stock_quantity: stockQty, inStock: stockQty > 0, is_in_stock: stockQty > 0 };
+      const stockQty = computeStockFromVariants(p.variants);
+      return {
+        id: p.id,
+        name: p.name,
+        price: p.price,
+        old_price: p.old_price,
+        discount: p.discount,
+        rating: p.rating,
+        review_count: p.review_count,
+        brand_name: p.brands?.[0]?.brand?.name || p.brand_name || "",
+        category: p.category?.name || p.category_name || "",
+        category_id: p.category_id,
+        uom: p.uom,
+        created_at: p.created_at,
+        image: p.image || p.media?.[0]?.url || "",
+        media: p.media || [],
+        variants: p.variants || [],
+        stock: stockQty,
+        inStock: stockQty > 0,
+      };
     });
 
-    const basePayload = {
+    const totalPages = total > 0 ? Math.ceil(total / limitInt) : 0;
+    const payload = {
       success: true,
       data: baseProducts,
-      pagination: { page: pageInt, limit: limitInt, total, totalPages: Math.ceil(total / limitInt) },
-      filtered_by_categories: mappedCategories.length > 0,
-      mapped_category_count: mappedCategories.length,
+      pagination: { page: pageInt, limit: limitInt, total, totalPages },
     };
-    redis.setex(cacheKey, SECTION_CACHE_TTL, JSON.stringify(basePayload)).catch(() => {});
 
-    // Attach per-user availability to the response (not cached)
-    const responseData = validPincode
-      ? baseProducts.map(p => ({ ...p, availability: availabilityMap[p.id] ?? { available: true } }))
-      : baseProducts;
-
-    res.status(200).json({ ...basePayload, data: responseData });
+    if (cacheKey) redis.setex(cacheKey, SECTION_CACHE_TTL, JSON.stringify(payload)).catch(() => {});
+    res.status(200).json(payload);
   } catch (error) {
     console.error("Error fetching products in section:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -398,13 +472,13 @@ export const updateProductOrderInSection = async (req, res) => {
       return res.status(400).json({ error: "products array is required" });
     }
 
-    for (const product of products) {
-      await productSectionProductDao.upsertMany([{
+    await productSectionProductDao.upsertMany(
+      products.map(product => ({
         section_id: parseInt(id),
         product_id: product.product_id,
-        display_order: product.display_order
-      }]);
-    }
+        display_order: product.display_order,
+      }))
+    );
 
     invalidateSectionCache(parseInt(id));
 
@@ -638,10 +712,10 @@ export const getSectionWithContent = async (req, res) => {
         ? prisma.groups.findMany({ where: { id: { in: groupIds } }, select: { id: true, name: true, image_url: true, subcategory_id: true } })
         : Promise.resolve([]),
       storeIds.length
-        ? prisma.products.findMany({ where: { store_id: { in: storeIds }, is_active: true, is_deleted: false }, include: productInclude, take: 20 })
+        ? prisma.products.findMany({ where: { store_id: { in: storeIds }, is_active: true, is_deleted: false }, include: productInclude, take: 100 })
         : Promise.resolve([]),
       categoryIds.length
-        ? prisma.products.findMany({ where: { category_id: { in: categoryIds }, active: true }, include: productInclude, take: 20 })
+        ? prisma.products.findMany({ where: { category_id: { in: categoryIds }, active: true }, include: productInclude, take: 100 })
         : Promise.resolve([]),
       isVideos ? videoCardDao.getActive() : Promise.resolve([]),
       isBanners ? prisma.promo_banners.findMany({ where: { active: true } }) : Promise.resolve([]),
@@ -654,7 +728,7 @@ export const getSectionWithContent = async (req, res) => {
       ? await prisma.products.findMany({
           where: { subcategory_id: { in: subcategoryIds }, active: true },
           include: productInclude,
-          take: 50,
+          take: 100,
         })
       : [];
 
