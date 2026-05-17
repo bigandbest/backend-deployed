@@ -408,6 +408,14 @@ export const placeOrder = async (req, res) => {
     }
     const deliverabilityValidation = { success: true, pincode };
 
+    // COD limit: orders above ₹5,000 cannot use Cash on Delivery
+    if (payment_method === "COD" && parseFloat(total) > 5000) {
+      return res.status(400).json({
+        success: false,
+        error: "Cash on Delivery is only available for orders up to ₹5,000.",
+      });
+    }
+
     // Resolve variant IDs first (needed for parallel warehouse lookup)
     const itemsWithVariants = [];
     for (const item of items) {
