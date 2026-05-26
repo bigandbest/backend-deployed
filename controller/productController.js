@@ -74,6 +74,7 @@ const transformProduct = (product, assignments = []) => {
     id: product.id,
     name: product.name,
     description: product.description,
+    group_id: product.group_id || product.group?.id || null,
     price: product.price,
     oldPrice: product.old_price,
     rating: product.rating || 4.0,
