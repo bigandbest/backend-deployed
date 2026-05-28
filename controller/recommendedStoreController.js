@@ -273,6 +273,44 @@ export async function getProductsForRecommendedStore(req, res) {
       );
     }
 
+    if (categories) {
+      const categoryList = categories.split(",").map((c) => c.trim().toLowerCase());
+      transformedProducts = transformedProducts.filter(
+        (p) => p.category && categoryList.includes(p.category.toLowerCase()),
+      );
+    }
+
+    if (brands) {
+      const brandList = brands.split(",").map((b) => b.trim().toLowerCase());
+      transformedProducts = transformedProducts.filter(
+        (p) => p.brand && brandList.includes(p.brand.toLowerCase()),
+      );
+    }
+
+    if (sortBy && sortBy !== "none") {
+      switch (sortBy) {
+        case "lowest_price":
+          transformedProducts.sort((a, b) => a.price - b.price);
+          break;
+        case "highest_price":
+          transformedProducts.sort((a, b) => b.price - a.price);
+          break;
+        case "newest":
+          transformedProducts.sort(
+            (a, b) => new Date(b.created_at) - new Date(a.created_at),
+          );
+          break;
+        case "highest_rating":
+          transformedProducts.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+          break;
+        case "most_reviews":
+          transformedProducts.sort(
+            (a, b) => (b.review_count || 0) - (a.review_count || 0),
+          );
+          break;
+      }
+    }
+
     res.status(200).json({
       success: true,
       products: transformedProducts,
