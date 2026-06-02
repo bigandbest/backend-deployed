@@ -124,6 +124,8 @@ import affiliateAdminRoutes from "./routes/affiliateAdminRoutes.js";
 import bankAccountRoutes from "./routes/bankAccountRoutes.js";
 import fcmTokenRoutes from "./routes/fcmTokenRoutes.js";
 import { startGeocodeRetryWorker } from "./workers/geocodeRetryWorker.js";
+import bulkPriceRoutes from "./routes/bulkPriceRoutes.js";
+import { startBulkPriceWorker } from "./workers/bulkPriceWorker.js";
 
 // Configuration
 const PORT = process.env.PORT || 8000;
@@ -288,6 +290,7 @@ const createApp = () => {
   app.use("/api/stock", stockRoutes);
   app.use("/api/upload", uploadRoutes);
   app.use("/api/admin", adminProductRoutes);
+  app.use("/api/admin/products", bulkPriceRoutes);
   app.use("/api/admin/users", adminUserRoutes);
   app.use("/api/admin/sellers", adminSellerRoutes);
 
@@ -669,6 +672,9 @@ const startServer = async () => {
 
     // Start geocode retry worker (retries failed address→GPS jobs every hour)
     startGeocodeRetryWorker();
+
+    // Start bulk price update BullMQ worker + hourly cleanup cron
+    startBulkPriceWorker();
   });
 
   // Graceful shutdown for workers
