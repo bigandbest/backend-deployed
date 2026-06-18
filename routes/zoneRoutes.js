@@ -11,6 +11,7 @@ import {
   validatePincode,
   downloadSampleExcel,
   getZoneStatistics,
+  getZoneWarehouses,
 } from "../controller/zoneController.js";
 import { getZoneProductVisibility } from "../controller/productWarehouseController.js";
 
@@ -59,6 +60,7 @@ router.get("/sample-csv", downloadSampleExcel); // Backward compatibility
 router.get("/statistics", getZoneStatistics);
 router.get("/", getAllZones);
 router.get("/:zoneId/product-visibility", getZoneProductVisibility);
+router.get("/:id/warehouses", getZoneWarehouses);
 router.get("/:id", getZoneById);
 router.post("/", createZone);
 router.put("/:id", updateZone);

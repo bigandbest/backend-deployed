@@ -1,4 +1,5 @@
 import DeliveryZoneDAO from "../dao/delivery-zone.dao.js";
+import prisma from "../config/prisma.js";
 import {
   parseExcel,
   parseCSVText,
@@ -382,7 +383,7 @@ export const createZone = async (req, res) => {
 export const updateZone = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, display_name, description, is_nationwide, is_active, pincodes } = req.body;
+    const { name, display_name, description, is_nationwide, is_active, pincodes, warehouse_ids } = req.body;
 
     console.log(`Updating zone ${id}:`, { name, pincodesCount: pincodes?.length });
 
@@ -422,6 +423,21 @@ export const updateZone = async (req, res) => {
         // Use transaction to replace pincodes safely
         await DeliveryZoneDAO.replacePincodes(Number(id), pincodesToInsert);
         console.log(`Replaced pincodes for zone ${id}. Count: ${pincodesToInsert.length}`);
+      }
+    }
+
+    // Update warehouse assignments if provided
+    if (warehouse_ids !== undefined && Array.isArray(warehouse_ids)) {
+      await prisma.warehouse_zones.deleteMany({ where: { zone_id: Number(id) } });
+      if (warehouse_ids.length > 0) {
+        await prisma.warehouse_zones.createMany({
+          data: warehouse_ids.map(wid => ({
+            warehouse_id: Number(wid),
+            zone_id: Number(id),
+            priority: 1,
+            is_active: true
+          }))
+        });
       }
     }
 
@@ -521,6 +537,23 @@ export const downloadSampleExcel = async (req, res) => {
 /**
  * Get zone statistics dashboard
  */
+/**
+ * Get warehouses assigned to a zone
+ */
+export const getZoneWarehouses = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const rows = await prisma.warehouse_zones.findMany({
+      where: { zone_id: Number(id) },
+      include: { warehouses: { select: { id: true, name: true, type: true, is_active: true } } }
+    });
+    const warehouses = rows.map(r => r.warehouses).filter(Boolean);
+    res.status(200).json({ success: true, warehouses });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch zone warehouses" });
+  }
+};
+
 export const getZoneStatistics = async (req, res) => {
   try {
     const stats = await DeliveryZoneDAO.getStatistics();
