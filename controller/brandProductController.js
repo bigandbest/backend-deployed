@@ -65,15 +65,17 @@ export const getProductsForBrand = async (req, res) => {
 
     const data = await ProductBrandDAO.listProductsByBrand(brand_id);
 
-    // Extract products array
-    const products = data.map(item => item.product).filter(p => p !== null);
+    // Extract non-null products and enrich with inventory
+    const validProducts = data.map(item => item.product).filter(p => p != null);
+    const enrichedProducts = await ProductDAO.enrichProductsWithInventory(validProducts);
 
-    // Enrich with inventory
-    const enrichedProducts = await ProductDAO.enrichProductsWithInventory(products);
+    // Build a lookup map by product ID to avoid index mismatches after filtering
+    const enrichedMap = {};
+    enrichedProducts.forEach(p => { if (p?.id) enrichedMap[p.id] = p; });
 
     // Transform to match expected response format with frontend-friendly fields
-    const formattedData = data.map((item, index) => {
-      const product = enrichedProducts[index];
+    const formattedData = data.map((item) => {
+      const product = enrichedMap[item.product?.id];
       if (!product) return null;
 
       const defaultVariant = product.variants?.find(v => v.is_default) || product.variants?.[0] || null;

@@ -406,7 +406,7 @@ export const adjustStock = async (req, res) => {
  */
 export const transferStock = async (req, res) => {
   try {
-    const { product_id, from_warehouse_id, to_warehouse_id, quantity, reason } = req.body;
+    const { product_id, variant_id, from_warehouse_id, to_warehouse_id, quantity, reason } = req.body;
 
     if (!product_id || !from_warehouse_id || !to_warehouse_id || !quantity) {
       return res.status(400).json({ success: false, error: "Missing required fields" });
@@ -416,14 +416,15 @@ export const transferStock = async (req, res) => {
     const fromWhId = parseInt(from_warehouse_id);
     const toWhId = parseInt(to_warehouse_id);
 
-    // Get product variant
+    // Get product and resolve variant
     const product = await prisma.products.findUnique({
       where: { id: product_id },
-      include: { variants: true }
+      include: { variants: { select: { id: true, is_default: true } } }
     });
 
     if (!product) return res.status(404).json({ success: false, error: "Product not found" });
-    const variantId = product.variants.find(v => v.is_default)?.id || product.variants[0]?.id;
+    // Use provided variant_id if given, otherwise fall back to default variant
+    const variantId = variant_id || product.variants.find(v => v.is_default)?.id || product.variants[0]?.id;
 
     // Check source stock
     const sourceInventory = await prisma.inventory.findFirst({
