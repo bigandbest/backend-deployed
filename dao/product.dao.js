@@ -318,12 +318,12 @@ class ProductDAO {
                 for (const variant of variantsData) {
                     if (variant.id) {
                         // Update existing variant
-                        const { product_id, inventory, attributes, ...variantUpdateData } =
+                        const { id: _existingId, product_id, inventory, attributes, ...variantUpdateData } =
                             variant;
 
                         await tx.product_variants.update({
                             where: { id: variant.id },
-                            data: variantUpdateData,
+                            data: { ...variantUpdateData, updated_at: new Date() },
                         });
 
                         // Handle attributes separately if provided
@@ -386,12 +386,13 @@ class ProductDAO {
                         }
                     } else {
                         // Create new variant
-                        const { attributes, inventory, ...variantCreateData } = variant;
+                        const { id: _newVariantId, attributes, inventory, ...variantCreateData } = variant;
 
                         const newVariant = await tx.product_variants.create({
                             data: {
                                 ...variantCreateData,
                                 product_id: id,
+                                updated_at: new Date(),
                             },
                         });
 

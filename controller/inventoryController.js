@@ -101,7 +101,7 @@ export const getWarehouseInventory = async (req, res) => {
 
 export const updateWarehouseInventory = async (req, res) => {
     try {
-        const { warehouse_id, variant_id, stock_quantity } = req.body;
+        const { warehouse_id, variant_id, stock_quantity, mode } = req.body;
 
         if (!warehouse_id || !variant_id || stock_quantity === undefined) {
             return res.status(400).json({ success: false, message: 'warehouse_id, variant_id and stock_quantity are required' });
@@ -117,37 +117,42 @@ export const updateWarehouseInventory = async (req, res) => {
         ]);
         const product_id = variant?.product_id;
 
+        const qty = parseInt(stock_quantity);
+        // mode='add' → cumulative (Add Stock button); mode='set' or default → absolute (Edit Stock)
+        const isAddMode = mode === 'add';
+
         let result;
         if (existing) {
             const prev = existing.stock_qty;
+            const newQty = isAddMode ? prev + qty : qty;
             result = await prisma.inventory.update({
                 where: { id: existing.id },
-                data: { stock_qty: parseInt(stock_quantity), updated_at: new Date() }
+                data: { stock_qty: newQty, updated_at: new Date() }
             });
             if (product_id) {
                 await stockMovementDao.create({
                     product_id,
                     warehouse_id: whId,
-                    movement_type: parseInt(stock_quantity) >= prev ? 'inbound' : 'outbound',
-                    quantity: Math.abs(parseInt(stock_quantity) - prev),
+                    movement_type: newQty >= prev ? 'inbound' : 'outbound',
+                    quantity: Math.abs(newQty - prev),
                     previous_stock: prev,
-                    new_stock: parseInt(stock_quantity),
+                    new_stock: newQty,
                     reference_type: 'admin_update',
-                    reason: 'Admin stock adjustment'
+                    reason: isAddMode ? 'Admin stock addition' : 'Admin stock adjustment'
                 });
             }
         } else {
             result = await prisma.inventory.create({
-                data: { variant_id, warehouse_id: whId, stock_qty: parseInt(stock_quantity), reserved_qty: 0, updated_at: new Date() }
+                data: { variant_id, warehouse_id: whId, stock_qty: qty, reserved_qty: 0, updated_at: new Date() }
             });
             if (product_id) {
                 await stockMovementDao.create({
                     product_id,
                     warehouse_id: whId,
                     movement_type: 'inbound',
-                    quantity: parseInt(stock_quantity),
+                    quantity: qty,
                     previous_stock: 0,
-                    new_stock: parseInt(stock_quantity),
+                    new_stock: qty,
                     reference_type: 'admin_update',
                     reason: 'Admin stock creation'
                 });

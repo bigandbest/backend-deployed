@@ -190,6 +190,33 @@ export async function getAllBrands(req, res) {
   }
 }
 
+// Toggle Brand Active Status
+export async function toggleBrand(req, res) {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({ success: false, error: "Brand ID is required" });
+    }
+
+    const existing = await BrandDAO.getBrandById(id);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: "Brand not found" });
+    }
+
+    const updated = await BrandDAO.updateBrand(id, { is_active: !existing.is_active });
+
+    res.json({
+      success: true,
+      message: `Brand "${updated.name}" ${updated.is_active ? "activated" : "deactivated"} successfully`,
+      brand: updated,
+    });
+  } catch (err) {
+    console.error("Unexpected error in toggleBrand:", err);
+    res.status(500).json({ success: false, error: `Internal server error: ${err.message}` });
+  }
+}
+
 // View a Single Brand
 export async function getSingleBrand(req, res) {
   try {

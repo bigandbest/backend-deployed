@@ -5,7 +5,8 @@ import {
     editBrand,
     deleteBrand,
     getAllBrands,
-    getSingleBrand
+    getSingleBrand,
+    toggleBrand,
 } from '../controller/brandController.js'
 
 const router = express.Router();
@@ -14,6 +15,7 @@ const upload = multer();
 router.post('/add', upload.single("image_url"), addBrand);
 router.put('/update/:id', upload.single("image_url"), editBrand);
 router.delete('/delete/:id', deleteBrand);
+router.patch('/toggle/:id', toggleBrand);
 
 router.get('/', getAllBrands);
 router.get('/list', getAllBrands);
