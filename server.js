@@ -219,6 +219,7 @@ const createApp = () => {
   app.use("/api/orderItems", orderRoutes); // Now pointing to the same merged file
   app.use("/api/orders", invoiceRoutes);
   app.use("/api/check", checkCartAvailabilityRoute);
+  app.use("/check", checkCartAvailabilityRoute); // alias for clients using path without /api prefix
   app.use("/api/payment", paymentRoutes);
   app.use("/api/notifications", notificationRoutes);
   // app.use("/api/bnb", bnbRoutes);

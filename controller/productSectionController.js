@@ -423,6 +423,17 @@ export const getProductsInSection = async (req, res) => {
       }
     }
 
+    // Mode D: No explicit mappings — fall back to newest active products (e.g. new_arrivals)
+    if (products.length === 0 && total === 0 && directCount === 0 && !categoryIds && (!groupMappings || groupMappings.length === 0)) {
+      const fallbackWhere = { active: true, ...extraWhere };
+      const [fallbackProds, fallbackTotal] = await Promise.all([
+        prisma.products.findMany({ where: fallbackWhere, include: productInclude, skip: offset, take: limitInt, orderBy: { created_at: 'desc' } }),
+        prisma.products.count({ where: fallbackWhere }),
+      ]);
+      products = fallbackProds;
+      total = fallbackTotal;
+    }
+
     // Compute stock inline — no extra DB call needed
     const baseProducts = products.map(p => {
       const stockQty = computeStockFromVariants(p.variants);
