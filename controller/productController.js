@@ -142,13 +142,15 @@ export const getAllProducts = async (req, res) => {
     let transformedProducts = (result.items || []).map((product) => transformProduct(product));
     transformedProducts = await enrichWithAvailability(req, transformedProducts);
 
+    const totalPages = Math.ceil((result.total || 0) / limit);
     res.status(200).json({
       success: true,
       products: transformedProducts,
       total: result.total || 0,
       page,
       limit,
-      totalPages: Math.ceil((result.total || 0) / limit),
+      totalPages,
+      isLastPage: page >= totalPages,
     });
   } catch (err) {
     console.error("Error fetching products:", err);

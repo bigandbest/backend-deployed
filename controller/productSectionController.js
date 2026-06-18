@@ -451,7 +451,7 @@ export const getProductsInSection = async (req, res) => {
     const payload = {
       success: true,
       data: baseProducts,
-      pagination: { page: pageInt, limit: limitInt, total, totalPages },
+      pagination: { page: pageInt, limit: limitInt, total, totalPages, isLastPage: pageInt >= totalPages },
     };
 
     if (cacheKey) redis.setex(cacheKey, SECTION_CACHE_TTL, JSON.stringify(payload)).catch(() => {});
