@@ -15,10 +15,6 @@ model product_variants {
   is_default               Boolean?                  @default(false)
   active                   Boolean?                  @default(true)
   shipping_amount          Decimal?                  @default(0) @db.Decimal
-  is_bulk_enabled          Boolean?                  @default(false)
-  bulk_price               Decimal?                  @db.Decimal
-  bulk_min_quantity        Int?
-  bulk_discount_percentage Int?                      @default(0)
   created_at               DateTime                  @default(now()) @db.Timestamptz(6)
   updated_at               DateTime                  @db.Timestamptz(6)
 
@@ -33,6 +29,7 @@ model product_variants {
   service_bookings         service_bookings[]
   variant_attributes       variant_attributes[]
   sub_order_items          sub_order_items[]
+  bulk_pricing_tiers       bulk_pricing_tiers[]
 
   @@index([active])
   @@index([product_id])

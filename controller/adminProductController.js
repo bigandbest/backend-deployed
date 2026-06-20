@@ -3,6 +3,7 @@ import prisma from "../config/prisma.js";
 import { deleteFromCloudinary, extractPublicId } from "../services/uploadService.js";
 import { redisDel, redisDelPattern } from "../lib/redis.js";
 import { productKey, relatedProductsKey } from "../lib/cacheKeys.js";
+import BulkPricingTiersDAO from "../dao/bulk-pricing-tiers.dao.js";
 
 /** Bust all Redis entries for a given product ID after any write. */
 const invalidateProductCache = async (productId) => {
@@ -152,17 +153,6 @@ export const createProduct = async (req, res) => {
             packaging_details: v.packaging_details, // Added packaging_details
             photo_url: v.photo_url || null, // Variant-specific photo (Cloudinary URL)
             net_quantity: v.net_quantity || null, // Net quantity description
-
-            // Bulk Pricing
-            is_bulk_enabled:
-              v.is_bulk_enabled !== undefined ? !!v.is_bulk_enabled : false,
-            bulk_min_quantity: v.bulk_min_quantity
-              ? parseInt(v.bulk_min_quantity)
-              : 50,
-            bulk_discount_percentage: v.bulk_discount_percentage
-              ? parseInt(v.bulk_discount_percentage)
-              : 0,
-            bulk_price: v.bulk_price ? parseFloat(v.bulk_price) : 0,
             updated_at: new Date(),
           };
 
@@ -221,6 +211,21 @@ export const createProduct = async (req, res) => {
       }
     }
 
+    // --- BULK PRICING TIERS ---
+    if (hasVariants && newProduct.variants && product_variants) {
+      for (let i = 0; i < newProduct.variants.length; i++) {
+        const createdVariant = newProduct.variants[i];
+        const inputVariant = product_variants[i];
+        if (inputVariant?.bulk_tiers && Array.isArray(inputVariant.bulk_tiers) && inputVariant.bulk_tiers.length > 0) {
+          try {
+            await BulkPricingTiersDAO.replaceForVariant(createdVariant.id, inputVariant.bulk_tiers);
+          } catch (tierErr) {
+            console.error('Failed to create bulk tiers for variant:', createdVariant.id, tierErr);
+          }
+        }
+      }
+    }
+
     // --- AUTOMATIC INVENTORY CREATION ---
     // Automatically create inventory records for this product (and variants) in ONLY ACTIVE warehouses
     try {
@@ -242,8 +247,7 @@ export const createProduct = async (req, res) => {
                 warehouse_id: wh.id,
                 stock_qty: 0,
                 reserved_qty: 0,
-                bulk_stock_threshold: variant.bulk_min_quantity || 0,
-                // bulk_reserved_qty: 0 // Default
+                bulk_stock_threshold: 0,
               });
             });
           });
@@ -351,10 +355,7 @@ export const getAllProductsForAdmin = async (req, res) => {
             is_default: v.is_default,
             active: v.active,
             shipping_amount: v.shipping_amount,
-            is_bulk_enabled: v.is_bulk_enabled,
-            bulk_min_quantity: v.bulk_min_quantity,
-            bulk_discount_percentage: v.bulk_discount_percentage,
-            bulk_price: v.bulk_price,
+            bulk_tiers: v.bulk_pricing_tiers ?? [],
           })) || [],
         // Include store info from recommended_store join table
         store_id: storeObj?.id || null,
@@ -832,17 +833,6 @@ export const updateProduct = async (req, res) => {
             packaging_details: v.packaging_details || null, // Added packaging_details
             photo_url: v.photo_url || null, // Variant-specific photo (Cloudinary URL)
             net_quantity: v.net_quantity || null, // Net quantity description
-
-            // Bulk Pricing
-            is_bulk_enabled:
-              v.is_bulk_enabled !== undefined ? !!v.is_bulk_enabled : false,
-            bulk_min_quantity: v.bulk_min_quantity
-              ? parseInt(v.bulk_min_quantity)
-              : 50,
-            bulk_discount_percentage: v.bulk_discount_percentage
-              ? parseInt(v.bulk_discount_percentage)
-              : 0,
-            bulk_price: v.bulk_price ? parseFloat(v.bulk_price) : 0,
           };
 
           // Include inventory if stock is provided
@@ -869,12 +859,23 @@ export const updateProduct = async (req, res) => {
         });
 
         console.log("Mapping variants with attributes:", mappedVariants);
-        await ProductDAO.updateProductWithVariants(
+        const updatedVariants = await ProductDAO.updateProductWithVariants(
           productId,
           {},
           mappedVariants,
         );
         console.log("Product variants updated with new data");
+
+        // Replace bulk pricing tiers for each variant
+        for (const v of updateData.product_variants) {
+          if (v.id && Array.isArray(v.bulk_tiers)) {
+            try {
+              await BulkPricingTiersDAO.replaceForVariant(v.id, v.bulk_tiers);
+            } catch (tierErr) {
+              console.error('Failed to replace bulk tiers for variant:', v.id, tierErr);
+            }
+          }
+        }
       } catch (variantError) {
         console.error("Error updating variants:", variantError);
       }

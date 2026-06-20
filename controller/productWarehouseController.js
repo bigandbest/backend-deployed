@@ -49,7 +49,6 @@ export const createProductWithWarehouse = async (req, res) => {
       has_variants = false,
       enable_bulk_pricing = false,
       bulk_min_quantity = 50,
-      bulk_discount_percentage = 0,
       // Warehouse management fields
       warehouse_mapping_type = "nationwide",
       assigned_warehouse_ids = [],
@@ -123,7 +122,6 @@ export const createProductWithWarehouse = async (req, res) => {
       has_variants,
       enable_bulk_pricing,
       bulk_min_quantity,
-      bulk_discount_percentage,
       warehouse_mapping_type,
       assigned_warehouse_ids,
       primary_warehouses,

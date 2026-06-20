@@ -387,7 +387,6 @@ export const getProductById = async (req, res) => {
         brand_name: product.brand_name || product.brands?.[0]?.brand?.name || null,
         enable_bulk_pricing: product.enable_bulk_pricing,
         bulk_min_quantity: product.bulk_min_quantity,
-        bulk_discount_percentage: product.bulk_discount_percentage,
         faq: product.faq,
         media: (product.media || []).sort((a, b) => {
           if (a.is_primary && !b.is_primary) return -1;

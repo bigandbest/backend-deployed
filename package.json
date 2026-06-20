@@ -12,7 +12,7 @@
     "start": "node server.js",
     "workers": "node workers/index.js",
     "dev": "nodemon server.js",
-    "build": "echo \"No build step required\"",
+    "build": "npm run db:compile && prisma generate",
     "seed": "node seed-database.js",
     "seed:products": "node scripts/seed-products-from-excel.js",
     "seed:products:admin": "node scripts/seed-products-admin-format.js",

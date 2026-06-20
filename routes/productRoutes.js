@@ -41,6 +41,7 @@ import {
 import { authenticateToken } from "../middleware/authenticate.js";
 import { getProductBulkSettings } from "../controller/bulkProductController.js";
 import { getProductVisibilityMatrix } from "../controller/productWarehouseController.js";
+import { getVariantTiers, getTierPrice } from "../controller/bulkPricingTiersController.js";
 
 const router = express.Router();
 
@@ -74,6 +75,10 @@ router.get("/group/:groupId", getProductsByGroup);
 router.get("/brand/:brandId", getProductsByBrand);
 router.get("/:productId/visibility", getProductVisibilityMatrix);
 router.get("/:productId/bulk-settings", getProductBulkSettings);
+
+// Bulk pricing tiers
+router.get("/variants/:variantId/tiers", getVariantTiers);
+router.post("/tier-price", getTierPrice);
 
 // Delivery-related routes
 router.post("/check-delivery", checkProductsDelivery);

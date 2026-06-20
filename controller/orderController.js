@@ -10,7 +10,7 @@ import {
 import orderDao from "../dao/order.dao.js";
 import orderItemDao from "../dao/order-item.dao.js";
 import productDao from "../dao/product.dao.js";
-import bulkProductSettingsDao from "../dao/bulk-product-settings.dao.js";
+import BulkPricingTiersDAO from "../dao/bulk-pricing-tiers.dao.js";
 import cartDao from "../dao/cart.dao.js";
 import refundRequestDao from "../dao/refund-request.dao.js";
 import userControlDao from "../dao/user.dao.js";
@@ -814,20 +814,19 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       let bulkRange = null;
       const originalPrice = parseFloat(item.price);
       try {
-        const bulkSettingsList = await bulkProductSettingsDao.getSettings(productId);
-        const bulkSettings = bulkSettingsList?.find(s =>
-          s.is_bulk_enabled && quantity >= s.min_quantity && (!s.max_quantity || quantity <= s.max_quantity)
-        );
-        if (bulkSettings) {
-          isBulkOrder = true;
-          hasBulkOrder = true;
-          finalPrice = parseFloat(bulkSettings.bulk_price);
-          bulkRange = bulkSettings.max_quantity
-            ? `${bulkSettings.min_quantity}-${bulkSettings.max_quantity}`
-            : `${bulkSettings.min_quantity}+`;
+        if (variantId) {
+          const tier = await BulkPricingTiersDAO.getApplicableTier(variantId, quantity);
+          if (tier) {
+            isBulkOrder = true;
+            hasBulkOrder = true;
+            finalPrice = parseFloat(tier.unit_price);
+            bulkRange = tier.max_quantity
+              ? `${tier.min_quantity}-${tier.max_quantity}`
+              : `${tier.min_quantity}+`;
+          }
         }
       } catch (bulkErr) {
-        console.error('Error checking bulk settings:', bulkErr);
+        console.error('Error checking bulk pricing tiers:', bulkErr);
       }
       resolvedItems.push({ item, productId, quantity, variantId, warehouseInfo, finalPrice, isBulkOrder, bulkRange, originalPrice });
     }

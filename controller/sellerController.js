@@ -373,10 +373,6 @@ export const requestNewProductFull = async (req, res) => {
                         packaging_details: v.packaging_details,
                         photo_url: v.photo_url || null,
                         net_quantity: v.net_quantity || null,
-                        is_bulk_enabled: v.is_bulk_enabled !== undefined ? !!v.is_bulk_enabled : false,
-                        bulk_min_quantity: v.bulk_min_quantity ? parseInt(v.bulk_min_quantity) : 50,
-                        bulk_discount_percentage: v.bulk_discount_percentage ? parseInt(v.bulk_discount_percentage) : 0,
-                        bulk_price: v.bulk_price ? parseFloat(v.bulk_price) : 0,
                         updated_at: new Date(),
                     };
 

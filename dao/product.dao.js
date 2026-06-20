@@ -45,6 +45,7 @@ class ProductDAO {
                     include: {
                         inventory: true,
                         variant_attributes: true,
+                        bulk_pricing_tiers: { orderBy: { min_quantity: 'asc' } },
                         seller_products: {
                             where: { status: 'APPROVED', is_active: true },
                             select: { stock_quantity: true, reserved_quantity: true, status: true, is_active: true }
@@ -145,6 +146,7 @@ class ProductDAO {
                         select: { id: true, warehouse_id: true, stock_qty: true, reserved_qty: true },
                     },
                     variant_attributes: true,
+                    bulk_pricing_tiers: { orderBy: { min_quantity: 'asc' } },
                 }
             }
             : {

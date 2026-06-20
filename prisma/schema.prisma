@@ -455,7 +455,6 @@ model inventory {
   @@unique([variant_id, warehouse_id])
   @@index([stock_qty])
   @@index([warehouse_id])
-  @@index([soft_reserve_expires_at])
 }
 
 model order_execution_logs {
@@ -836,12 +835,9 @@ model product_variants {
   is_default               Boolean?                  @default(false)
   active                   Boolean?                  @default(true)
   shipping_amount          Decimal?                  @default(0) @db.Decimal
-  is_bulk_enabled          Boolean?                  @default(false)
-  bulk_price               Decimal?                  @db.Decimal
-  bulk_min_quantity        Int?
-  bulk_discount_percentage Int?                      @default(0)
   created_at               DateTime                  @default(now()) @db.Timestamptz(6)
   updated_at               DateTime                  @db.Timestamptz(6)
+  bulk_pricing_tiers       bulk_pricing_tiers[]
   cart_items               cart_items[]
   inventory                inventory[]
   order_items              order_items[]
@@ -856,6 +852,20 @@ model product_variants {
   @@index([active])
   @@index([product_id])
   @@index([sku])
+}
+
+model bulk_pricing_tiers {
+  id               Int              @id @default(autoincrement())
+  variant_id       String           @db.Uuid
+  min_quantity     Int
+  max_quantity     Int?
+  unit_price       Decimal          @db.Decimal
+  sort_order       Int              @default(0)
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  product_variants product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+
+  @@index([variant_id])
 }
 
 model product_warehouse_stock {
