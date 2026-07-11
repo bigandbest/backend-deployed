@@ -731,6 +731,90 @@ class ProductDAO {
         });
     }
 
+    async getProductsBySubcategoryPage({ subcategoryId, page = 1, limit = 24, sort = "newest" }) {
+        const skip = (page - 1) * limit;
+
+        const total = await prisma.products.count({
+            where: { subcategory_id: subcategoryId, active: true },
+        });
+
+        const include = {
+            category: { select: { id: true, name: true } },
+            subcategory: { select: { id: true, name: true } },
+            group: { select: { id: true, name: true } },
+            store: { select: { id: true, name: true } },
+            brands: {
+                select: { brand: { select: { id: true, name: true } } },
+                take: 1,
+            },
+            variants: {
+                where: { active: true },
+                include: {
+                    inventory: { select: { stock_qty: true, reserved_qty: true, warehouse_id: true } },
+                    seller_products: {
+                        where: { status: 'APPROVED', is_active: true },
+                        select: { stock_quantity: true, reserved_quantity: true, status: true, is_active: true }
+                    }
+                },
+            },
+            media: {
+                where: { is_primary: true },
+                orderBy: { sort_order: 'asc' },
+                take: 1,
+                select: { url: true, media_type: true },
+            },
+        };
+
+        if (sort === "lowest_price" || sort === "highest_price") {
+            const direction = sort === "lowest_price" ? "ASC" : "DESC";
+            const rows = await prisma.$queryRawUnsafe(
+                `
+                SELECT p.id
+                FROM products p
+                LEFT JOIN LATERAL (
+                    SELECT pv.price, pv.is_default
+                    FROM product_variants pv
+                    WHERE pv.product_id = p.id AND pv.active = true
+                    ORDER BY pv.is_default DESC NULLS LAST, pv.created_at ASC
+                    LIMIT 1
+                ) ev ON true
+                WHERE p.subcategory_id = $1::uuid AND p.active = true
+                ORDER BY ev.price ${direction} NULLS LAST
+                LIMIT $2 OFFSET $3
+                `,
+                subcategoryId,
+                limit,
+                skip
+            );
+
+            const orderedIds = rows.map(r => r.id);
+            if (orderedIds.length === 0) return { items: [], total };
+
+            const unordered = await prisma.products.findMany({
+                where: { id: { in: orderedIds } },
+                include,
+            });
+            const byId = new Map(unordered.map(p => [p.id, p]));
+            const items = orderedIds.map(id => byId.get(id)).filter(Boolean);
+            return { items, total };
+        }
+
+        const orderBy =
+            sort === "highest_rating" ? { rating: "desc" } :
+            sort === "most_reviews" ? { review_count: "desc" } :
+            { created_at: "desc" }; // "newest" and any unrecognized value
+
+        const items = await prisma.products.findMany({
+            where: { subcategory_id: subcategoryId, active: true },
+            skip,
+            take: limit,
+            include,
+            orderBy,
+        });
+
+        return { items, total };
+    }
+
     // --- Variant Operations ---
     async createVariant(data) {
         return await prisma.product_variants.create({

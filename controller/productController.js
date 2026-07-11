@@ -852,16 +852,27 @@ export const getQuickPicks = async (req, res) => {
 export const getProductsBySubcategory = async (req, res) => {
   try {
     const { subcategoryId } = req.params;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.max(1, parseInt(req.query.limit) || 24);
+    const sort = req.query.sort || "newest";
 
-    const products = await productDao.getProductsByFilter({ subcategoryId });
-    let transformedProducts = products.map(product => transformProduct(product));
+    const { items, total } = await productDao.getProductsBySubcategoryPage({
+      subcategoryId,
+      page,
+      limit,
+      sort,
+    });
+
+    let transformedProducts = items.map(product => transformProduct(product));
     transformedProducts = await enrichWithAvailability(req, transformedProducts);
 
     res.status(200).json({
       success: true,
       products: transformedProducts,
-      total: transformedProducts.length,
-      subcategoryId,
+      total,
+      page,
+      limit,
+      hasMore: page * limit < total,
     });
   } catch (error) {
     console.error("Server error:", error);
