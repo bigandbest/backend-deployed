@@ -69,9 +69,12 @@ class ProductSectionProductDAO {
         return await prisma.product_section_products.findMany({
             where: {
                 section_id: sectionId,
-                ...(categoryIds && categoryIds.length > 0
-                    ? { product: { category_id: { in: categoryIds } } }
-                    : {})
+                product: {
+                    active: true,
+                    ...(categoryIds && categoryIds.length > 0
+                        ? { category_id: { in: categoryIds } }
+                        : {})
+                }
             },
             include: { product: true },
             orderBy: { display_order: 'asc' },
@@ -84,9 +87,12 @@ class ProductSectionProductDAO {
         return await prisma.product_section_products.count({
             where: {
                 section_id: sectionId,
-                ...(categoryIds && categoryIds.length > 0
-                    ? { product: { category_id: { in: categoryIds } } }
-                    : {})
+                product: {
+                    active: true,
+                    ...(categoryIds && categoryIds.length > 0
+                        ? { category_id: { in: categoryIds } }
+                        : {})
+                }
             },
         });
     }

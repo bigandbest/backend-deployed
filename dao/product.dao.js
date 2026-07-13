@@ -133,7 +133,6 @@ class ProductDAO {
 
         const where = {
             ...filters,
-            active: filters.active !== undefined ? filters.active : true,
         };
         // Remove known non-DB filters from 'where' to avoid Prisma errors if strict
         if (where.includeAllVariants !== undefined) delete where.includeAllVariants;
