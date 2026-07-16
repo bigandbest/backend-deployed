@@ -9,6 +9,10 @@ const redis = new Redis({
   lazyConnect: false,
   enableReadyCheck: true,
   maxRetriesPerRequest: 3,
+  // Fail commands immediately while disconnected instead of queueing them
+  // forever — a down Redis must degrade to DB reads, not hang requests.
+  enableOfflineQueue: false,
+  commandTimeout: 2000,
 });
 
 redis.on('error', (err) => console.error('[Redis] connection error:', err.message));

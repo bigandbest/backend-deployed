@@ -397,7 +397,7 @@ export const getProductsInSection = async (req, res) => {
       total = dataTotal;
     } else if (categoryIds && categoryIds.length > 0) {
       // Mode B: Category-mapped products
-      const where = { category_id: { in: categoryIds }, active: true, ...extraWhere };
+      const where = { category_id: { in: categoryIds }, active: true, variants: { some: { active: true } }, ...extraWhere };
       const [categoryProds, categoryTotal] = await Promise.all([
         prisma.products.findMany({ where, include: productInclude, skip: offset, take: limitInt, orderBy }),
         prisma.products.count({ where }),
@@ -413,7 +413,7 @@ export const getProductsInSection = async (req, res) => {
       });
       const subcategoryIds = groups.map(g => g.subcategory_id).filter(Boolean);
       if (subcategoryIds.length > 0) {
-        const where = { subcategory_id: { in: subcategoryIds }, active: true, ...extraWhere };
+        const where = { subcategory_id: { in: subcategoryIds }, active: true, variants: { some: { active: true } }, ...extraWhere };
         const [groupProds, groupTotal] = await Promise.all([
           prisma.products.findMany({ where, include: productInclude, skip: offset, take: limitInt, orderBy }),
           prisma.products.count({ where }),
@@ -425,7 +425,7 @@ export const getProductsInSection = async (req, res) => {
 
     // Mode D: No explicit mappings — fall back to newest active products (e.g. new_arrivals)
     if (products.length === 0 && total === 0 && directCount === 0 && !categoryIds && (!groupMappings || groupMappings.length === 0)) {
-      const fallbackWhere = { active: true, ...extraWhere };
+      const fallbackWhere = { active: true, variants: { some: { active: true } }, ...extraWhere };
       const [fallbackProds, fallbackTotal] = await Promise.all([
         prisma.products.findMany({ where: fallbackWhere, include: productInclude, skip: offset, take: limitInt, orderBy: { created_at: 'desc' } }),
         prisma.products.count({ where: fallbackWhere }),
@@ -437,11 +437,13 @@ export const getProductsInSection = async (req, res) => {
     // Compute stock inline — no extra DB call needed
     const baseProducts = products.map(p => {
       const stockQty = computeStockFromVariants(p.variants);
+      const activeVariants = (p.variants || []).filter(v => v.active !== false);
+      const priceVariant = activeVariants.find(v => v.is_default === true) || activeVariants[0];
       return {
         id: p.id,
         name: p.name,
-        price: p.price,
-        old_price: p.old_price,
+        price: p.price ?? priceVariant?.price ?? null,
+        old_price: p.old_price ?? priceVariant?.old_price ?? null,
         discount: p.discount,
         rating: p.rating,
         review_count: p.review_count,

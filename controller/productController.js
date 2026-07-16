@@ -63,7 +63,9 @@ const transformVariant = (v) => {
 
 const transformProduct = (product, assignments = []) => {
   const activeVariants = (product.variants || []).filter(v => v.active !== false);
-  const defaultVariant = activeVariants.find(v => v.is_default === true);
+  // If the flagged default variant is deactivated, fall back to the first
+  // active one so price/weight never come from a hidden variant (or vanish).
+  const defaultVariant = activeVariants.find(v => v.is_default === true) || activeVariants[0] || null;
 
   const totalStock = activeVariants.reduce((sum, v) => sum + calcVariantStock(v.inventory, v.seller_products), 0);
 
@@ -75,8 +77,8 @@ const transformProduct = (product, assignments = []) => {
     name: product.name,
     description: product.description,
     group_id: product.group_id || product.group?.id || null,
-    price: product.price,
-    oldPrice: product.old_price,
+    price: product.price ?? defaultVariant?.price ?? null,
+    oldPrice: product.old_price ?? defaultVariant?.old_price ?? null,
     rating: product.rating || 4.0,
     reviews: product.review_count || 0,
     discount: product.discount || 0,
@@ -355,6 +357,9 @@ export const getProductById = async (req, res) => {
     if (!product || !product.active) {
       return res.status(404).json({ error: "Product not found" });
     }
+
+    // Public detail must only expose active variants (DAO returns all for admin flows)
+    product.variants = (product.variants || []).filter((v) => v.active !== false);
 
     // Run delivery zone lookup, pincode check, and availability enrichment in parallel
     const isZonal = product.delivery_type === "zonal" && product.allowed_zone_ids?.length > 0;

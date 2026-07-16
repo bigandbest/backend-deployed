@@ -137,6 +137,12 @@ class ProductDAO {
         // Remove known non-DB filters from 'where' to avoid Prisma errors if strict
         if (where.includeAllVariants !== undefined) delete where.includeAllVariants;
 
+        // Public listings (active: true) must not surface products whose variants
+        // are all deactivated — they would render without a price.
+        if (where.active === true && !filters.includeAllVariants) {
+            where.variants = { some: { active: true } };
+        }
+
         const variantsSelect = filters.includeAllVariants
             ? {
                 include: {
@@ -436,6 +442,7 @@ class ProductDAO {
         return await prisma.products.findMany({
             where: {
                 active: true,
+                variants: { some: { active: true } },
             },
             take: limit,
             include: {
@@ -451,6 +458,7 @@ class ProductDAO {
         return await prisma.products.findMany({
             where: {
                 active: true,
+                variants: { some: { active: true } },
             },
             take: limit,
             include: {
@@ -466,6 +474,7 @@ class ProductDAO {
         return await prisma.products.findMany({
             where: {
                 active: true,
+                variants: { some: { active: true } },
                 // top_sale field does not exist, using high rating as proxy
             },
             take: limit,
@@ -506,15 +515,16 @@ class ProductDAO {
                 select: { url: true, media_type: true },
             },
         };
+        const newArrivalsWhere = { active: true, variants: { some: { active: true } } };
         const [items, total] = await Promise.all([
             prisma.products.findMany({
-                where: { active: true },
+                where: newArrivalsWhere,
                 take: limit,
                 skip: offset,
                 include,
                 orderBy: { created_at: "desc" },
             }),
-            prisma.products.count({ where: { active: true } }),
+            prisma.products.count({ where: newArrivalsWhere }),
         ]);
         return { items, total };
     }
@@ -597,6 +607,7 @@ class ProductDAO {
         return await prisma.products.findMany({
             where: {
                 active: true,
+                variants: { some: { active: true } },
                 OR: [
                     { category: { name: categoryName } },
                     { category_name: categoryName },
@@ -695,7 +706,7 @@ class ProductDAO {
                             active: true,
                         },
                     }
-                    : undefined,
+                    : { some: { active: true } },
         };
 
         return await prisma.products.findMany({
@@ -734,7 +745,7 @@ class ProductDAO {
         const skip = (page - 1) * limit;
 
         const total = await prisma.products.count({
-            where: { subcategory_id: subcategoryId, active: true },
+            where: { subcategory_id: subcategoryId, active: true, variants: { some: { active: true } } },
         });
 
         const include = {
@@ -778,6 +789,7 @@ class ProductDAO {
                     LIMIT 1
                 ) ev ON true
                 WHERE p.subcategory_id = $1::uuid AND p.active = true
+                  AND EXISTS (SELECT 1 FROM product_variants v WHERE v.product_id = p.id AND v.active = true)
                 ORDER BY ev.price ${direction} NULLS LAST
                 LIMIT $2 OFFSET $3
                 `,
@@ -804,7 +816,7 @@ class ProductDAO {
             { created_at: "desc" }; // "newest" and any unrecognized value
 
         const items = await prisma.products.findMany({
-            where: { subcategory_id: subcategoryId, active: true },
+            where: { subcategory_id: subcategoryId, active: true, variants: { some: { active: true } } },
             skip,
             take: limit,
             include,

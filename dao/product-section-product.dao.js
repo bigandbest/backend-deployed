@@ -71,12 +71,31 @@ class ProductSectionProductDAO {
                 section_id: sectionId,
                 product: {
                     active: true,
+                    variants: { some: { active: true } },
                     ...(categoryIds && categoryIds.length > 0
                         ? { category_id: { in: categoryIds } }
                         : {})
                 }
             },
-            include: { product: true },
+            include: {
+                product: {
+                    include: {
+                        variants: {
+                            where: { active: true },
+                            include: {
+                                inventory: { select: { stock_qty: true, reserved_qty: true } },
+                                seller_products: {
+                                    where: { status: 'APPROVED', is_active: true },
+                                    select: { stock_quantity: true, reserved_quantity: true, status: true, is_active: true },
+                                },
+                            },
+                        },
+                        media: { where: { is_primary: true }, take: 1, select: { url: true } },
+                        brands: { select: { brand: { select: { name: true } } }, take: 1 },
+                        category: { select: { id: true, name: true } },
+                    },
+                },
+            },
             orderBy: { display_order: 'asc' },
             skip: offset,
             take: limit,
@@ -89,6 +108,7 @@ class ProductSectionProductDAO {
                 section_id: sectionId,
                 product: {
                     active: true,
+                    variants: { some: { active: true } },
                     ...(categoryIds && categoryIds.length > 0
                         ? { category_id: { in: categoryIds } }
                         : {})
