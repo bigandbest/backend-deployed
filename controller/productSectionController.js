@@ -662,7 +662,9 @@ export const getSectionWithContent = async (req, res) => {
     const validPincode = userPincode && /^\d{6}$/.test(userPincode);
 
     // Cache key excludes pincode — availability is enriched per-item via Redis in checkBulkAvailability
-    const cacheKey = `section:${sectionId}:wh${warehouseIdInt || 0}`;
+    // v2: cache key bumped when bulk_pricing_tiers was added to productInclude, so stale
+    // pre-tiers payloads don't get served to clients expecting the new field.
+    const cacheKey = `section:${sectionId}:wh${warehouseIdInt || 0}:v2`;
     try {
       const cached = await redis.get(cacheKey);
       if (cached) {
@@ -711,7 +713,10 @@ export const getSectionWithContent = async (req, res) => {
     //    (Group products need subcategoryIds from group details, so groups are fetched here
     //    and group products are fetched in step 3 — store/category/special run fully in parallel)
     const productInclude = {
-      variants: { where: { active: true, is_default: true } },
+      variants: {
+        where: { active: true, is_default: true },
+        include: { bulk_pricing_tiers: { orderBy: { min_quantity: 'asc' } } },
+      },
       media: { where: { is_primary: true }, take: 1 },
       brands: { include: { brand: true } },
     };
@@ -796,6 +801,14 @@ export const getSectionWithContent = async (req, res) => {
           image: p.image || p.media?.[0]?.url || "",
           images: p.images || p.media?.map(m => m.url) || [],
           brand: p.brands?.[0]?.brand?.name || p.brand || "BigandBest",
+          // Coerce Prisma Decimal -> number so clients don't have to parse strings
+          variants: p.variants?.map(v => ({
+            ...v,
+            bulk_pricing_tiers: v.bulk_pricing_tiers?.map(t => ({
+              ...t,
+              unit_price: Number(t.unit_price),
+            })) ?? [],
+          })),
         };
       });
     }
