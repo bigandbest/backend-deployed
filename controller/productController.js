@@ -1096,15 +1096,20 @@ export const getNewArrivals = async (req, res) => {
 // Get super saver products - lowest priced products
 export const getSuperSaver = async (req, res) => {
   try {
-    const { limit = 50 } = req.query;
-    const products = await productDao.getSuperSaver(parseInt(limit));
-    let transformedProducts = products.map(product => transformProduct(product));
+    const { limit = 50, page = 1 } = req.query;
+    const limitInt = parseInt(limit);
+    const pageInt = parseInt(page);
+    const { items, total } = await productDao.getSuperSaver(limitInt, pageInt);
+    let transformedProducts = items.map(product => transformProduct(product));
     transformedProducts = await enrichWithAvailability(req, transformedProducts);
 
     res.status(200).json({
       success: true,
       products: transformedProducts,
-      total: transformedProducts.length,
+      total,
+      page: pageInt,
+      limit: limitInt,
+      hasMore: pageInt * limitInt < total,
     });
   } catch (error) {
     console.error("getSuperSaver error:", error);

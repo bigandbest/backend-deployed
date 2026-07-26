@@ -652,10 +652,30 @@ export const updateProductGridSettings = async (req, res) => {
 };
 
 // Get full content for a single section (Lazy Loading)
+// Section content is cached in full (unfiltered) — subcategory/search/pagination
+// are applied in-memory on every request instead of being baked into the cache
+// key, so "See All" filtering stays cheap without invalidating the section cache.
+const filterAndPaginateProducts = (products, { subcategory_id, q, page = 1, limit = 24 }) => {
+  let list = Array.isArray(products) ? products : [];
+  if (subcategory_id) {
+    list = list.filter(p => p.subcategory_id === subcategory_id);
+  }
+  if (q) {
+    const needle = String(q).trim().toLowerCase();
+    if (needle) list = list.filter(p => (p.name || '').toLowerCase().includes(needle));
+  }
+  const pageInt = Math.max(1, parseInt(page) || 1);
+  const limitInt = Math.max(1, parseInt(limit) || 24);
+  const total = list.length;
+  const start = (pageInt - 1) * limitInt;
+  const paged = list.slice(start, start + limitInt);
+  return { paged, total, page: pageInt, limit: limitInt, hasMore: start + limitInt < total };
+};
+
 export const getSectionWithContent = async (req, res) => {
   try {
     const { id } = req.params;
-    const { warehouse_id } = req.query;
+    const { warehouse_id, subcategory_id, q, page, limit } = req.query;
     const warehouseIdInt = warehouse_id ? parseInt(warehouse_id) : null;
     const sectionId = parseInt(id);
     const userPincode = req.headers['x-user-pincode'];
@@ -685,7 +705,12 @@ export const getSectionWithContent = async (req, res) => {
             }));
           }
         }
-        return res.status(200).json({ success: true, data: parsed });
+        const { paged, total, page: pageOut, limit: limitOut, hasMore } =
+          filterAndPaginateProducts(parsed.products, { subcategory_id, q, page, limit });
+        return res.status(200).json({
+          success: true,
+          data: { ...parsed, products: paged, total, page: pageOut, limit: limitOut, hasMore },
+        });
       }
     } catch {
       // Redis unavailable — proceed to DB
@@ -855,9 +880,11 @@ export const getSectionWithContent = async (req, res) => {
     }
 
     // Avoid spreading responseData then overriding products — build final object directly
+    const { paged, total, page: pageOut, limit: limitOut, hasMore } =
+      filterAndPaginateProducts(enrichedProducts, { subcategory_id, q, page, limit });
     res.status(200).json({
       success: true,
-      data: { ...responseData, products: enrichedProducts },
+      data: { ...responseData, products: paged, total, page: pageOut, limit: limitOut, hasMore },
     });
 
   } catch (error) {

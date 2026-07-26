@@ -531,24 +531,34 @@ class ProductDAO {
         return { items, total };
     }
 
-    async getSuperSaver(limit = 50) {
+    async getSuperSaver(limit = 50, page = 1) {
         try {
+            const offset = (page - 1) * limit;
             // 1. Get IDs of products sorted by their lowest variant price
             // We join products and variants, group by product ID, and order by min price
-            const productsWithPrice = await prisma.$queryRaw`
-                SELECT p.id, MIN(pv.price) as min_price
-                FROM products p
-                JOIN product_variants pv ON p.id = pv.product_id
-                WHERE p.active = true AND pv.active = true
-                GROUP BY p.id
-                ORDER BY MIN(pv.price) ASC
-                LIMIT ${limit}
-            `;
+            const [productsWithPrice, countResult] = await Promise.all([
+                prisma.$queryRaw`
+                    SELECT p.id, MIN(pv.price) as min_price
+                    FROM products p
+                    JOIN product_variants pv ON p.id = pv.product_id
+                    WHERE p.active = true AND pv.active = true
+                    GROUP BY p.id
+                    ORDER BY MIN(pv.price) ASC
+                    LIMIT ${limit} OFFSET ${offset}
+                `,
+                prisma.$queryRaw`
+                    SELECT COUNT(DISTINCT p.id)::int as count
+                    FROM products p
+                    JOIN product_variants pv ON p.id = pv.product_id
+                    WHERE p.active = true AND pv.active = true
+                `,
+            ]);
 
+            const total = Number(countResult?.[0]?.count ?? 0);
             const productIds = productsWithPrice.map(p => p.id);
 
             if (productIds.length === 0) {
-                return [];
+                return { items: [], total };
             }
 
             // 2. Fetch full product details
@@ -590,9 +600,10 @@ class ProductDAO {
             // Create a map for O(1) lookup of order index
             const idToIndex = new Map(productIds.map((id, index) => [id, index]));
 
-            return products.sort((a, b) => {
+            const sorted = products.sort((a, b) => {
                 return (idToIndex.get(a.id) || 0) - (idToIndex.get(b.id) || 0);
             });
+            return { items: sorted, total };
 
         } catch (error) {
             console.error("Error in getSuperSaver DAO:", error);
