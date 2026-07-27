@@ -18,6 +18,7 @@ export async function unifiedSearch(req, res) {
         }
 
         const searchQuery = q.trim();
+        const searchWords = searchQuery.split(/\s+/).filter(w => w.length > 0);
 
         // Parallel search across all entities using Prisma
         const [productsResult, categoriesResult, subcategoriesResult, storesResult, brandsResult, groupsResult] = await Promise.all([
@@ -145,8 +146,74 @@ export async function unifiedSearch(req, res) {
             }),
         ]);
 
+        // Fallback 1: if no exact products found, search by individual words
+        let finalProductsResult = productsResult;
+        if (productsResult.length === 0 && searchWords.length > 0) {
+            finalProductsResult = await prisma.products.findMany({
+                where: {
+                    active: true,
+                    OR: searchWords.map(word => ({
+                        OR: [
+                            { name: { contains: word, mode: "insensitive" } },
+                            { category: { name: { contains: word, mode: "insensitive" } } },
+                            { brands: { some: { brand: { name: { contains: word, mode: "insensitive" } } } } },
+                        ]
+                    }))
+                },
+                include: {
+                    media: {
+                        where: { is_primary: true },
+                        orderBy: { sort_order: "asc" },
+                        take: 1,
+                    },
+                    variants: {
+                        select: { price: true },
+                        take: 1,
+                    },
+                    category: {
+                        select: { name: true },
+                    },
+                },
+                take: 5,
+                distinct: ['id']
+            });
+        }
+
+        // Fallback 2: if still no products, show featured/popular products from first active category
+        if (finalProductsResult.length === 0) {
+            const firstCategory = await prisma.categories.findFirst({
+                where: { active: true },
+                orderBy: { created_at: 'asc' }
+            });
+
+            if (firstCategory) {
+                finalProductsResult = await prisma.products.findMany({
+                    where: {
+                        active: true,
+                        category_id: firstCategory.id
+                    },
+                    include: {
+                        media: {
+                            where: { is_primary: true },
+                            orderBy: { sort_order: "asc" },
+                            take: 1,
+                        },
+                        variants: {
+                            select: { price: true },
+                            take: 1,
+                        },
+                        category: {
+                            select: { name: true },
+                        },
+                    },
+                    orderBy: { rating: 'desc' },
+                    take: 5,
+                });
+            }
+        }
+
         // Map and format results for the frontend
-        let formattedProducts = productsResult.map((p) => ({
+        let formattedProducts = finalProductsResult.map((p) => ({
             id: p.id,
             name: p.name,
             image: p.media?.[0]?.url || null,
@@ -224,6 +291,7 @@ export async function searchProducts(req, res) {
         }
 
         const searchQuery = q.trim();
+        const searchWords = searchQuery.split(/\s+/).filter(w => w.length > 0);
         const take = parseInt(limit);
         const skip = parseInt(offset);
 
@@ -248,7 +316,7 @@ export async function searchProducts(req, res) {
             ]
         };
 
-        const [products, totalCount] = await Promise.all([
+        let [products, totalCount] = await Promise.all([
             prisma.products.findMany({
                 where: whereClause,
                 skip,
@@ -269,6 +337,80 @@ export async function searchProducts(req, res) {
                 where: whereClause
             })
         ]);
+
+        // Fallback 1: if no products found, search by individual words (only for first page)
+        if (totalCount === 0 && skip === 0 && searchWords.length > 0) {
+            const wordWhereClause = {
+                active: true,
+                OR: searchWords.map(word => ({
+                    OR: [
+                        { name: { contains: word, mode: "insensitive" } },
+                        { category: { name: { contains: word, mode: "insensitive" } } },
+                        { brands: { some: { brand: { name: { contains: word, mode: "insensitive" } } } } },
+                    ]
+                }))
+            };
+
+            [products, totalCount] = await Promise.all([
+                prisma.products.findMany({
+                    where: wordWhereClause,
+                    take,
+                    include: {
+                        media: {
+                            where: { is_primary: true },
+                            orderBy: { sort_order: "asc" },
+                            take: 1,
+                        },
+                        category: true,
+                        variants: {
+                            take: 1,
+                        },
+                    },
+                    distinct: ['id']
+                }),
+                prisma.products.count({
+                    where: wordWhereClause
+                })
+            ]);
+        }
+
+        // Fallback 2: if still no products, show featured/popular products from first category
+        if (totalCount === 0 && skip === 0) {
+            const firstCategory = await prisma.categories.findFirst({
+                where: { active: true },
+                orderBy: { created_at: 'asc' }
+            });
+
+            if (firstCategory) {
+                [products, totalCount] = await Promise.all([
+                    prisma.products.findMany({
+                        where: {
+                            active: true,
+                            category_id: firstCategory.id
+                        },
+                        take,
+                        include: {
+                            media: {
+                                where: { is_primary: true },
+                                orderBy: { sort_order: "asc" },
+                                take: 1,
+                            },
+                            category: true,
+                            variants: {
+                                take: 1,
+                            },
+                        },
+                        orderBy: { rating: 'desc' }
+                    }),
+                    prisma.products.count({
+                        where: {
+                            active: true,
+                            category_id: firstCategory.id
+                        }
+                    })
+                ]);
+            }
+        }
 
         // Map data formatting for consistency
         let formattedProducts = products.map((p) => ({
