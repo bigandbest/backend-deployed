@@ -1,20 +1,25 @@
 import prisma from '../config/prisma.js';
 import { handleStockMismatch } from '../services/subOrderService.js';
 import { updateParentOrderStatusFromSubOrders } from '../services/orderFulfillmentService.js';
+import { findAvailableRider } from '../services/fulfillmentRouter.js';
 
 // Helper function to assign a rider to a division order
 const assignRiderToDivisionOrder = async (subOrderId, orderId) => {
     const parentOrder = await prisma.orders.findUnique({
         where: { id: orderId },
-        select: { delivery_pincode: true },
+        select: { delivery_pincode: true, delivery_latitude: true, delivery_longitude: true },
     });
 
     if (!parentOrder?.delivery_pincode) {
         throw new Error('Order delivery pincode not found');
     }
 
-    // Find available rider in the delivery zone
-    const rider = await findAvailableRider(parentOrder.delivery_pincode);
+    // Find available rider in the delivery zone — expands search radius in
+    // bounded tiers if the exact pincode has none (shared with the main
+    // fulfillment router, not a separate implementation).
+    const deliveryLat = parentOrder.delivery_latitude ? Number(parentOrder.delivery_latitude) : null;
+    const deliveryLon = parentOrder.delivery_longitude ? Number(parentOrder.delivery_longitude) : null;
+    const rider = await findAvailableRider(parentOrder.delivery_pincode, deliveryLat, deliveryLon);
     if (!rider) {
         throw new Error('No available riders in delivery zone');
     }
@@ -90,34 +95,6 @@ const assignRiderToDivisionOrder = async (subOrderId, orderId) => {
         assignment_id: assignment.id,
         pickup_sequence: pickupSequence,
     };
-};
-
-// Helper function to find available rider
-const findAvailableRider = async (pincode) => {
-    const warehousePincodes = await prisma.warehouse_pincodes.findMany({
-        where: { pincode, is_active: true },
-        select: { warehouse_id: true },
-    });
-
-    const warehouseIds = warehousePincodes.map((wp) => wp.warehouse_id);
-    if (warehouseIds.length === 0) return null;
-
-    const warehouseRider = await prisma.warehouse_riders.findFirst({
-        where: {
-            warehouse_id: { in: warehouseIds },
-            is_active: true,
-            riders: {
-                is_active: true,
-                is_available: true,
-                verification_status: 'VERIFIED',
-            },
-        },
-        include: {
-            riders: true,
-        },
-    });
-
-    return warehouseRider?.riders || null;
 };
 
 // Used only for the detail endpoint — includes events
@@ -251,7 +228,17 @@ export const updateAdminSubOrderStatus = async (req, res) => {
             if (!subOrder) return null;
 
             await Promise.all([
-                tx.sub_orders.update({ where: { id }, data: { fulfillment_status: status, updated_at: new Date() } }),
+                tx.sub_orders.update({
+                    where: { id },
+                    data: {
+                        fulfillment_status: status,
+                        updated_at: new Date(),
+                        // Marks this delivery as admin-completed so payoutService can
+                        // exclude it from rider payout — the rider may not have
+                        // actually made this delivery.
+                        ...(status === 'delivered' ? { delivered_by: 'admin' } : {}),
+                    },
+                }),
                 tx.fulfillment_events.create({
                     data: {
                         sub_order_id: id,
@@ -424,11 +411,14 @@ export const verifyOtpAndDeliver = async (req, res) => {
             return res.status(400).json({ success: false, error: 'Invalid OTP' });
         }
 
-        // Mark sub-order as delivered and track verification
+        // Mark sub-order as delivered and track verification.
+        // delivered_by: 'admin' excludes this from rider payout — this is an
+        // admin-side OTP verification, not a rider-confirmed delivery.
         await prisma.sub_orders.update({
             where: { id },
             data: {
                 fulfillment_status: 'delivered',
+                delivered_by: 'admin',
                 updated_at: new Date(),
             },
         });

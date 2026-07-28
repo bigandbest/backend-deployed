@@ -126,6 +126,7 @@ import fcmTokenRoutes from "./routes/fcmTokenRoutes.js";
 import { startGeocodeRetryWorker } from "./workers/geocodeRetryWorker.js";
 import bulkPriceRoutes from "./routes/bulkPriceRoutes.js";
 import { startBulkPriceWorker } from "./workers/bulkPriceWorker.js";
+import { startSellerAcceptTimeoutWorker } from "./workers/sellerAcceptTimeoutWorker.js";
 
 // Configuration
 const PORT = process.env.PORT || 8000;
@@ -676,6 +677,9 @@ const startServer = async () => {
 
     // Start bulk price update BullMQ worker + hourly cleanup cron
     startBulkPriceWorker();
+
+    // Start seller accept-timeout BullMQ worker
+    startSellerAcceptTimeoutWorker();
   });
 
   // Graceful shutdown for workers

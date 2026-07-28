@@ -53,7 +53,7 @@ class RiderAssignmentDAO {
                     },
                 },
                 order: {
-                    select: { id: true, address: true, delivery_pincode: true },
+                    select: { id: true, address: true, delivery_pincode: true, delivery_latitude: true, delivery_longitude: true },
                 },
             },
         });

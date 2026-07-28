@@ -4,6 +4,12 @@ import fulfillmentEventDao from '../dao/fulfillment-event.dao.js';
 import { checkProductAvailability } from './fulfillmentService.js';
 import prisma from '../config/prisma.js';
 import { updateParentOrderStatusFromSubOrders } from './orderFulfillmentService.js';
+import { notifySellerNewOrder, getToken } from './notificationService.js';
+import { sellerAcceptTimeoutQueue } from '../config/bullmq.js';
+
+// How long a seller has to accept/reject an allocated sub-order before it
+// auto-falls-back to warehouse (division → zonal). Confirmed value: 10 minutes.
+const SELLER_ACCEPT_WINDOW_MS = 10 * 60 * 1000;
 
 /**
  * Sub-Order Service
@@ -41,6 +47,26 @@ export const createSubOrders = async (orderId, resolvedItems) => {
         groups.get(key).items.push(item);
     }
 
+    // Only fetch order/customer details if at least one group needs a seller
+    // notification — avoids the extra query entirely for warehouse-only orders.
+    const hasSellerGroup = [...groups.values()].some((g) => g.source_type === 'seller');
+    let notifyContext = null;
+    if (hasSellerGroup) {
+        const order = await prisma.orders.findUnique({
+            where: { id: orderId },
+            select: { receiver_name: true, user_id: true },
+        });
+        let customerName = order?.receiver_name;
+        if (!customerName && order?.user_id) {
+            const user = await prisma.users.findUnique({
+                where: { id: order.user_id },
+                select: { name: true },
+            });
+            customerName = user?.name;
+        }
+        notifyContext = { customerName: customerName || 'A customer' };
+    }
+
     const createdSubOrders = [];
 
     for (const [, group] of groups) {
@@ -50,6 +76,7 @@ export const createSubOrders = async (orderId, resolvedItems) => {
         );
 
         // Create the sub-order
+        const isSellerGroup = group.source_type === 'seller' && group.seller_id;
         const subOrder = await subOrderDao.create({
             parent_order_id: orderId,
             source_type: group.source_type,
@@ -57,6 +84,7 @@ export const createSubOrders = async (orderId, resolvedItems) => {
             seller_id: group.seller_id,
             fulfillment_status: 'pending',
             estimated_delivery_at: estimatedDelivery,
+            assigned_at: isSellerGroup ? new Date() : null,
         });
 
         // Create sub-order items
@@ -78,6 +106,42 @@ export const createSubOrders = async (orderId, resolvedItems) => {
             item_count: group.items.length,
         });
 
+        if (isSellerGroup) {
+            // Notify the seller immediately on allocation — non-fatal: a failed
+            // notification must never break order/sub-order creation. The seller
+            // still sees the pending sub-order in-app even if the push fails.
+            try {
+                const seller = await prisma.sellers.findUnique({
+                    where: { id: group.seller_id },
+                    select: { user_id: true },
+                });
+                const token = seller?.user_id ? await getToken(seller.user_id) : null;
+                if (token) {
+                    const subOrderTotal = group.items.reduce(
+                        (sum, item) => sum + (parseFloat(item.price) || 0) * (item.quantity || 1),
+                        0
+                    );
+                    await notifySellerNewOrder(token, orderId, notifyContext.customerName, subOrderTotal.toFixed(2));
+                }
+            } catch (notifyErr) {
+                console.error(`Seller notification failed for sub-order ${subOrder.id}:`, notifyErr.message);
+            }
+
+            // Schedule the accept-timeout job — fires once at the deadline and
+            // auto-rejects (falling back to warehouse) if the seller hasn't
+            // responded by then. jobId keyed on sub-order id so this is
+            // idempotent if createSubOrders were ever retried for the same order.
+            try {
+                await sellerAcceptTimeoutQueue.add(
+                    'seller-accept-timeout',
+                    { subOrderId: subOrder.id, sellerId: group.seller_id },
+                    { delay: SELLER_ACCEPT_WINDOW_MS, jobId: `seller-accept-timeout:${subOrder.id}` }
+                );
+            } catch (queueErr) {
+                console.error(`Failed to schedule accept-timeout job for sub-order ${subOrder.id}:`, queueErr.message);
+            }
+        }
+
         createdSubOrders.push(subOrder);
     }
 
@@ -90,16 +154,40 @@ export const createSubOrders = async (orderId, resolvedItems) => {
 
 /**
  * Handle seller cancellation or rejection.
- * 
+ *
  * Flow:
- * 1. Remove seller's products from sub-order
- * 2. Re-run availability check (Division→Zonal→next eligible Seller)
- * 3. If new source found → create new sub-order
- * 4. If no source → mark as cancelled, issue partial refund
- * 
+ * 1. Atomically claim the cancellation (guards against racing with an accept
+ *    or another concurrent cancellation of the same sub-order)
+ * 2. Remove seller's products from sub-order
+ * 3. Re-run availability check (Division→Zonal→next eligible Seller)
+ * 4. If new source found → create new sub-order
+ * 5. If no source → mark as cancelled, issue partial refund
+ *
  * IMPORTANT: Does NOT affect other sub-orders in the same master order.
+ *
+ * @param {string} subOrderId
+ * @param {string} cancelledSellerId
+ * @param {object} [options]
+ * @param {string[]} [options.allowedFromStatuses] - which current statuses this
+ *   cancellation is allowed to claim from. Explicit seller reject (via the
+ *   accept/reject API) allows ['pending','confirmed'] — a seller can reject
+ *   even after accepting. The accept-timeout job passes ['pending'] only, so
+ *   it can never cancel an order the seller already explicitly accepted.
  */
-export const handleSellerCancellation = async (subOrderId, cancelledSellerId) => {
+export const handleSellerCancellation = async (
+    subOrderId,
+    cancelledSellerId,
+    { allowedFromStatuses = ['pending', 'confirmed'] } = {}
+) => {
+    // Atomic claim FIRST — before any reroute work or event logging. If this
+    // sub-order already moved on (accepted, or already cancelled by a racing
+    // caller), this is a safe no-op rather than a duplicate cancellation +
+    // duplicate re-route.
+    const claimed = await subOrderDao.tryTransitionStatus(subOrderId, allowedFromStatuses, 'cancelled');
+    if (!claimed) {
+        return { rerouted: false, reason: 'ALREADY_TRANSITIONED' };
+    }
+
     const subOrder = await subOrderDao.getById(subOrderId);
     if (!subOrder) throw new Error('Sub-order not found');
 
@@ -115,9 +203,6 @@ export const handleSellerCancellation = async (subOrderId, cancelledSellerId) =>
         seller_id: cancelledSellerId,
         reason: 'Seller cancelled or rejected the sub-order',
     });
-
-    // Mark current sub-order as cancelled
-    await subOrderDao.updateStatus(subOrderId, 'cancelled');
 
     // Update parent order status based on all sub-orders' aggregate state
     await updateParentOrderStatusFromSubOrders(subOrder.parent_order_id);

@@ -15,6 +15,7 @@ class SubOrderDAO {
                 rider_id: data.rider_id || null,
                 pickup_sequence: data.pickup_sequence || [],
                 estimated_delivery_at: data.estimated_delivery_at || null,
+                assigned_at: data.assigned_at || null,
             },
         });
     }
@@ -124,6 +125,30 @@ class SubOrderDAO {
                 ...additionalData,
             },
         });
+    }
+
+    /**
+     * Atomically transition a sub-order's status, guarded on its current status.
+     * Unlike updateStatus() (plain read-then-write), this is a single conditional
+     * UPDATE — the transition only happens if fulfillment_status still matches
+     * one of `fromStatuses` at the moment the query runs. Returns whether the
+     * transition actually happened.
+     *
+     * Exists to prevent races between concurrent transitions of the same
+     * sub-order — e.g. a seller accepting at the exact moment a timeout job
+     * decides to auto-reject. Whichever caller's conditional update matches a
+     * row wins; the other sees `false` and must treat it as a no-op.
+     */
+    async tryTransitionStatus(id, fromStatuses, toStatus, additionalData = {}) {
+        const result = await prisma.sub_orders.updateMany({
+            where: { id, fulfillment_status: { in: fromStatuses } },
+            data: {
+                fulfillment_status: toStatus,
+                updated_at: new Date(),
+                ...additionalData,
+            },
+        });
+        return result.count === 1;
     }
 
     /**

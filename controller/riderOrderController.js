@@ -378,9 +378,17 @@ export const completeDelivery = async (req, res) => {
             }
         }
 
-        // Mark all non-zonal sub-orders as delivered
+        // Mark all non-zonal sub-orders as delivered.
+        // Excludes already-delivered/cancelled sub-orders — without this filter, a
+        // sub-order an admin already force-completed (adminFulfillmentController.js)
+        // would be re-processed here and wrongly trigger a rider payout for a
+        // delivery the rider didn't make.
         const subOrders = await prisma.sub_orders.findMany({
-            where: { parent_order_id: orderId, source_type: { not: 'zonal' } },
+            where: {
+                parent_order_id: orderId,
+                source_type: { not: 'zonal' },
+                fulfillment_status: { notIn: ['delivered', 'cancelled'] },
+            },
             select: { id: true }
         });
 
