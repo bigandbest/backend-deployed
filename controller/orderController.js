@@ -891,13 +891,7 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
 
     // ── Atomic transaction: stock deduction + order + items + sub-orders + cart ──
     const { order, createdSubOrders } = await prisma.$transaction(async (tx) => {
-      // 1. Confirm the reservation — converts reserved_qty into a real
-      // deduction, atomically with everything else in this transaction.
-      if (reservationSessionId) {
-        await confirmReservation(reservationSessionId, tx);
-      }
-
-      // 2. Create master order
+      // 1. Create master order
       const identity = await generateInvoiceIdentity(tx, "QK");
 
       const newOrder = await tx.orders.create({
@@ -927,7 +921,7 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
         },
       });
 
-      // 3. Create order items
+      // 2. Create order items
       await tx.order_items.createMany({
         data: resolvedItems.map(({ variantId, quantity, finalPrice, isBulkOrder, bulkRange, originalPrice, warehouseInfo }) => ({
           order_id: newOrder.id,
@@ -943,13 +937,28 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
         skipDuplicates: true,
       });
 
-      // 4. Create sub-orders + sub-order items — shared path with
+      // 3. Create sub-orders + sub-order items — shared path with
       // placeOrder/createWalletOrder, now also wiring seller notification
       // and the accept-timeout job for this endpoint for the first time.
       const subOrders = await createSubOrders(newOrder.id, subOrderResolvedItems, tx);
 
-      // 5. Clear cart
+      // 4. Clear cart
       await tx.cart_items.deleteMany({ where: { user_id } });
+
+      // 5. Confirm the reservation last — converts reserved_qty into a real
+      // deduction. Must run after every other transactional write has
+      // succeeded: confirmReservation deletes its in-memory session entry
+      // unconditionally as its final step, without waiting to see whether
+      // this $transaction actually commits. If it ran earlier and a later
+      // step (e.g. createSubOrders) threw, the DB rollback would restore
+      // stock correctly, but the in-memory session bookkeeping needed for
+      // releaseReservation (in the outer catch) would already be gone,
+      // permanently leaking the original reserved_qty increment. Running it
+      // last means the only remaining risk window is the same negligible one
+      // any non-transactional side effect has immediately before a commit.
+      if (reservationSessionId) {
+        await confirmReservation(reservationSessionId, tx);
+      }
 
       return { order: newOrder, createdSubOrders: subOrders };
     });
