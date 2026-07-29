@@ -11,7 +11,7 @@ import {
   RELATED_TTL,
   AVAILABILITY_TTL,
 } from "../lib/cacheKeys.js";
-import { findWarehouseForProducts } from "../services/warehouseService.js";
+import { findWarehouseForProducts } from "../services/allocationEngine.js";
 import productVariantDao from "../dao/product-variant.dao.js";
 import productWarehouseStockDao from "../dao/product-warehouse-stock.dao.js";
 import categoryDao from "../dao/category.dao.js";

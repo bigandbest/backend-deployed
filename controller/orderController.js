@@ -16,10 +16,10 @@ import refundRequestDao from "../dao/refund-request.dao.js";
 import userControlDao from "../dao/user.dao.js";
 import chargeSettingDao from "../dao/charge-setting.dao.js";
 import prisma from "../config/prisma.js";
-import subOrderDao from "../dao/sub-order.dao.js";
+import { createSubOrders } from "../services/subOrderService.js";
 import { buildAddressString } from '../utils/geocode.js';
 import walletDao from "../dao/wallet.dao.js";
-import { findWarehouseForProducts } from "../services/warehouseService.js";
+import { findWarehouseForProducts, resolveSubOrderItems } from "../services/allocationEngine.js";
 import cache from "../utils/cache.js";
 import { publishJob } from "../utils/publishJob.js";
 import { generateInvoiceIdentity } from "../utils/invoiceIdentity.js";
@@ -521,9 +521,13 @@ export const placeOrder = async (req, res) => {
     await cartDao.clearCart(user_id);
 
     // ── Create sub-orders grouped by fulfillment source ──────────────────────
+    // Stage 2 (fulfillment consolidation): routed through the shared
+    // subOrderService.createSubOrders() instead of inline creation.
+    // Stage 3: resolveSubOrderItems() now correctly propagates 'seller' as
+    // source_type instead of silently relabeling it to 'division' — this is
+    // what makes seller notification/accept/timeout/reroute actually fire
+    // for orders placed through this endpoint.
     try {
-      // Resolve warehouse types upfront so seller-sourced items in division
-      // warehouses are classified as 'division', matching backfill behaviour.
       const warehouseIds = [...new Set(
         preparedItems.map(p => p.warehouseInfo?.warehouse_id).filter(Boolean)
       )];
@@ -533,48 +537,12 @@ export const placeOrder = async (req, res) => {
       });
       const warehouseTypeMap = Object.fromEntries(warehouses.map(w => [w.id, w.type]));
 
-      const sourceGroups = {};
-      for (const { productId, quantity, variantId, item, warehouseInfo } of preparedItems) {
-        if (!warehouseInfo) continue;
-        const wType = warehouseTypeMap[warehouseInfo.warehouse_id];
-        const resolvedSourceType = wType === 'zonal' ? 'zonal' : 'division';
-        const key = `${resolvedSourceType}__${warehouseInfo.warehouse_id}__${warehouseInfo.seller_id || ''}`;
-        if (!sourceGroups[key]) {
-          sourceGroups[key] = {
-            source_type: resolvedSourceType,
-            source_id: warehouseInfo.warehouse_id,
-            seller_id: warehouseInfo.seller_id || null,
-            items: [],
-          };
-        }
-        sourceGroups[key].items.push({
-          product_id: productId,
-          variant_id: variantId,
-          quantity,
-          unit_price: parseFloat(item.price) || 0,
-        });
-      }
+      const normalizedItems = preparedItems.map(({ productId, quantity, variantId, item, warehouseInfo }) => ({
+        productId, variantId, quantity, price: parseFloat(item.price) || 0, warehouseInfo,
+      }));
+      const resolvedItems = resolveSubOrderItems(normalizedItems, warehouseTypeMap);
 
-      const estimatedDeliveryMinutes = { division: 120, zonal: 30 };
-
-      for (const group of Object.values(sourceGroups)) {
-        const subOrder = await subOrderDao.create({
-          parent_order_id: order.id,
-          source_type: group.source_type,
-          source_id: group.source_id,
-          seller_id: group.seller_id,
-          fulfillment_status: 'pending',
-          estimated_delivery_at: new Date(
-            Date.now() + (estimatedDeliveryMinutes[group.source_type] || 120) * 60 * 1000
-          ),
-        });
-
-        await prisma.sub_order_items.createMany({
-          data: group.items.map(i => ({ ...i, sub_order_id: subOrder.id })),
-          skipDuplicates: true,
-        });
-      }
-
+      await createSubOrders(order.id, resolvedItems);
     } catch (subOrderErr) {
       console.error('Sub-order creation error:', subOrderErr.message, subOrderErr.stack);
     }

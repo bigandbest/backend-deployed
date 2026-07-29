@@ -7,8 +7,8 @@ import crypto from "crypto";
 import Razorpay from "razorpay";
 // import { createNotificationHelper } from "./NotificationHelpers.js";
 import dotenv from "dotenv";
-import subOrderDao from "../dao/sub-order.dao.js";
-import { findWarehouseForProduct } from "../services/warehouseService.js";
+import { findWarehouseForProduct, resolveSubOrderItems } from "../services/allocationEngine.js";
+import { createSubOrders } from "../services/subOrderService.js";
 import { routeSubOrders } from "../services/fulfillmentRouter.js";
 import { geocodeAddress } from '../utils/geocode.js';
 
@@ -948,7 +948,12 @@ export const createWalletOrder = async (req, res) => {
 
             if (resolvedItems.length === 0) return;
 
-            // Batch-fetch warehouse types to resolve 'seller' → 'division'/'zonal'
+            // Stage 2 (fulfillment consolidation): routed through the shared
+            // subOrderService.createSubOrders() instead of inline creation.
+            // Stage 3: resolveSubOrderItems() now correctly propagates
+            // 'seller' as source_type instead of silently relabeling it to
+            // 'division' — this is what makes seller notification/accept/
+            // timeout/reroute actually fire for wallet-paid orders too.
             const warehouseIds = [...new Set(resolvedItems.map(r => r.warehouseInfo.warehouse_id).filter(Boolean))];
             const warehouseList = await prisma.warehouses.findMany({
               where: { id: { in: warehouseIds } },
@@ -956,41 +961,15 @@ export const createWalletOrder = async (req, res) => {
             });
             const warehouseTypeMap = Object.fromEntries(warehouseList.map(w => [w.id, w.type]));
 
-            const sourceGroups = {};
-            for (const { item, productId, variantId, warehouseInfo } of resolvedItems) {
-              const sourceType = warehouseTypeMap[warehouseInfo.warehouse_id] === 'zonal' ? 'zonal' : 'division';
-              const key = `${sourceType}__${warehouseInfo.warehouse_id}__${warehouseInfo.seller_id || ''}`;
-              if (!sourceGroups[key]) {
-                sourceGroups[key] = {
-                  source_type: sourceType,
-                  source_id: warehouseInfo.warehouse_id,
-                  seller_id: warehouseInfo.seller_id || null,
-                  items: [],
-                };
-              }
-              sourceGroups[key].items.push({
-                product_id: productId,
-                variant_id: variantId,
-                quantity: parseInt(item.quantity) || 1,
-                unit_price: parseFloat(item.price) || 0,
-              });
-            }
+            const normalizedItems = resolvedItems.map(({ item, productId, variantId, warehouseInfo }) => ({
+              productId, variantId,
+              quantity: parseInt(item.quantity) || 1,
+              price: parseFloat(item.price) || 0,
+              warehouseInfo,
+            }));
+            const subOrderResolvedItems = resolveSubOrderItems(normalizedItems, warehouseTypeMap);
 
-            for (const group of Object.values(sourceGroups)) {
-              const subOrder = await subOrderDao.create({
-                parent_order_id: order.id,
-                source_type: group.source_type,
-                source_id: group.source_id,
-                seller_id: group.seller_id,
-                fulfillment_status: 'pending',
-                estimated_delivery_at: new Date(Date.now() + (group.source_type === 'zonal' ? 30 : 120) * 60 * 1000),
-              });
-
-              await prisma.sub_order_items.createMany({
-                data: group.items.map(i => ({ ...i, sub_order_id: subOrder.id })),
-                skipDuplicates: true,
-              });
-            }
+            await createSubOrders(order.id, subOrderResolvedItems);
 
             routeSubOrders(order.id).catch(err =>
               console.error('Wallet order fulfillment routing error:', err.message)
