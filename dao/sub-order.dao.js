@@ -2,10 +2,12 @@ import prisma from '../config/prisma.js';
 
 class SubOrderDAO {
     /**
-     * Create a single sub-order
+     * Create a single sub-order. Pass `tx` (a Prisma transaction client) to
+     * run inside an existing transaction; omit it to use the default client.
      */
-    async create(data) {
-        return await prisma.sub_orders.create({
+    async create(data, tx = null) {
+        const client = tx || prisma;
+        return await client.sub_orders.create({
             data: {
                 parent_order_id: data.parent_order_id,
                 source_type: data.source_type,

@@ -2,10 +2,12 @@ import prisma from '../config/prisma.js';
 
 class SubOrderItemDAO {
     /**
-     * Create multiple sub-order items in bulk
+     * Create multiple sub-order items in bulk. Pass `tx` (a Prisma
+     * transaction client) to run inside an existing transaction.
      */
-    async createMany(items) {
-        return await prisma.sub_order_items.createMany({
+    async createMany(items, tx = null) {
+        const client = tx || prisma;
+        return await client.sub_order_items.createMany({
             data: items.map((item) => ({
                 sub_order_id: item.sub_order_id,
                 product_id: item.product_id,
