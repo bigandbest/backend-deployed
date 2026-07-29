@@ -9,6 +9,7 @@ import Razorpay from "razorpay";
 import dotenv from "dotenv";
 import { findWarehouseForProduct, resolveSubOrderItems } from "../services/allocationEngine.js";
 import { createSubOrders } from "../services/subOrderService.js";
+import { reserveStock, confirmReservation, releaseReservation } from '../services/stockReservationService.js';
 import { routeSubOrders } from "../services/fulfillmentRouter.js";
 import { geocodeAddress } from '../utils/geocode.js';
 
@@ -758,6 +759,7 @@ export const processRefundToWallet = async (req, res) => {
  * Merged from walletOrderController.js
  */
 export const createWalletOrder = async (req, res) => {
+  let reservationSessionId = null;
   try {
 
     const {
@@ -866,6 +868,99 @@ export const createWalletOrder = async (req, res) => {
       }
     };
 
+    // Stage 4 (fulfillment consolidation): resolve fulfillment sources and
+    // reserve stock BEFORE creating the order or touching the wallet —
+    // previously this happened only after the wallet was already charged
+    // and the customer had already received a success response.
+    let subOrderResolvedItems = [];
+
+    if (deliveryPincode && items && items.length > 0) {
+      const explicitVariantIds = [...new Set(
+        items.map(i => i.variant_id ? String(extractUuid(i.variant_id)) : null).filter(Boolean)
+      )];
+      const productIdsNeedingVariant = [...new Set(
+        items.filter(i => !i.variant_id && i.product_id).map(i => String(extractUuid(i.product_id)))
+      )];
+
+      const [knownVariants, defaultVariants] = await Promise.all([
+        explicitVariantIds.length
+          ? prisma.product_variants.findMany({ where: { id: { in: explicitVariantIds } }, select: { id: true, product_id: true } })
+          : Promise.resolve([]),
+        productIdsNeedingVariant.length
+          ? prisma.product_variants.findMany({
+              where: { product_id: { in: productIdsNeedingVariant } },
+              select: { id: true, product_id: true },
+              orderBy: { created_at: 'asc' },
+              distinct: ['product_id'],
+            })
+          : Promise.resolve([]),
+      ]);
+
+      const variantByVariantId = Object.fromEntries(knownVariants.map(v => [v.id, v]));
+      const variantByProductId = Object.fromEntries(defaultVariants.map(v => [v.product_id, v]));
+
+      const resolvedItems = [];
+      for (const item of items) {
+        const rawProductId = item.product_id;
+        if (!rawProductId) continue;
+        const productId = String(extractUuid(rawProductId));
+
+        let variantId = item.variant_id ? String(extractUuid(item.variant_id)) : null;
+        if (!variantId) {
+          variantId = variantByProductId[productId]?.id || null;
+        }
+        if (!variantId) continue;
+
+        const resolvedProductId = variantByVariantId[variantId]?.product_id
+          || variantByProductId[productId]?.product_id
+          || productId;
+
+        const warehouseInfo = await findWarehouseForProduct(
+          resolvedProductId, deliveryPincode, null, parseInt(item.quantity) || 1, variantId
+        );
+        if (!warehouseInfo) continue;
+
+        resolvedItems.push({ item, productId: resolvedProductId, variantId, warehouseInfo });
+      }
+
+      if (resolvedItems.length > 0) {
+        const warehouseIds = [...new Set(resolvedItems.map(r => r.warehouseInfo.warehouse_id).filter(Boolean))];
+        const warehouseList = await prisma.warehouses.findMany({
+          where: { id: { in: warehouseIds } },
+          select: { id: true, type: true },
+        });
+        const warehouseTypeMap = Object.fromEntries(warehouseList.map(w => [w.id, w.type]));
+
+        const normalizedItems = resolvedItems.map(({ item, productId, variantId, warehouseInfo }) => ({
+          productId, variantId,
+          quantity: parseInt(item.quantity) || 1,
+          price: parseFloat(item.price) || 0,
+          warehouseInfo,
+        }));
+        subOrderResolvedItems = resolveSubOrderItems(normalizedItems, warehouseTypeMap);
+
+        if (subOrderResolvedItems.length > 0) {
+          reservationSessionId = crypto.randomUUID();
+          const reservationItems = subOrderResolvedItems.map((r) => ({
+            variantId: r.variant_id,
+            warehouseId: r.source_id,
+            qty: r.quantity,
+            source: r.source_type === 'seller' ? 'seller' : 'inventory',
+            sellerId: r.seller_id || undefined,
+            productId: r.product_id,
+          }));
+          const reservation = await reserveStock(reservationItems, reservationSessionId, 5);
+          if (!reservation.success) {
+            return res.status(409).json({
+              success: false,
+              error: 'Some items are no longer available',
+              unavailable: reservation.failures,
+            });
+          }
+        }
+      }
+    }
+
     const order = await OrderDAO.create(orderCreateData);
 
     if (!order) {
@@ -890,108 +985,47 @@ export const createWalletOrder = async (req, res) => {
         idempotencyKey
       );
 
-      // Create sub-orders for fulfillment routing
-      if (deliveryPincode && items && items.length > 0) {
+      // Create sub-orders for fulfillment routing — awaited (not
+      // fire-and-forget) so confirmReservation runs before responding, but
+      // geocoding and routing dispatch stay non-blocking below.
+      if (subOrderResolvedItems.length > 0) {
+        try {
+          await createSubOrders(order.id, subOrderResolvedItems);
+          if (reservationSessionId) {
+            await confirmReservation(reservationSessionId);
+            reservationSessionId = null;
+          }
+        } catch (subErr) {
+          console.error('Wallet order sub-order creation error:', subErr.message, subErr.stack);
+          // Task 3 lesson: don't let a swallowed sub-order-creation error
+          // leave the reservation to leak until its TTL expires — release
+          // it promptly here too, same as the outer/wallet-error catches.
+          if (reservationSessionId) {
+            await releaseReservation(reservationSessionId).catch((releaseErr) =>
+              console.error('Failed to release reservation after sub-order error:', releaseErr.message)
+            );
+            reservationSessionId = null;
+          }
+        }
+
+        routeSubOrders(order.id).catch(err =>
+          console.error('Wallet order fulfillment routing error:', err.message)
+        );
+
         (async () => {
           try {
-            // Separate items that have a variant_id from those that only have product_id
-            const explicitVariantIds = [...new Set(
-              items.map(i => i.variant_id ? String(extractUuid(i.variant_id)) : null).filter(Boolean)
-            )];
-            const productIdsNeedingVariant = [...new Set(
-              items.filter(i => !i.variant_id && i.product_id).map(i => String(extractUuid(i.product_id)))
-            )];
-
-            // Batch-fetch known variants + default variants for products that have none
-            const [knownVariants, defaultVariants] = await Promise.all([
-              explicitVariantIds.length
-                ? prisma.product_variants.findMany({ where: { id: { in: explicitVariantIds } }, select: { id: true, product_id: true } })
-                : Promise.resolve([]),
-              productIdsNeedingVariant.length
-                ? prisma.product_variants.findMany({
-                    where: { product_id: { in: productIdsNeedingVariant } },
-                    select: { id: true, product_id: true },
-                    orderBy: { created_at: 'asc' }, // pick earliest = default
-                    distinct: ['product_id'],
-                  })
-                : Promise.resolve([]),
-            ]);
-
-            const variantByVariantId = Object.fromEntries(knownVariants.map(v => [v.id, v]));
-            const variantByProductId = Object.fromEntries(defaultVariants.map(v => [v.product_id, v]));
-
-            // Resolve warehouse info for all items
-            const resolvedItems = [];
-            for (const item of items) {
-              const rawProductId = item.product_id;
-              if (!rawProductId) continue;
-              const productId = String(extractUuid(rawProductId));
-
-              let variantId = item.variant_id ? String(extractUuid(item.variant_id)) : null;
-              // Resolve to a real variant_id if not provided
-              if (!variantId) {
-                variantId = variantByProductId[productId]?.id || null;
-              }
-              if (!variantId) continue; // can't create sub_order_item without valid variant
-
-              const resolvedProductId = variantByVariantId[variantId]?.product_id
-                || variantByProductId[productId]?.product_id
-                || productId;
-
-              const warehouseInfo = await findWarehouseForProduct(
-                resolvedProductId, deliveryPincode, null, parseInt(item.quantity) || 1, variantId
-              );
-              if (!warehouseInfo) continue;
-
-              resolvedItems.push({ item, productId: resolvedProductId, variantId, warehouseInfo });
+            const geo = await geocodeAddress(user_address);
+            if (geo?.latitude && geo?.longitude) {
+              await prisma.orders.update({
+                where: { id: order.id },
+                data: {
+                  delivery_latitude: geo.latitude,
+                  delivery_longitude: geo.longitude,
+                },
+              });
             }
-
-            if (resolvedItems.length === 0) return;
-
-            // Stage 2 (fulfillment consolidation): routed through the shared
-            // subOrderService.createSubOrders() instead of inline creation.
-            // Stage 3: resolveSubOrderItems() now correctly propagates
-            // 'seller' as source_type instead of silently relabeling it to
-            // 'division' — this is what makes seller notification/accept/
-            // timeout/reroute actually fire for wallet-paid orders too.
-            const warehouseIds = [...new Set(resolvedItems.map(r => r.warehouseInfo.warehouse_id).filter(Boolean))];
-            const warehouseList = await prisma.warehouses.findMany({
-              where: { id: { in: warehouseIds } },
-              select: { id: true, type: true },
-            });
-            const warehouseTypeMap = Object.fromEntries(warehouseList.map(w => [w.id, w.type]));
-
-            const normalizedItems = resolvedItems.map(({ item, productId, variantId, warehouseInfo }) => ({
-              productId, variantId,
-              quantity: parseInt(item.quantity) || 1,
-              price: parseFloat(item.price) || 0,
-              warehouseInfo,
-            }));
-            const subOrderResolvedItems = resolveSubOrderItems(normalizedItems, warehouseTypeMap);
-
-            await createSubOrders(order.id, subOrderResolvedItems);
-
-            routeSubOrders(order.id).catch(err =>
-              console.error('Wallet order fulfillment routing error:', err.message)
-            );
-
-            // Geocode delivery address for payout distance calculation
-            try {
-              const geo = await geocodeAddress(user_address);
-              if (geo?.latitude && geo?.longitude) {
-                await prisma.orders.update({
-                  where: { id: order.id },
-                  data: {
-                    delivery_latitude: geo.latitude,
-                    delivery_longitude: geo.longitude,
-                  },
-                });
-              }
-            } catch (geoErr) {
-              console.error('[walletController] geocode failed for order', order.id, geoErr.message);
-            }
-          } catch (subErr) {
-            console.error('Wallet order sub-order creation error:', subErr.message, subErr.stack);
+          } catch (geoErr) {
+            console.error('[walletController] geocode failed for order', order.id, geoErr.message);
           }
         })();
       }
@@ -1005,6 +1039,11 @@ export const createWalletOrder = async (req, res) => {
       });
     } catch (walletError) {
       console.error('Wallet Deduction Error:', walletError);
+      if (reservationSessionId) {
+        await releaseReservation(reservationSessionId).catch((releaseErr) =>
+          console.error('Failed to release reservation after wallet error:', releaseErr.message)
+        );
+      }
       // Rollback order if wallet deduction fails
       await OrderDAO.delete(order.id);
 
@@ -1014,6 +1053,11 @@ export const createWalletOrder = async (req, res) => {
       });
     }
   } catch (error) {
+    if (typeof reservationSessionId !== 'undefined' && reservationSessionId) {
+      await releaseReservation(reservationSessionId).catch((releaseErr) =>
+        console.error('Failed to release reservation after createWalletOrder error:', releaseErr.message)
+      );
+    }
     console.error('Server Error:', error);
     return res.status(500).json({
       success: false,
