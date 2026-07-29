@@ -29,7 +29,7 @@ const SELLER_ACCEPT_WINDOW_MS = 10 * 60 * 1000;
  * @param {Array} resolvedItems - Items with source resolution from fulfillmentService
  * @returns {Array} Created sub-orders
  */
-export const createSubOrders = async (orderId, resolvedItems) => {
+export const createSubOrders = async (orderId, resolvedItems, tx = null) => {
     // Group items by source
     const groups = new Map();
 
@@ -85,7 +85,7 @@ export const createSubOrders = async (orderId, resolvedItems) => {
             fulfillment_status: 'pending',
             estimated_delivery_at: estimatedDelivery,
             assigned_at: isSellerGroup ? new Date() : null,
-        });
+        }, tx);
 
         // Create sub-order items
         await subOrderItemDao.createMany(
@@ -95,7 +95,8 @@ export const createSubOrders = async (orderId, resolvedItems) => {
                 variant_id: item.variant_id,
                 quantity: item.quantity,
                 unit_price: parseFloat(item.price) || 0,
-            }))
+            })),
+            tx
         );
 
         // Log creation event
