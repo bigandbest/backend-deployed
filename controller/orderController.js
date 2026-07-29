@@ -16,7 +16,7 @@ import refundRequestDao from "../dao/refund-request.dao.js";
 import userControlDao from "../dao/user.dao.js";
 import chargeSettingDao from "../dao/charge-setting.dao.js";
 import prisma from "../config/prisma.js";
-import { createSubOrders } from "../services/subOrderService.js";
+import { createSubOrders, dispatchSellerAllocation } from "../services/subOrderService.js";
 import { buildAddressString } from '../utils/geocode.js';
 import walletDao from "../dao/wallet.dao.js";
 import { findWarehouseForProducts, resolveSubOrderItems } from "../services/allocationEngine.js";
@@ -890,6 +890,10 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
     }
 
     // ── Atomic transaction: stock deduction + order + items + sub-orders + cart ──
+    // External seller side-effects (push + accept-timeout job) are collected
+    // here and dispatched only AFTER the transaction commits (below) — never
+    // inside it, so a rollback can't send a spurious push or orphan a job.
+    const deferredSideEffects = [];
     const { order, createdSubOrders } = await prisma.$transaction(async (tx) => {
       // 1. Create master order
       const identity = await generateInvoiceIdentity(tx, "QK");
@@ -940,7 +944,7 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       // 3. Create sub-orders + sub-order items — shared path with
       // placeOrder/createWalletOrder, now also wiring seller notification
       // and the accept-timeout job for this endpoint for the first time.
-      const subOrders = await createSubOrders(newOrder.id, subOrderResolvedItems, tx);
+      const subOrders = await createSubOrders(newOrder.id, subOrderResolvedItems, tx, deferredSideEffects);
 
       // 4. Clear cart
       await tx.cart_items.deleteMany({ where: { user_id } });
@@ -975,6 +979,13 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
         estimatedDeliveryAt: s.estimated_delivery_at,
       })),
     });
+
+    // Dispatch seller push notifications + accept-timeout jobs now that the
+    // transaction has committed — these are external, non-transactional effects
+    // deferred out of the transaction so a rollback never fires them. Non-fatal.
+    for (const sideEffect of deferredSideEffects) {
+      await dispatchSellerAllocation(sideEffect);
+    }
 
     // Enqueue geocoding in background
     await publishJob('geocode_order', {
