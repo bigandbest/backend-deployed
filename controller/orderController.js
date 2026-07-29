@@ -580,6 +580,12 @@ export const placeOrder = async (req, res) => {
       }
     } catch (subOrderErr) {
       console.error('Sub-order creation error:', subOrderErr.message, subOrderErr.stack);
+      if (reservationSessionId) {
+        await releaseReservation(reservationSessionId).catch((releaseErr) =>
+          console.error('Failed to release reservation after sub-order error:', releaseErr.message)
+        );
+        reservationSessionId = null;
+      }
     }
     // ─────────────────────────────────────────────────────────────────────────
 
