@@ -20,6 +20,7 @@ import { createSubOrders } from "../services/subOrderService.js";
 import { buildAddressString } from '../utils/geocode.js';
 import walletDao from "../dao/wallet.dao.js";
 import { findWarehouseForProducts, resolveSubOrderItems } from "../services/allocationEngine.js";
+import { reserveStock, confirmReservation, releaseReservation } from '../services/stockReservationService.js';
 import cache from "../utils/cache.js";
 import { publishJob } from "../utils/publishJob.js";
 import { generateInvoiceIdentity } from "../utils/invoiceIdentity.js";
@@ -323,6 +324,7 @@ export const getOrderDetails = async (req, res) => {
 
 /** Place order with a flat address string */
 export const placeOrder = async (req, res) => {
+  let reservationSessionId = null;
   try {
     const {
       user_id,
@@ -462,6 +464,34 @@ export const placeOrder = async (req, res) => {
       warehouseInfo: warehouseResults[idx].warehouseInfo,
     }));
 
+    // Stage 4 (fulfillment consolidation): reserve stock atomically before
+    // creating the order. If any item is out of stock, fail fast — no order,
+    // no cart clear, no wallet/payment side effects have happened yet at
+    // this point in placeOrder.
+    const reservationItems = preparedItems
+      .filter((p) => p.warehouseInfo)
+      .map((p) => ({
+        variantId: p.variantId,
+        warehouseId: p.warehouseInfo.warehouse_id,
+        qty: p.quantity,
+        source: p.warehouseInfo.assignment_source === 'seller' ? 'seller' : 'inventory',
+        sellerId: p.warehouseInfo.seller_id || undefined,
+        productId: p.productId,
+      }));
+
+    if (reservationItems.length > 0) {
+      reservationSessionId = crypto.randomUUID();
+      const reservation = await reserveStock(reservationItems, reservationSessionId, 5);
+      if (!reservation.success) {
+        reservationSessionId = null; // reserveStock already rolled back any partial reservations internally
+        return res.status(409).json({
+          success: false,
+          error: 'Some items are no longer available',
+          unavailable: reservation.failures,
+        });
+      }
+    }
+
     // ✅ Generate single OTP for all sub-orders (zonal, division, etc.)
     const deliveryOtp = Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -543,6 +573,11 @@ export const placeOrder = async (req, res) => {
       const resolvedItems = resolveSubOrderItems(normalizedItems, warehouseTypeMap);
 
       await createSubOrders(order.id, resolvedItems);
+
+      if (reservationSessionId) {
+        await confirmReservation(reservationSessionId);
+        reservationSessionId = null;
+      }
     } catch (subOrderErr) {
       console.error('Sub-order creation error:', subOrderErr.message, subOrderErr.stack);
     }
@@ -574,6 +609,11 @@ export const placeOrder = async (req, res) => {
 
     return response;
   } catch (error) {
+    if (typeof reservationSessionId !== 'undefined' && reservationSessionId) {
+      await releaseReservation(reservationSessionId).catch((releaseErr) =>
+        console.error('Failed to release reservation after placeOrder error:', releaseErr.message)
+      );
+    }
     console.error("Error in placeOrder:", error);
     return res.status(500).json({ success: false, error: error.message });
   }
