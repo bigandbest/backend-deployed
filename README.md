@@ -255,3 +255,26 @@ rudraksh
 ---
 
 **Ready for production deployment on AWS! 🚀**
+
+## Database Replica Restore
+
+Use this flow to create a new database with Prisma tables and load the JSON export.
+
+1. Point `DATABASE_URL` and `DIRECT_URL` to the new database.
+2. Compile and push the Prisma schema:
+   ```bash
+   npm run db:push
+   ```
+3. Restore the exported data:
+   ```bash
+   npm run restore:db -- --in database-export.json
+   ```
+4. To create a fresh export again:
+   ```bash
+   npm run export:db -- --out database-export.json
+   ```
+
+Notes:
+- `restore:db` is non-destructive by default and uses `ON CONFLICT DO NOTHING`.
+- `restore:db` also syncs sequence-backed columns after inserts.
+- For a different file path, pass `--in /path/to/file.json`.
