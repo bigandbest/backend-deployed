@@ -22,6 +22,9 @@ export const createList = async (req, res) => {
     const list = await ShoppingListDAO.create(userId, name.trim(), description?.trim() || null);
     res.status(201).json({ success: true, list });
   } catch (error) {
+    if (error.code === "P2002") {
+      return res.status(409).json({ success: false, error: "You already have a list with this name" });
+    }
     console.error("createList error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
   }
