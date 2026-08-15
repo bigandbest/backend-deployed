@@ -64,6 +64,7 @@ import inventoryRoutes from "./routes/inventoryRoutes.js";
 import videoCardRoutes from "./routes/videoCardRoutes.js";
 import shopByStoreRoutes from "./routes/shopByStoreRoutes.js";
 import productSectionRoutes from "./routes/productSectionRoutes.js";
+import homepageRoutes from "./routes/homepageRoutes.js";
 import zoneRoutes from "./routes/zoneRoutes.js";
 import promoBannerRoutes from "./routes/promoBannerRoutes.js";
 import bulkWholesaleRoutes from "./routes/bulkWholesaleRoutes.js";
@@ -264,6 +265,7 @@ const createApp = () => {
   app.use("/api/video-cards", videoCardRoutes);
   app.use("/api/shop-by-stores", shopByStoreRoutes);
   app.use("/api/product-sections", productSectionRoutes);
+  app.use("/api/homepage", homepageRoutes);
   app.use("/api/promo-banner", promoBannerRoutes);
   app.use("/api/store-section-mappings", subStoreRoutes);
   app.use("/api/small-promo-cards", smallPromoCardRoutes);

@@ -1,5 +1,20 @@
 import { uploadToCloudinary } from "../services/uploadService.js";
 import AddBannerDAO from "../dao/add-banner.dao.js";
+import redis from "../config/redis.js";
+import { BANNER_CACHE_KEYS as CACHE_KEYS, BANNER_CACHE_TTL } from "../lib/bannerCache.js";
+
+const invalidateBannerCache = async () => {
+  try {
+    let cursor = '0';
+    do {
+      const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', 'banner:type:*', 'COUNT', 100);
+      cursor = nextCursor;
+      if (keys.length) await redis.del(...keys);
+    } while (cursor !== '0');
+  } catch {
+    // Redis unavailable — best effort
+  }
+};
 
 // Add a Banner
 export async function addBanner(req, res) {
@@ -64,6 +79,7 @@ export async function addBanner(req, res) {
     };
 
     const data = await AddBannerDAO.create(bannerData);
+    invalidateBannerCache();
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
@@ -137,6 +153,7 @@ export async function updateBanner(req, res) {
     }
 
     const data = await AddBannerDAO.update(id, updateData);
+    invalidateBannerCache();
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
@@ -151,6 +168,7 @@ export async function deleteBanner(req, res) {
   try {
     const { id } = req.params;
     await AddBannerDAO.delete(id);
+    invalidateBannerCache();
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
@@ -205,11 +223,23 @@ export async function getBannersByType(req, res) {
         .json({ success: false, error: "Banner type is required." });
     }
 
+    const cacheKey = CACHE_KEYS.byType(bannerType);
+    const cached = await redis.get(cacheKey).catch(() => null);
+    if (cached) {
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+      res.set('Pragma', 'no-cache');
+      res.set('Expires', '0');
+      return res.status(200).json(JSON.parse(cached));
+    }
+
     const data = await AddBannerDAO.getByType(bannerType);
+    const payload = { success: true, banners: data };
+    redis.setex(cacheKey, BANNER_CACHE_TTL, JSON.stringify(payload)).catch(() => {});
+
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
-    res.status(200).json({ success: true, banners: data });
+    res.status(200).json(payload);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

@@ -1,5 +1,11 @@
 import prisma from "../config/prisma.js";
 import axios from "axios";
+import redis from "../config/redis.js";
+
+// Matches WAREHOUSE_CACHE_TTL in services/warehouseService.js — same
+// pincode-to-warehouse relationship, same acceptable staleness window.
+const SERVICEABILITY_CACHE_TTL = parseInt(process.env.SERVICEABILITY_CACHE_TTL || '300', 10);
+const serviceabilityCacheKey = (pincode) => `serviceability:${pincode}`;
 
 export const getUserAddresses = async (req, res) => {
   try {
@@ -405,34 +411,42 @@ export const checkServiceability = async (req, res) => {
       });
     }
 
-    // Find division warehouse directly mapped to this pincode
-    const mapping = await prisma.warehouse_pincodes.findFirst({
-      where: {
-        pincode,
-        is_active: true,
-        warehouse: {
-          is_active: true,
-        },
-      },
-      include: { warehouse: true },
-    });
+    const cacheKey = serviceabilityCacheKey(pincode);
+    const cached = await redis.get(cacheKey).catch(() => null);
+    if (cached) return res.json(JSON.parse(cached));
 
-    // Find zonal warehouse serving the same pincode through its delivery zone
-    const zonePincode = await prisma.zone_pincodes.findFirst({
-      where: { pincode, is_active: true },
-      include: {
-        delivery_zones: {
-          include: {
-            warehouse_zones: {
-              where: { is_active: true },
-              include: {
-                warehouses: true,
+    // Division and zonal lookups are independent of each other — run them
+    // concurrently instead of one-await-at-a-time (each is a separate
+    // network round-trip to the DB).
+    const [mapping, zonePincode] = await Promise.all([
+      // Find division warehouse directly mapped to this pincode
+      prisma.warehouse_pincodes.findFirst({
+        where: {
+          pincode,
+          is_active: true,
+          warehouse: {
+            is_active: true,
+          },
+        },
+        include: { warehouse: true },
+      }),
+      // Find zonal warehouse serving the same pincode through its delivery zone
+      prisma.zone_pincodes.findFirst({
+        where: { pincode, is_active: true },
+        include: {
+          delivery_zones: {
+            include: {
+              warehouse_zones: {
+                where: { is_active: true },
+                include: {
+                  warehouses: true,
+                },
               },
             },
           },
         },
-      },
-    });
+      }),
+    ]);
 
     const zonalWarehouse =
       zonePincode?.delivery_zones?.warehouse_zones
@@ -440,11 +454,13 @@ export const checkServiceability = async (req, res) => {
         ?.find((warehouse) => warehouse?.is_active && warehouse?.type?.toLowerCase() === "zonal") || null;
 
     if (!mapping && !zonalWarehouse) {
-      return res.json({
+      const notServiceablePayload = {
         success: true,
         serviceable: false,
         tagline: "Not serviceable at this location",
-      });
+      };
+      redis.setex(cacheKey, SERVICEABILITY_CACHE_TTL, JSON.stringify(notServiceablePayload)).catch(() => {});
+      return res.json(notServiceablePayload);
     }
 
     const warehouseType = mapping?.warehouse?.type?.toLowerCase() || zonalWarehouse?.type?.toLowerCase() || null;
@@ -461,7 +477,7 @@ export const checkServiceability = async (req, res) => {
       tagline = "Same Day Delivery";
     }
 
-    return res.json({
+    const servicePayload = {
       success: true,
       serviceable: true,
       warehouse_type: warehouseType,
@@ -475,7 +491,9 @@ export const checkServiceability = async (req, res) => {
       tagline,
       estimation,
       delivery_days: mapping?.delivery_days || null
-    });
+    };
+    redis.setex(cacheKey, SERVICEABILITY_CACHE_TTL, JSON.stringify(servicePayload)).catch(() => {});
+    return res.json(servicePayload);
   } catch (error) {
     console.error("Serviceability Check Error:", error);
     return res.status(500).json({

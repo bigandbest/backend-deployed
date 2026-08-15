@@ -1,5 +1,12 @@
 import { uploadToCloudinary } from "../services/uploadService.js";
 import BrandDAO from "../dao/brand.dao.js";
+import redis from "../config/redis.js";
+
+const BRAND_CACHE_TTL = parseInt(process.env.BRAND_CACHE_TTL || '600', 10);
+const CACHE_KEYS = { list: 'brands:list' };
+const invalidateBrandCache = async () => {
+  await redis.del(CACHE_KEYS.list).catch(() => {});
+};
 
 // Add Brand
 export async function addBrand(req, res) {
@@ -43,6 +50,8 @@ export async function addBrand(req, res) {
       name: name.trim(),
       image_url: imageUrl,
     });
+
+    invalidateBrandCache();
 
     res.status(201).json({
       success: true,
@@ -118,6 +127,8 @@ export async function editBrand(req, res) {
       });
     }
 
+    invalidateBrandCache();
+
     res.json({
       success: true,
       message: "Brand updated successfully",
@@ -157,6 +168,8 @@ export async function deleteBrand(req, res) {
     // Delete the brand using DAO
     await BrandDAO.deleteBrand(id);
 
+    invalidateBrandCache();
+
     res.json({
       success: true,
       message: `Brand "${existingBrand.name}" deleted successfully`,
@@ -173,14 +186,19 @@ export async function deleteBrand(req, res) {
 // View All Brands
 export async function getAllBrands(req, res) {
   try {
+    const cached = await redis.get(CACHE_KEYS.list).catch(() => null);
+    if (cached) return res.json(JSON.parse(cached));
+
     // Using DAO to fetch brands with default pagination
     const { items, total } = await BrandDAO.listBrands({ limit: 1000 });
 
-    res.json({
+    const payload = {
       success: true,
       count: total,
       brands: items,
-    });
+    };
+    redis.setex(CACHE_KEYS.list, BRAND_CACHE_TTL, JSON.stringify(payload)).catch(() => {});
+    res.json(payload);
   } catch (err) {
     console.error("Unexpected error in getAllBrands:", err);
     res.status(500).json({
@@ -205,6 +223,8 @@ export async function toggleBrand(req, res) {
     }
 
     const updated = await BrandDAO.updateBrand(id, { is_active: !existing.is_active });
+
+    invalidateBrandCache();
 
     res.json({
       success: true,

@@ -1,4 +1,11 @@
 import testimonialDao from "../dao/testimonial.dao.js";
+import redis from "../config/redis.js";
+
+const TESTIMONIAL_CACHE_TTL = parseInt(process.env.TESTIMONIAL_CACHE_TTL || '600', 10);
+const CACHE_KEYS = { active: 'customer-testimonials:active' };
+const invalidateTestimonialCache = async () => {
+    await redis.del(CACHE_KEYS.active).catch(() => {});
+};
 
 // Get all customer testimonials
 export const getAllTestimonials = async (req, res) => {
@@ -19,13 +26,18 @@ export const getAllTestimonials = async (req, res) => {
 // Get active customer testimonials only (for frontend)
 export const getActiveTestimonials = async (req, res) => {
     try {
+        const cached = await redis.get(CACHE_KEYS.active).catch(() => null);
+        if (cached) return res.status(200).json(JSON.parse(cached));
+
         const data = await testimonialDao.list({ active: true });
 
-        res.status(200).json({
+        const payload = {
             success: true,
             testimonials: data,
             total: data.length,
-        });
+        };
+        redis.setex(CACHE_KEYS.active, TESTIMONIAL_CACHE_TTL, JSON.stringify(payload)).catch(() => {});
+        res.status(200).json(payload);
     } catch (err) {
         console.error("Error fetching active testimonials:", err);
         res.status(500).json({ success: false, error: err.message || "Server error" });
@@ -60,6 +72,8 @@ export const addTestimonial = async (req, res) => {
             active: active !== undefined ? active : true,
             sort_order: sort_order || 0,
         });
+
+        invalidateTestimonialCache();
 
         res.status(201).json({
             success: true,
@@ -96,6 +110,8 @@ export const updateTestimonial = async (req, res) => {
 
         const data = await testimonialDao.update(id, updateData);
 
+        invalidateTestimonialCache();
+
         res.status(200).json({
             success: true,
             testimonial: data,
@@ -117,6 +133,8 @@ export const deleteTestimonial = async (req, res) => {
 
         await testimonialDao.delete(id);
 
+        invalidateTestimonialCache();
+
         res.status(200).json({
             success: true,
             message: "Testimonial deleted successfully",
@@ -136,6 +154,8 @@ export const toggleTestimonialStatus = async (req, res) => {
         const { id } = req.params;
 
         const data = await testimonialDao.toggleStatus(id);
+
+        invalidateTestimonialCache();
 
         res.status(200).json({
             success: true,

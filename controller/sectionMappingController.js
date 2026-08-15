@@ -1,4 +1,7 @@
 import prisma from "../config/prisma.js";
+import redis from "../config/redis.js";
+import { invalidateSectionCache } from "../lib/sectionCache.js";
+import { CATEGORY_SECTION_CACHE_TTL } from "../lib/categoryCache.js";
 
 // ========== SUBCATEGORY-SECTION MAPPING FUNCTIONS ==========
 
@@ -80,6 +83,8 @@ export const addSubcategoriesToSection = async (req, res) => {
 
     const results = await Promise.all(upsertPromises);
 
+    invalidateSectionCache(parseInt(sectionId)).catch(() => {});
+
     res.status(200).json({
       success: true,
       data: results,
@@ -102,6 +107,8 @@ export const removeSubcategoryFromSection = async (req, res) => {
         subcategory_id: subcategoryId,
       },
     });
+
+    invalidateSectionCache(parseInt(sectionId)).catch(() => {});
 
     res.status(200).json({
       success: true,
@@ -177,6 +184,8 @@ export const updateSubcategoryMappings = async (req, res) => {
       where: { section_id: parseInt(sectionId) },
     });
 
+    invalidateSectionCache(parseInt(sectionId)).catch(() => {});
+
     res.status(200).json({
       success: true,
       data: updatedMappings,
@@ -243,6 +252,8 @@ export const updateMappingDisplayOrder = async (req, res) => {
 
     await Promise.all(updatePromises);
 
+    invalidateSectionCache(parseInt(sectionId)).catch(() => {});
+
     res.status(200).json({
       success: true,
       message: "Display order updated successfully",
@@ -277,6 +288,8 @@ export const toggleMappingStatus = async (req, res) => {
       where: { id: currentMapping.id },
       data: { is_active: newStatus },
     });
+
+    invalidateSectionCache(parseInt(sectionId)).catch(() => {});
 
     res.status(200).json({
       success: true,
@@ -333,6 +346,17 @@ export const getSectionsForSubcategory = async (req, res) => {
 export const getCategoriesForSection = async (req, res) => {
   try {
     const { sectionId } = req.params;
+    const excludeInferred = req.query.exclude_inferred === 'true';
+    // Cache by the raw param (numeric id or section_key, whichever the caller
+    // sent) — avoids paying the section_key -> id resolution query on every
+    // hit, at the cost of a short TTL instead of write-side invalidation
+    // (this data spans two mapping tables + global category state, so exact
+    // invalidation would mean wiring this key into every write path that
+    // touches any of those — not worth it for a 60s staleness window).
+    const cacheKey = `section-mapped-categories:${sectionId}:${excludeInferred}`;
+    const cached = await redis.get(cacheKey).catch(() => null);
+    if (cached) return res.status(200).json(JSON.parse(cached));
+
     let resolvedSectionId = parseInt(sectionId);
 
     // If sectionId is not a number, try to look it up as a section_key
@@ -373,8 +397,6 @@ export const getCategoriesForSection = async (req, res) => {
     }
 
     // Add parent categories from subcategories ONLY if exclude_inferred is false (default)
-    const excludeInferred = req.query.exclude_inferred === 'true';
-
     if (!excludeInferred && subcategoryMappings.length > 0) {
       const subIds = subcategoryMappings.map(m => m.subcategory_id);
       const subcategories = await prisma.subcategories.findMany({
@@ -385,11 +407,9 @@ export const getCategoriesForSection = async (req, res) => {
     }
 
     if (categoryIdsSet.size === 0) {
-      return res.status(200).json({
-        success: true,
-        categories: [],
-        count: 0,
-      });
+      const emptyPayload = { success: true, categories: [], count: 0 };
+      redis.setex(cacheKey, CATEGORY_SECTION_CACHE_TTL, JSON.stringify(emptyPayload)).catch(() => {});
+      return res.status(200).json(emptyPayload);
     }
 
     // Fetch full category details
@@ -407,11 +427,13 @@ export const getCategoriesForSection = async (req, res) => {
       orderBy: { name: 'asc' }
     });
 
-    res.status(200).json({
+    const payload = {
       success: true,
       categories: categories, // Key fixed to match frontend expectation
       count: categories.length,
-    });
+    };
+    redis.setex(cacheKey, CATEGORY_SECTION_CACHE_TTL, JSON.stringify(payload)).catch(() => {});
+    res.status(200).json(payload);
   } catch (error) {
     console.error("Error fetching categories for section:", error);
     res.status(500).json({ error: "Internal server error" });

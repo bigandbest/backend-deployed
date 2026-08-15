@@ -1,4 +1,11 @@
 import ChargeSettingDAO from "../dao/charge-setting.dao.js";
+import redis from "../config/redis.js";
+
+const CHARGE_SETTINGS_CACHE_TTL = parseInt(process.env.CHARGE_SETTINGS_CACHE_TTL || '1800', 10);
+const CACHE_KEYS = { settings: 'charge-settings' };
+const invalidateChargeSettingsCache = async () => {
+    await redis.del(CACHE_KEYS.settings).catch(() => {});
+};
 
 /**
  * Get charge settings (singleton - always returns one row)
@@ -6,6 +13,9 @@ import ChargeSettingDAO from "../dao/charge-setting.dao.js";
 export const getChargeSettings = async (req, res) => {
 
     try {
+        const cached = await redis.get(CACHE_KEYS.settings).catch(() => null);
+        if (cached) return res.status(200).json(JSON.parse(cached));
+
         const data = await ChargeSettingDAO.get();
 
         // If no settings exist, return defaults
@@ -24,13 +34,15 @@ export const getChargeSettings = async (req, res) => {
             });
         }
 
-        res.status(200).json({
+        const payload = {
             success: true,
             data: {
                 ...data,
                 delivery_charge: 30 // Hardcoded default
             },
-        });
+        };
+        redis.setex(CACHE_KEYS.settings, CHARGE_SETTINGS_CACHE_TTL, JSON.stringify(payload)).catch(() => {});
+        res.status(200).json(payload);
     } catch (error) {
         console.error("Error fetching charge settings:", error);
         res.status(500).json({
@@ -118,6 +130,8 @@ export const updateChargeSettings = async (req, res) => {
         // Update or insert (upsert)
         // Update or insert (upsert) using DAO
         const data = await ChargeSettingDAO.update(updateData);
+
+        invalidateChargeSettingsCache();
 
         res.status(200).json({
             success: true,
