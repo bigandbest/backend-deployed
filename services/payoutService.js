@@ -42,6 +42,13 @@ export async function calculateAndCreatePayout(subOrderId, riderId) {
             return { success: false, reason: 'ZONAL_NO_PAYOUT' };
         }
 
+        // 3b. Admin-completed deliveries never generate rider payout — the rider
+        // may not have actually made this delivery. This is defense-in-depth on
+        // top of the caller-side status filter in riderOrderController.js.
+        if (subOrder.delivered_by === 'admin') {
+            return { success: false, reason: 'ADMIN_DELIVERED_NO_PAYOUT' };
+        }
+
         const order = subOrder.parent_order;
 
         // 4. Determine source coordinates (seller or warehouse)

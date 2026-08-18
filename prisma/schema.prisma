@@ -2555,6 +2555,9 @@ model sub_orders {
   // pending → confirmed → picked → in_transit → delivered
   // also: dispatched_to_zonal_delivery, rider_pending, cancelled, return_to_source
 
+  delivered_by          String?             @db.VarChar // null (rider, default) | "admin" — set when admin force-completes via override, excludes from rider payout
+  assigned_at           DateTime?           @db.Timestamptz // stamped when source_type="seller" — anchors the accept-timeout job (Task 3)
+
   rider_id              String?             @db.Uuid
   pickup_sequence       Json?               @default("[]")
   estimated_delivery_at DateTime?           @db.Timestamptz

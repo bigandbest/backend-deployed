@@ -1,5 +1,12 @@
 import { uploadToCloudinary } from "../services/uploadService.js";
 import smallPromoCardDao from "../dao/small-promo-card.dao.js";
+import redis from "../config/redis.js";
+
+const PROMO_CARD_CACHE_TTL = parseInt(process.env.PROMO_CARD_CACHE_TTL || '600', 10);
+const CACHE_KEYS = { all: 'small-promo-cards:all' };
+const invalidatePromoCardCache = async () => {
+    await redis.del(CACHE_KEYS.all).catch(() => {});
+};
 
 // Add a Small Promo Card
 export async function addCard(req, res) {
@@ -33,6 +40,8 @@ export async function addCard(req, res) {
             resource_id: resource_id || null,
             sub_resource_id: sub_resource_id || null
         });
+
+        invalidatePromoCardCache();
 
         res.status(201).json({ success: true, card });
     } catch (err) {
@@ -82,6 +91,8 @@ export async function updateCard(req, res) {
 
         const card = await smallPromoCardDao.update(parsedId, updateData);
 
+        invalidatePromoCardCache();
+
         res.json({ success: true, card });
     } catch (err) {
         console.error("Error in updateCard:", err);
@@ -102,6 +113,7 @@ export async function deleteCard(req, res) {
         }
 
         await smallPromoCardDao.delete(parsedId);
+        invalidatePromoCardCache();
         res.json({ success: true, message: "Card deleted successfully" });
     } catch (err) {
         console.error("Error in deleteCard:", err);
@@ -115,9 +127,14 @@ export async function deleteCard(req, res) {
 // Get All Small Promo Cards
 export async function getAllCards(req, res) {
     try {
+        const cached = await redis.get(CACHE_KEYS.all).catch(() => null);
+        if (cached) return res.json(JSON.parse(cached));
+
         // Fetch all cards (no active filter)
         const cards = await smallPromoCardDao.list({ active: undefined });
-        res.json({ success: true, cards });
+        const payload = { success: true, cards };
+        redis.setex(CACHE_KEYS.all, PROMO_CARD_CACHE_TTL, JSON.stringify(payload)).catch(() => {});
+        res.json(payload);
     } catch (err) {
         console.error("Error in getAllCards:", err);
         res.status(500).json({ success: false, error: err.message });

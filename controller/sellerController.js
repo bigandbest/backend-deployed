@@ -1377,7 +1377,7 @@ export const toggleStoreStatus = async (req, res) => {
 import subOrderDao from '../dao/sub-order.dao.js';
 import fulfillmentEventDao from '../dao/fulfillment-event.dao.js';
 import { handleSellerCancellation } from '../services/subOrderService.js';
-import { routeSubOrders } from '../services/fulfillmentRouter.js';
+import { publishJob } from '../utils/publishJob.js';
 
 /**
  * Get sub-orders assigned to this seller
@@ -1537,10 +1537,20 @@ export const acceptSubOrder = async (req, res) => {
 
         const deliveryOtp = parentOrder.delivery_otp;
 
-        // Accept + store parent OTP in pickup_sequence metadata
-        await subOrderDao.updateStatus(sub_order_id, 'confirmed', {
+        // Atomic accept — guards against racing with the accept-timeout job
+        // (Task 3): if the timeout already fired and auto-rejected this
+        // sub-order between the status check above and this write, the
+        // conditional update below sees it's no longer 'pending' and fails,
+        // so we don't confirm an order that's already been rerouted away.
+        const accepted = await subOrderDao.tryTransitionStatus(sub_order_id, ['pending'], 'confirmed', {
             pickup_sequence: { otp: deliveryOtp, accepted_at: new Date().toISOString() },
         });
+        if (!accepted) {
+            return res.status(400).json({
+                success: false,
+                error: 'This sub-order is no longer pending — it may have already timed out and been reassigned.',
+            });
+        }
         await fulfillmentEventDao.log(sub_order_id, 'confirmed', {
             seller_id: seller.id,
             accepted_at: new Date().toISOString(),
@@ -1550,13 +1560,12 @@ export const acceptSubOrder = async (req, res) => {
         // Update parent order status based on all sub-orders' aggregate state
         await updateParentOrderStatusFromSubOrders(subOrder.parent_order_id);
 
-        // Trigger rider assignment for this sub-order's parent order
-        try {
-            await routeSubOrders(subOrder.parent_order_id);
-        } catch (routeErr) {
-            console.error('Rider routing after accept failed:', routeErr.message);
-            // Non-fatal: the cron will retry
-        }
+        // Trigger rider assignment off the request path — publishes to the
+        // same fulfillment_routing queue order placement uses, instead of
+        // running rider search (now radius-tiered, heavier) inline within
+        // this HTTP request. publishJob() never throws; the cron also
+        // retries rider_pending sub-orders as a backstop.
+        await publishJob('fulfillment_routing', { orderId: subOrder.parent_order_id });
 
         res.status(200).json({
             success: true,

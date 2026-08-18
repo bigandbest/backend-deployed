@@ -1,6 +1,13 @@
 import { uploadToCloudinary } from "../services/uploadService.js";
 import RecommendedStoreDAO from "../dao/recommended-store.dao.js";
 import ProductRecommendedStoreDAO from "../dao/product-recommended-store.dao.js";
+import redis from "../config/redis.js";
+
+const RECOMMENDED_STORE_CACHE_TTL = parseInt(process.env.RECOMMENDED_STORE_CACHE_TTL || '600', 10);
+const CACHE_KEYS = { active: 'recommended-stores:active' };
+const invalidateRecommendedStoreCache = async () => {
+  await redis.del(CACHE_KEYS.active).catch(() => {});
+};
 
 // Add Recommended Store
 export async function addRecommendedStore(req, res) {
@@ -37,6 +44,8 @@ export async function addRecommendedStore(req, res) {
       banner_id: banner_id || null,
       image_url: imageUrl,
     });
+
+    invalidateRecommendedStoreCache();
 
     res.status(201).json({ success: true, recommendedStore: data });
   } catch (err) {
@@ -85,6 +94,7 @@ export async function editRecommendedStore(req, res) {
     }
 
     const data = await RecommendedStoreDAO.updateStore(id, updateData);
+    invalidateRecommendedStoreCache();
     res.json({ success: true, recommendedStore: data });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -96,6 +106,7 @@ export async function deleteRecommendedStore(req, res) {
   try {
     const { id } = req.params;
     await RecommendedStoreDAO.deleteStore(id);
+    invalidateRecommendedStoreCache();
     res.json({
       success: true,
       message: "Recommended Store deleted successfully",
@@ -148,9 +159,12 @@ export async function getAllRecommendedStores(req, res) {
 // Get Active Recommended Stores
 export async function getActiveRecommendedStores(req, res) {
   try {
+    const cached = await redis.get(CACHE_KEYS.active).catch(() => null);
+    if (cached) return res.json(JSON.parse(cached));
+
     const stores = await RecommendedStoreDAO.list({ activeOnly: true });
     // Again, products array missing.
-    res.json({
+    const payload = {
       success: true,
       recommendedStores: stores.map((s) => ({
         id: s.id,
@@ -161,7 +175,9 @@ export async function getActiveRecommendedStores(req, res) {
         products: [], // Placeholder
         product_count: 0,
       })),
-    });
+    };
+    redis.setex(CACHE_KEYS.active, RECOMMENDED_STORE_CACHE_TTL, JSON.stringify(payload)).catch(() => {});
+    res.json(payload);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

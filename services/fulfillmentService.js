@@ -1,5 +1,11 @@
 import prisma from '../config/prisma.js';
 import inventoryDao from '../dao/inventory.dao.js';
+import pincodeLocationDao from '../dao/pincode-location.dao.js';
+import { calculateDistanceKm } from '../utils/distanceUtils.js';
+
+// Sellers within this radius of each other are treated as equally near —
+// stock depth breaks the tie instead of an arbitrary distance ordering.
+const SELLER_PROXIMITY_TIE_BREAK_KM = 1;
 
 
 const getDivisionWarehousesForPincode = async (pincode) => {
@@ -86,6 +92,8 @@ const getSellerStoresForPincode = async (pincode, excludeSellerIds = []) => {
                     is_open: true,
                     is_verified: true,
                     verification_status: true,
+                    latitude: true,
+                    longitude: true,
                 },
             },
         },
@@ -102,6 +110,43 @@ const getSellerStoresForPincode = async (pincode, excludeSellerIds = []) => {
             );
         })
         .map((r) => r.sellers);
+};
+
+/**
+ * Rank {seller, product} candidates by proximity to the delivery point.
+ * Falls back to stock-depth-only ordering when the delivery point is
+ * unknown (no pincode_locations row) or a seller has no geocoded location —
+ * distance can't be computed for those, so proximity ranking is skipped
+ * rather than silently treating them as "0km away".
+ */
+const rankSellerCandidates = (candidates, deliveryLat, deliveryLon) => {
+    if (!deliveryLat || !deliveryLon) {
+        return [...candidates].sort((a, b) => b.product.stock_quantity - a.product.stock_quantity);
+    }
+
+    const withDistance = candidates.map((c) => {
+        const sellerLat = c.seller.latitude ? Number(c.seller.latitude) : null;
+        const sellerLon = c.seller.longitude ? Number(c.seller.longitude) : null;
+        const distanceKm = (sellerLat && sellerLon)
+            ? calculateDistanceKm(deliveryLat, deliveryLon, sellerLat, sellerLon)
+            : null;
+        return { ...c, distanceKm };
+    });
+
+    return withDistance.sort((a, b) => {
+        // Sellers with no known location sort after ones we can actually rank.
+        if (a.distanceKm === null && b.distanceKm === null) {
+            return b.product.stock_quantity - a.product.stock_quantity;
+        }
+        if (a.distanceKm === null) return 1;
+        if (b.distanceKm === null) return -1;
+
+        const distanceDelta = a.distanceKm - b.distanceKm;
+        if (Math.abs(distanceDelta) <= SELLER_PROXIMITY_TIE_BREAK_KM) {
+            return b.product.stock_quantity - a.product.stock_quantity;
+        }
+        return distanceDelta;
+    });
 };
 
 
@@ -134,7 +179,68 @@ export const checkProductAvailability = async (
         }
     }
 
-    // ──── PRIORITY A: Division Warehouse ────
+    // ──── PRIORITY A: Seller Stores ────
+    // Sellers get first opportunity to fulfill — warehouse (division → zonal)
+    // is the fallback, used only when no seller matches or the assigned
+    // seller rejects/times out (handleSellerCancellation() re-runs this
+    // function excluding that seller, naturally falling through to warehouse).
+    const sellers = await getSellerStoresForPincode(normalizedPincode, excludeSellerIds);
+    if (sellers.length > 0) {
+        const sellerIds = sellers.map((s) => s.id);
+
+        // Single batched query for every candidate seller, instead of one
+        // findFirst per seller — collapses N queries into 1.
+        const matchingProducts = await prisma.seller_products.findMany({
+            where: {
+                seller_id: { in: sellerIds },
+                product_id: productId,
+                ...(variantId ? { variant_id: variantId } : {}),
+                is_active: true,
+                status: 'APPROVED',
+                stock_quantity: { gte: quantity },
+            },
+            include: {
+                warehouses: {
+                    select: { id: true, name: true, delivery_sla_minutes: true },
+                },
+            },
+        });
+
+        // A seller could theoretically have more than one matching row
+        // (e.g. duplicate variant entries) — keep the deepest-stock one per seller.
+        const productBySellerId = new Map();
+        for (const product of matchingProducts) {
+            const existing = productBySellerId.get(product.seller_id);
+            if (!existing || product.stock_quantity > existing.stock_quantity) {
+                productBySellerId.set(product.seller_id, product);
+            }
+        }
+
+        const candidates = sellers
+            .filter((seller) => productBySellerId.has(seller.id))
+            .map((seller) => ({ seller, product: productBySellerId.get(seller.id) }));
+
+        if (candidates.length > 0) {
+            const deliveryLocation = await pincodeLocationDao.getByPincode(normalizedPincode);
+            const deliveryLat = deliveryLocation?.latitude ?? null;
+            const deliveryLon = deliveryLocation?.longitude ?? null;
+
+            const ranked = rankSellerCandidates(candidates, deliveryLat, deliveryLon);
+            const { seller, product: sellerProduct } = ranked[0];
+
+            return {
+                available: true,
+                source_type: 'seller',
+                source_id: sellerProduct.warehouse_id,
+                seller_id: seller.id,
+                available_qty: sellerProduct.stock_quantity - (sellerProduct.reserved_quantity || 0),
+                estimated_delivery_minutes: sellerProduct.warehouses?.delivery_sla_minutes || 120,
+                warehouse_name: sellerProduct.warehouses?.name || `Seller: ${seller.business_name}`,
+            };
+        }
+    }
+
+    // ──── PRIORITY B: Division Warehouse (fallback — no seller matched) ────
     const divisionWarehouses = await getDivisionWarehousesForPincode(normalizedPincode);
     if (divisionWarehouses.length > 0) {
         const divisionIds = divisionWarehouses.map((w) => w.id);
@@ -155,7 +261,7 @@ export const checkProductAvailability = async (
         }
     }
 
-    // ──── PRIORITY B: Zonal Warehouse (Dark Store) ────
+    // ──── PRIORITY C: Zonal Warehouse (Dark Store) — final fallback ────
     const zonalWarehouses = await getZonalWarehousesForPincode(normalizedPincode);
     if (zonalWarehouses.length > 0) {
         const zonalIds = zonalWarehouses.map((w) => w.id);
@@ -172,46 +278,6 @@ export const checkProductAvailability = async (
                 available_qty: match.available,
                 estimated_delivery_minutes: warehouse?.delivery_sla_minutes || 30,
                 warehouse_name: warehouse?.name || 'Zonal Warehouse',
-            };
-        }
-    }
-
-    // ──── PRIORITY C: Seller Stores ────
-    const sellers = await getSellerStoresForPincode(normalizedPincode, excludeSellerIds);
-    if (sellers.length > 0) {
-        // Query all sellers in parallel, then pick the first match
-        const sellerResults = await Promise.all(
-            sellers.map((seller) =>
-                prisma.seller_products.findFirst({
-                    where: {
-                        seller_id: seller.id,
-                        product_id: productId,
-                        ...(variantId ? { variant_id: variantId } : {}),
-                        is_active: true,
-                        status: 'APPROVED',
-                        stock_quantity: { gte: quantity },
-                    },
-                    include: {
-                        warehouses: {
-                            select: { id: true, name: true, delivery_sla_minutes: true },
-                        },
-                    },
-                    orderBy: { stock_quantity: 'desc' },
-                }).then((product) => ({ seller, product }))
-            )
-        );
-
-        const match = sellerResults.find((r) => r.product !== null);
-        if (match) {
-            const { seller, product: sellerProduct } = match;
-            return {
-                available: true,
-                source_type: 'seller',
-                source_id: sellerProduct.warehouse_id,
-                seller_id: seller.id,
-                available_qty: sellerProduct.stock_quantity - (sellerProduct.reserved_quantity || 0),
-                estimated_delivery_minutes: sellerProduct.warehouses?.delivery_sla_minutes || 120,
-                warehouse_name: sellerProduct.warehouses?.name || `Seller: ${seller.business_name}`,
             };
         }
     }
@@ -381,4 +447,5 @@ export default {
     getDivisionWarehousesForPincode,
     getZonalWarehousesForPincode,
     getSellerStoresForPincode,
+    rankSellerCandidates,
 };

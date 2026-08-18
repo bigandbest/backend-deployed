@@ -7,11 +7,16 @@ import {
   productWithPincodeKey,
   relatedProductsKey,
   availabilityKey,
+  newArrivalsKey,
+  superSaverKey,
+  subcategoryProductsKey,
   PRODUCT_TTL,
   RELATED_TTL,
   AVAILABILITY_TTL,
+  AVAILABILITY_NEGATIVE_TTL,
+  PRODUCT_LIST_TTL,
 } from "../lib/cacheKeys.js";
-import { findWarehouseForProducts } from "../services/warehouseService.js";
+import { findWarehouseForProducts } from "../services/allocationEngine.js";
 import productVariantDao from "../dao/product-variant.dao.js";
 import productWarehouseStockDao from "../dao/product-warehouse-stock.dao.js";
 import categoryDao from "../dao/category.dao.js";
@@ -861,23 +866,32 @@ export const getProductsBySubcategory = async (req, res) => {
     const limit = Math.max(1, parseInt(req.query.limit) || 24);
     const sort = req.query.sort || "newest";
 
-    const { items, total } = await productDao.getProductsBySubcategoryPage({
-      subcategoryId,
-      page,
-      limit,
-      sort,
-    });
+    const cacheKey = subcategoryProductsKey(subcategoryId, page, limit, sort);
+    const cached = await redisGet(cacheKey);
+    const base = cached || await (async () => {
+      const { items, total } = await productDao.getProductsBySubcategoryPage({
+        subcategoryId,
+        page,
+        limit,
+        sort,
+      });
+      const payload = {
+        products: items.map(product => transformProduct(product)),
+        total,
+      };
+      redisSet(cacheKey, payload, PRODUCT_LIST_TTL).catch(() => {});
+      return payload;
+    })();
 
-    let transformedProducts = items.map(product => transformProduct(product));
-    transformedProducts = await enrichWithAvailability(req, transformedProducts);
+    const transformedProducts = await enrichWithAvailability(req, base.products);
 
     res.status(200).json({
       success: true,
       products: transformedProducts,
-      total,
+      total: base.total,
       page,
       limit,
-      hasMore: page * limit < total,
+      hasMore: page * limit < base.total,
     });
   } catch (error) {
     console.error("Server error:", error);
@@ -1075,17 +1089,30 @@ export const getNewArrivals = async (req, res) => {
     const { limit = 24, page = 1 } = req.query;
     const limitInt = parseInt(limit);
     const pageInt = parseInt(page);
-    const result = await productDao.getNewArrivals(limitInt, pageInt);
-    let transformedProducts = result.items.map(product => transformProduct(product));
-    transformedProducts = await enrichWithAvailability(req, transformedProducts);
+
+    const cacheKey = newArrivalsKey(limitInt, pageInt);
+    const cached = await redisGet(cacheKey);
+    // Cached value is pre-enrichment (products + total) — enrich per-request
+    // with this request's own pincode, never cache the enriched result.
+    const base = cached || await (async () => {
+      const result = await productDao.getNewArrivals(limitInt, pageInt);
+      const payload = {
+        products: result.items.map(product => transformProduct(product)),
+        total: result.total,
+      };
+      redisSet(cacheKey, payload, PRODUCT_LIST_TTL).catch(() => {});
+      return payload;
+    })();
+
+    const transformedProducts = await enrichWithAvailability(req, base.products);
 
     res.status(200).json({
       success: true,
       products: transformedProducts,
-      total: result.total,
+      total: base.total,
       page: pageInt,
       limit: limitInt,
-      totalPages: result.total > 0 ? Math.ceil(result.total / limitInt) : 0,
+      totalPages: base.total > 0 ? Math.ceil(base.total / limitInt) : 0,
     });
   } catch (error) {
     console.error("getNewArrivals error:", error);
@@ -1099,17 +1126,28 @@ export const getSuperSaver = async (req, res) => {
     const { limit = 50, page = 1 } = req.query;
     const limitInt = parseInt(limit);
     const pageInt = parseInt(page);
-    const { items, total } = await productDao.getSuperSaver(limitInt, pageInt);
-    let transformedProducts = items.map(product => transformProduct(product));
-    transformedProducts = await enrichWithAvailability(req, transformedProducts);
+
+    const cacheKey = superSaverKey(limitInt, pageInt);
+    const cached = await redisGet(cacheKey);
+    const base = cached || await (async () => {
+      const { items, total } = await productDao.getSuperSaver(limitInt, pageInt);
+      const payload = {
+        products: items.map(product => transformProduct(product)),
+        total,
+      };
+      redisSet(cacheKey, payload, PRODUCT_LIST_TTL).catch(() => {});
+      return payload;
+    })();
+
+    const transformedProducts = await enrichWithAvailability(req, base.products);
 
     res.status(200).json({
       success: true,
       products: transformedProducts,
-      total,
+      total: base.total,
       page: pageInt,
       limit: limitInt,
-      hasMore: pageInt * limitInt < total,
+      hasMore: pageInt * limitInt < base.total,
     });
   } catch (error) {
     console.error("getSuperSaver error:", error);
@@ -1616,14 +1654,16 @@ export const checkCartAvailability = async (req, res) => {
 
           resultMap.set(item.product_id, itemResult);
 
-          // Only cache positive results — negative availability can change quickly
-          if (itemResult.available) {
-            await redisSet(
-              availabilityKey(item.product_id, item.variant_id || null, pincode),
-              itemResult,
-              AVAILABILITY_TTL,
-            );
-          }
+          // Positive results cache for a full minute; negative results use a much
+          // shorter TTL (can change quickly, e.g. a seller opening/restocking) —
+          // but caching them at all avoids re-paying the full warehouse-lookup
+          // cost (multiple sequential DB round-trips) on every repeat/duplicate
+          // request for an item that's still unavailable moments later.
+          await redisSet(
+            availabilityKey(item.product_id, item.variant_id || null, pincode),
+            itemResult,
+            itemResult.available ? AVAILABILITY_TTL : AVAILABILITY_NEGATIVE_TTL,
+          );
         }),
       );
     }
