@@ -16,10 +16,11 @@ import refundRequestDao from "../dao/refund-request.dao.js";
 import userControlDao from "../dao/user.dao.js";
 import chargeSettingDao from "../dao/charge-setting.dao.js";
 import prisma from "../config/prisma.js";
-import subOrderDao from "../dao/sub-order.dao.js";
+import { createSubOrders, dispatchSellerAllocation } from "../services/subOrderService.js";
 import { buildAddressString } from '../utils/geocode.js';
 import walletDao from "../dao/wallet.dao.js";
-import { findWarehouseForProducts } from "../services/warehouseService.js";
+import { findWarehouseForProducts, resolveSubOrderItems } from "../services/allocationEngine.js";
+import { reserveStock, confirmReservation, releaseReservation } from '../services/stockReservationService.js';
 import cache from "../utils/cache.js";
 import { publishJob } from "../utils/publishJob.js";
 import { generateInvoiceIdentity } from "../utils/invoiceIdentity.js";
@@ -323,6 +324,7 @@ export const getOrderDetails = async (req, res) => {
 
 /** Place order with a flat address string */
 export const placeOrder = async (req, res) => {
+  let reservationSessionId = null;
   try {
     const {
       user_id,
@@ -462,6 +464,34 @@ export const placeOrder = async (req, res) => {
       warehouseInfo: warehouseResults[idx].warehouseInfo,
     }));
 
+    // Stage 4 (fulfillment consolidation): reserve stock atomically before
+    // creating the order. If any item is out of stock, fail fast — no order,
+    // no cart clear, no wallet/payment side effects have happened yet at
+    // this point in placeOrder.
+    const reservationItems = preparedItems
+      .filter((p) => p.warehouseInfo)
+      .map((p) => ({
+        variantId: p.variantId,
+        warehouseId: p.warehouseInfo.warehouse_id,
+        qty: p.quantity,
+        source: p.warehouseInfo.assignment_source === 'seller' ? 'seller' : 'inventory',
+        sellerId: p.warehouseInfo.seller_id || undefined,
+        productId: p.productId,
+      }));
+
+    if (reservationItems.length > 0) {
+      reservationSessionId = crypto.randomUUID();
+      const reservation = await reserveStock(reservationItems, reservationSessionId, 5);
+      if (!reservation.success) {
+        reservationSessionId = null; // reserveStock already rolled back any partial reservations internally
+        return res.status(409).json({
+          success: false,
+          error: 'Some items are no longer available',
+          unavailable: reservation.failures,
+        });
+      }
+    }
+
     // ✅ Generate single OTP for all sub-orders (zonal, division, etc.)
     const deliveryOtp = Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -521,9 +551,13 @@ export const placeOrder = async (req, res) => {
     await cartDao.clearCart(user_id);
 
     // ── Create sub-orders grouped by fulfillment source ──────────────────────
+    // Stage 2 (fulfillment consolidation): routed through the shared
+    // subOrderService.createSubOrders() instead of inline creation.
+    // Stage 3: resolveSubOrderItems() now correctly propagates 'seller' as
+    // source_type instead of silently relabeling it to 'division' — this is
+    // what makes seller notification/accept/timeout/reroute actually fire
+    // for orders placed through this endpoint.
     try {
-      // Resolve warehouse types upfront so seller-sourced items in division
-      // warehouses are classified as 'division', matching backfill behaviour.
       const warehouseIds = [...new Set(
         preparedItems.map(p => p.warehouseInfo?.warehouse_id).filter(Boolean)
       )];
@@ -533,50 +567,25 @@ export const placeOrder = async (req, res) => {
       });
       const warehouseTypeMap = Object.fromEntries(warehouses.map(w => [w.id, w.type]));
 
-      const sourceGroups = {};
-      for (const { productId, quantity, variantId, item, warehouseInfo } of preparedItems) {
-        if (!warehouseInfo) continue;
-        const wType = warehouseTypeMap[warehouseInfo.warehouse_id];
-        const resolvedSourceType = wType === 'zonal' ? 'zonal' : 'division';
-        const key = `${resolvedSourceType}__${warehouseInfo.warehouse_id}__${warehouseInfo.seller_id || ''}`;
-        if (!sourceGroups[key]) {
-          sourceGroups[key] = {
-            source_type: resolvedSourceType,
-            source_id: warehouseInfo.warehouse_id,
-            seller_id: warehouseInfo.seller_id || null,
-            items: [],
-          };
-        }
-        sourceGroups[key].items.push({
-          product_id: productId,
-          variant_id: variantId,
-          quantity,
-          unit_price: parseFloat(item.price) || 0,
-        });
+      const normalizedItems = preparedItems.map(({ productId, quantity, variantId, item, warehouseInfo }) => ({
+        productId, variantId, quantity, price: parseFloat(item.price) || 0, warehouseInfo,
+      }));
+      const resolvedItems = resolveSubOrderItems(normalizedItems, warehouseTypeMap);
+
+      await createSubOrders(order.id, resolvedItems);
+
+      if (reservationSessionId) {
+        await confirmReservation(reservationSessionId);
+        reservationSessionId = null;
       }
-
-      const estimatedDeliveryMinutes = { division: 120, zonal: 30 };
-
-      for (const group of Object.values(sourceGroups)) {
-        const subOrder = await subOrderDao.create({
-          parent_order_id: order.id,
-          source_type: group.source_type,
-          source_id: group.source_id,
-          seller_id: group.seller_id,
-          fulfillment_status: 'pending',
-          estimated_delivery_at: new Date(
-            Date.now() + (estimatedDeliveryMinutes[group.source_type] || 120) * 60 * 1000
-          ),
-        });
-
-        await prisma.sub_order_items.createMany({
-          data: group.items.map(i => ({ ...i, sub_order_id: subOrder.id })),
-          skipDuplicates: true,
-        });
-      }
-
     } catch (subOrderErr) {
       console.error('Sub-order creation error:', subOrderErr.message, subOrderErr.stack);
+      if (reservationSessionId) {
+        await releaseReservation(reservationSessionId).catch((releaseErr) =>
+          console.error('Failed to release reservation after sub-order error:', releaseErr.message)
+        );
+        reservationSessionId = null;
+      }
     }
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -606,12 +615,18 @@ export const placeOrder = async (req, res) => {
 
     return response;
   } catch (error) {
+    if (typeof reservationSessionId !== 'undefined' && reservationSessionId) {
+      await releaseReservation(reservationSessionId).catch((releaseErr) =>
+        console.error('Failed to release reservation after placeOrder error:', releaseErr.message)
+      );
+    }
     console.error("Error in placeOrder:", error);
     return res.status(500).json({ success: false, error: error.message });
   }
 };
 
 export const placeOrderWithDetailedAddress = async (req, res) => {
+  let reservationSessionId = null;
   try {
     const {
       user_id,
@@ -839,58 +854,48 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
     });
     const warehouseTypeMap = Object.fromEntries(warehouseRows.map(w => [w.id, w.type]));
 
-    // Build sub-order groups (outside tx — pure JS, no DB)
-    const sourceGroups = {};
-    for (const { productId, quantity, variantId, warehouseInfo, finalPrice } of resolvedItems) {
-      if (!warehouseInfo) continue;
-      const wType = warehouseTypeMap[warehouseInfo.warehouse_id];
-      const resolvedSourceType = wType === 'zonal' ? 'zonal' : (warehouseInfo.assignment_source === 'seller' ? 'seller' : 'division');
-      const key = `${resolvedSourceType}__${warehouseInfo.warehouse_id}__${warehouseInfo.seller_id || ''}`;
-      if (!sourceGroups[key]) {
-        sourceGroups[key] = {
-          source_type: resolvedSourceType,
-          source_id: warehouseInfo.warehouse_id,
-          seller_id: warehouseInfo.seller_id || null,
-          items: [],
-        };
-      }
-      sourceGroups[key].items.push({
-        product_id: productId,
-        variant_id: variantId,
-        quantity,
-        unit_price: finalPrice,
-      });
-    }
+    // Resolve sub-order items via the shared allocation engine helper — same
+    // source_type logic as before (this path was already correct), now
+    // shared with placeOrder/createWalletOrder instead of duplicated inline.
+    const normalizedForSubOrders = resolvedItems
+      .filter((r) => r.warehouseInfo)
+      .map(({ productId, variantId, quantity, warehouseInfo, finalPrice }) => ({
+        productId, variantId, quantity, price: finalPrice, warehouseInfo,
+      }));
+    const subOrderResolvedItems = resolveSubOrderItems(normalizedForSubOrders, warehouseTypeMap);
     // ─────────────────────────────────────────────────────────────────────────
 
-    // ── Atomic transaction: stock deduction + order + items + sub-orders + cart ──
-    const estimatedDeliveryMinutes = { seller: 120, division: 120, zonal: 30 };
+    // Stage 4 (fulfillment consolidation): reserve stock atomically before
+    // opening the transaction. On failure, fail fast — nothing has been
+    // written yet.
+    const reservationItems = subOrderResolvedItems.map((r) => ({
+      variantId: r.variant_id,
+      warehouseId: r.source_id,
+      qty: r.quantity,
+      source: r.source_type === 'seller' ? 'seller' : 'inventory',
+      sellerId: r.seller_id || undefined,
+      productId: r.product_id,
+    }));
 
-    const { order, createdSubOrders } = await prisma.$transaction(async (tx) => {
-      // 1. Deduct stock atomically for each item
-      for (const { variantId, quantity, warehouseInfo } of resolvedItems) {
-        if (!warehouseInfo?.warehouse_id) continue;
-        if (warehouseInfo.assignment_source === 'seller') {
-          await tx.$executeRaw`
-            UPDATE seller_products
-            SET    stock_quantity     = GREATEST(0, stock_quantity - ${quantity}),
-                   updated_at         = NOW()
-            WHERE  seller_id    = ${warehouseInfo.seller_id}::uuid
-              AND  variant_id   = ${variantId}::uuid
-              AND  warehouse_id = ${warehouseInfo.warehouse_id}
-          `;
-        } else {
-          await tx.$executeRaw`
-            UPDATE inventory
-            SET    stock_qty  = GREATEST(0, stock_qty - ${quantity}),
-                   updated_at = NOW()
-            WHERE  variant_id   = ${variantId}::uuid
-              AND  warehouse_id = ${warehouseInfo.warehouse_id}
-          `;
-        }
+    if (reservationItems.length > 0) {
+      reservationSessionId = crypto.randomUUID();
+      const reservation = await reserveStock(reservationItems, reservationSessionId, 5);
+      if (!reservation.success) {
+        return res.status(409).json({
+          success: false,
+          error: 'Some items are no longer available',
+          unavailable: reservation.failures,
+        });
       }
+    }
 
-      // 2. Create master order
+    // ── Atomic transaction: stock deduction + order + items + sub-orders + cart ──
+    // External seller side-effects (push + accept-timeout job) are collected
+    // here and dispatched only AFTER the transaction commits (below) — never
+    // inside it, so a rollback can't send a spurious push or orphan a job.
+    const deferredSideEffects = [];
+    const { order, createdSubOrders } = await prisma.$transaction(async (tx) => {
+      // 1. Create master order
       const identity = await generateInvoiceIdentity(tx, "QK");
 
       const newOrder = await tx.orders.create({
@@ -920,7 +925,7 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
         },
       });
 
-      // 3. Create order items
+      // 2. Create order items
       await tx.order_items.createMany({
         data: resolvedItems.map(({ variantId, quantity, finalPrice, isBulkOrder, bulkRange, originalPrice, warehouseInfo }) => ({
           order_id: newOrder.id,
@@ -936,31 +941,28 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
         skipDuplicates: true,
       });
 
-      // 4. Create sub-orders + sub-order items
-      const subOrders = [];
-      for (const group of Object.values(sourceGroups)) {
-        const estimated_delivery_at = new Date(
-          Date.now() + (estimatedDeliveryMinutes[group.source_type] || 120) * 60 * 1000
-        );
-        const subOrder = await tx.sub_orders.create({
-          data: {
-            parent_order_id: newOrder.id,
-            source_type: group.source_type,
-            source_id: group.source_id,
-            seller_id: group.seller_id,
-            fulfillment_status: 'pending',
-            estimated_delivery_at,
-          },
-        });
-        await tx.sub_order_items.createMany({
-          data: group.items.map(i => ({ ...i, sub_order_id: subOrder.id })),
-          skipDuplicates: true,
-        });
-        subOrders.push(subOrder);
-      }
+      // 3. Create sub-orders + sub-order items — shared path with
+      // placeOrder/createWalletOrder, now also wiring seller notification
+      // and the accept-timeout job for this endpoint for the first time.
+      const subOrders = await createSubOrders(newOrder.id, subOrderResolvedItems, tx, deferredSideEffects);
 
-      // 5. Clear cart
+      // 4. Clear cart
       await tx.cart_items.deleteMany({ where: { user_id } });
+
+      // 5. Confirm the reservation last — converts reserved_qty into a real
+      // deduction. Must run after every other transactional write has
+      // succeeded: confirmReservation deletes its in-memory session entry
+      // unconditionally as its final step, without waiting to see whether
+      // this $transaction actually commits. If it ran earlier and a later
+      // step (e.g. createSubOrders) threw, the DB rollback would restore
+      // stock correctly, but the in-memory session bookkeeping needed for
+      // releaseReservation (in the outer catch) would already be gone,
+      // permanently leaking the original reserved_qty increment. Running it
+      // last means the only remaining risk window is the same negligible one
+      // any non-transactional side effect has immediately before a commit.
+      if (reservationSessionId) {
+        await confirmReservation(reservationSessionId, tx);
+      }
 
       return { order: newOrder, createdSubOrders: subOrders };
     });
@@ -978,6 +980,13 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       })),
     });
 
+    // Dispatch seller push notifications + accept-timeout jobs now that the
+    // transaction has committed — these are external, non-transactional effects
+    // deferred out of the transaction so a rollback never fires them. Non-fatal.
+    for (const sideEffect of deferredSideEffects) {
+      await dispatchSellerAllocation(sideEffect);
+    }
+
     // Enqueue geocoding in background
     await publishJob('geocode_order', {
       orderId: order.id,
@@ -989,6 +998,11 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
 
     return response;
   } catch (error) {
+    if (typeof reservationSessionId !== 'undefined' && reservationSessionId) {
+      await releaseReservation(reservationSessionId).catch((releaseErr) =>
+        console.error('Failed to release reservation after placeOrderWithDetailedAddress error:', releaseErr.message)
+      );
+    }
     console.error("Error in placeOrderWithDetailedAddress:", error);
     return res.status(500).json({ success: false, error: error.message });
   }

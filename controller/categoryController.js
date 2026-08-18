@@ -5,6 +5,28 @@ import {
   validateCategoryCreationLock,
   validateGroupCreationLock,
 } from "../services/platformFeeService.js";
+import redis from "../config/redis.js";
+import { CATEGORY_CACHE_KEYS as CACHE_KEYS, CATEGORY_CACHE_TTL, CATEGORY_SECTION_CACHE_TTL } from "../lib/categoryCache.js";
+
+// Invalidate every cached category/subcategory/group hierarchy view
+const invalidateCategoryCache = async () => {
+  await Promise.allSettled([
+    redis.del(CACHE_KEYS.hierarchy(true)),
+    redis.del(CACHE_KEYS.hierarchy(false)),
+    redis.del(CACHE_KEYS.allWithSubcats),
+  ]);
+  // Per-section views use a dynamic sectionKey suffix — sweep by wildcard
+  try {
+    let cursor = '0';
+    do {
+      const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', 'categories:section:*', 'COUNT', 100);
+      cursor = nextCursor;
+      if (keys.length) await redis.del(...keys);
+    } while (cursor !== '0');
+  } catch {
+    // Redis unavailable — best effort
+  }
+};
 
 // Add new category
 export const addCategory = async (req, res) => {
@@ -54,6 +76,8 @@ export const addCategory = async (req, res) => {
 
     // Error handling is managed by try/catch block now, as Prisma throws on error.
     /* if (error) { ... } removed */
+
+    invalidateCategoryCache().catch(() => {});
 
     res.status(201).json({
       success: true,
@@ -127,6 +151,8 @@ export const updateCategory = async (req, res) => {
     }
 
     const data = await CategoryDAO.updateCategory(id, updateData);
+
+    invalidateCategoryCache().catch(() => {});
 
     res.status(200).json({
       success: true,
@@ -245,6 +271,8 @@ export const deleteCategory = async (req, res) => {
     // Delete the category using DAO
     await CategoryDAO.deleteCategory(id);
 
+    invalidateCategoryCache().catch(() => {});
+
     res.status(200).json({
       success: true,
       message: "Category deleted successfully",
@@ -349,6 +377,8 @@ export const addSubcategory = async (req, res) => {
       image_url: imageUrl,
     });
 
+    invalidateCategoryCache().catch(() => {});
+
     res.status(201).json({
       success: true,
       subcategory: data,
@@ -438,6 +468,8 @@ export const updateSubcategory = async (req, res) => {
 
     const data = await CategoryDAO.updateSubcategory(id, updateData);
 
+    invalidateCategoryCache().catch(() => {});
+
     res.status(200).json({
       success: true,
       subcategory: data,
@@ -471,6 +503,8 @@ export const deleteSubcategory = async (req, res) => {
 
     // Delete the subcategory
     await CategoryDAO.deleteSubcategory(id);
+
+    invalidateCategoryCache().catch(() => {});
 
     res.status(200).json({
       success: true,
@@ -575,6 +609,8 @@ export const addGroup = async (req, res) => {
       image_url: imageUrl,
     });
 
+    invalidateCategoryCache().catch(() => {});
+
     res.status(201).json({
       success: true,
       group: data,
@@ -663,6 +699,8 @@ export const updateGroup = async (req, res) => {
 
     const data = await CategoryDAO.updateGroup(id, updateData);
 
+    invalidateCategoryCache().catch(() => {});
+
     res.status(200).json({
       success: true,
       group: data,
@@ -700,6 +738,8 @@ export const deleteGroup = async (req, res) => {
 
     await CategoryDAO.deleteGroup(id);
 
+    invalidateCategoryCache().catch(() => {});
+
     res.status(200).json({
       success: true,
       message: "Group deleted successfully",
@@ -717,6 +757,11 @@ export const getCategoriesHierarchy = async (req, res) => {
     // Check if admin is requesting all categories (including inactive)
     const includeInactive = req.query.includeInactive === "true";
     const activeOnly = !includeInactive;
+    const cacheKey = CACHE_KEYS.hierarchy(activeOnly);
+
+    const cached = await redis.get(cacheKey).catch(() => null);
+    if (cached) return res.status(200).json(JSON.parse(cached));
+
     // Use DAO's full hierarchy method
     const categories = await CategoryDAO.getFullHierarchy(activeOnly);
     // DAO returns structure that matches controller's expected output?
@@ -738,11 +783,13 @@ export const getCategoriesHierarchy = async (req, res) => {
     */
     // Since DAO already nests it, we don't need the manual mapping logic.
 
-    res.status(200).json({
+    const payload = {
       success: true,
       categories: categories,
       total: categories.length,
-    });
+    };
+    redis.setex(cacheKey, CATEGORY_CACHE_TTL, JSON.stringify(payload)).catch(() => {});
+    res.status(200).json(payload);
   } catch (error) {
     console.error("Server error in getCategoriesHierarchy:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -753,28 +800,19 @@ export const getCategoriesHierarchy = async (req, res) => {
 // GET /api/categories/all-with-subcategories
 export const getAllCategoriesWithSubs = async (req, res) => {
   try {
-    const categories = await prisma.categories.findMany({
-      where: { active: true },
-      include: {
-        subcategories: {
-          where: { active: true },
-          include: {
-            groups: {
-              where: { active: true },
-              orderBy: { sort_order: "asc" },
-            },
-          },
-          orderBy: { sort_order: "asc" },
-        },
-      },
-      orderBy: { name: "asc" },
-    });
+    const cacheKey = CACHE_KEYS.allWithSubcats;
+    const cached = await redis.get(cacheKey).catch(() => null);
+    if (cached) return res.status(200).json(JSON.parse(cached));
 
-    res.status(200).json({
+    const categories = await CategoryDAO.getFullHierarchy(true);
+
+    const payload = {
       success: true,
       categories: categories,
       total: categories.length,
-    });
+    };
+    redis.setex(cacheKey, CATEGORY_CACHE_TTL, JSON.stringify(payload)).catch(() => {});
+    res.status(200).json(payload);
   } catch (error) {
     console.error("Error in getAllCategoriesWithSubs:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
@@ -825,6 +863,10 @@ export const getSubcategoryDetails = async (req, res) => {
 export const getSubcategoriesForSection = async (req, res) => {
   try {
     const { sectionKey } = req.params;
+    const cacheKey = CACHE_KEYS.bySectionSubcategories(sectionKey);
+
+    const cached = await redis.get(cacheKey).catch(() => null);
+    if (cached) return res.status(200).json(JSON.parse(cached));
 
     // First, get the section ID from the section key
     const section = await prisma.product_sections.findUnique({
@@ -871,11 +913,13 @@ export const getSubcategoriesForSection = async (req, res) => {
       )
       .filter(Boolean);
 
-    res.status(200).json({
+    const payload = {
       success: true,
       subcategories: orderedSubcategories,
       total: orderedSubcategories.length,
-    });
+    };
+    redis.setex(cacheKey, CATEGORY_SECTION_CACHE_TTL, JSON.stringify(payload)).catch(() => {});
+    res.status(200).json(payload);
   } catch (error) {
     console.error("Server error in getSubcategoriesForSection:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -886,6 +930,10 @@ export const getSubcategoriesForSection = async (req, res) => {
 export const getCategoriesForSection = async (req, res) => {
   try {
     const { sectionKey } = req.params;
+    const cacheKey = CACHE_KEYS.bySectionCategories(sectionKey);
+
+    const cached = await redis.get(cacheKey).catch(() => null);
+    if (cached) return res.status(200).json(JSON.parse(cached));
 
     // First, get the section ID from the section key
     const section = await prisma.product_sections.findUnique({
@@ -973,11 +1021,13 @@ export const getCategoriesForSection = async (req, res) => {
       filteredCategories = [];
     }
 
-    res.status(200).json({
+    const payload = {
       success: true,
       categories: filteredCategories,
       total: filteredCategories.length,
-    });
+    };
+    redis.setex(cacheKey, CATEGORY_SECTION_CACHE_TTL, JSON.stringify(payload)).catch(() => {});
+    res.status(200).json(payload);
   } catch (error) {
     console.error("Server error in getCategoriesForSection:", error);
     res.status(500).json({ error: "Internal server error" });

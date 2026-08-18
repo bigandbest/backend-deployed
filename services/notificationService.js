@@ -6,7 +6,7 @@ import prisma from '../config/prisma.js';
 
 // ─── Helper ────────────────────────────────────────────────────────────────
 
-const getToken = async (userId) => {
+export const getToken = async (userId) => {
     if (!userId) return null;
     try {
         const user = await prisma.users.findUnique({

@@ -88,18 +88,40 @@ export const findWarehouseForProduct = async (productId, pincode, _productType, 
   if (cached) return cached;
 
   try {
-    const product = await productDao.getProductById(productId);
+    const normalizedPincode = String(pincode || '').trim();
+
+    // These four lookups are mutually independent — none depends on another's
+    // result, only the *priority order in which we act on them* matters. Fetching
+    // them in parallel instead of one-await-at-a-time turns N sequential
+    // network round-trips into 1, which matters a lot against a remote DB.
+    const [product, divisionMappings, zonalWarehouses, sellerPincodeRows] = await Promise.all([
+      productDao.getProductById(productId),
+      normalizedPincode ? getDivisionWarehousesForPincode(normalizedPincode) : Promise.resolve([]),
+      normalizedPincode ? getZonalWarehousesForPincode(normalizedPincode) : Promise.resolve([]),
+      normalizedPincode
+        ? prisma.seller_pincode_requests.findMany({
+            where: { pincode: normalizedPincode, status: 'APPROVED' },
+            include: {
+              sellers: {
+                select: {
+                  id: true,
+                  is_active: true,
+                  is_open: true,
+                  is_verified: true,
+                  verification_status: true,
+                },
+              },
+            },
+          })
+        : Promise.resolve([]),
+    ]);
+
     if (!product) {
       console.warn(`Product not found: ${productId}`);
       return null;
     }
 
-    const normalizedPincode = String(pincode || '').trim();
-
     // ── PRIORITY 1: Division Warehouse ──────────────────────────────────────
-    const divisionMappings = normalizedPincode
-      ? await getDivisionWarehousesForPincode(normalizedPincode)
-      : [];
     const divisionWarehouseIds = divisionMappings.map((m) => m.warehouse_id);
 
     if (divisionWarehouseIds.length > 0) {
@@ -119,9 +141,6 @@ export const findWarehouseForProduct = async (productId, pincode, _productType, 
     }
 
     // ── PRIORITY 2: Zonal Warehouse ─────────────────────────────────────────
-    const zonalWarehouses = normalizedPincode
-      ? await getZonalWarehousesForPincode(normalizedPincode)
-      : [];
     const zonalWarehouseIds = zonalWarehouses.map((w) => w.id);
 
     if (zonalWarehouseIds.length > 0) {
@@ -142,21 +161,6 @@ export const findWarehouseForProduct = async (productId, pincode, _productType, 
 
     // ── PRIORITY 3: Seller Stores ────────────────────────────────────────────
     if (normalizedPincode) {
-      const sellerPincodeRows = await prisma.seller_pincode_requests.findMany({
-        where: { pincode: normalizedPincode, status: 'APPROVED' },
-        include: {
-          sellers: {
-            select: {
-              id: true,
-              is_active: true,
-              is_open: true,
-              is_verified: true,
-              verification_status: true,
-            },
-          },
-        },
-      });
-
       const activeSellers = sellerPincodeRows
         .filter(
           (r) =>
@@ -167,18 +171,28 @@ export const findWarehouseForProduct = async (productId, pincode, _productType, 
         )
         .map((r) => r.sellers);
 
-      for (const seller of activeSellers) {
-        const sellerProduct = await prisma.seller_products.findFirst({
-          where: {
-            seller_id: seller.id,
-            product_id: productId,
-            ...(variantId ? { variant_id: variantId } : {}),
-            is_active: true,
-            status: 'APPROVED',
-          },
-          include: { warehouses: true },
-          orderBy: { stock_quantity: 'desc' },
-        });
+      // Look up every active seller's stock in parallel, then pick the first
+      // one (in the original priority order) with enough stock — same
+      // selection outcome as the old sequential for-loop, just concurrent.
+      const sellerProducts = await Promise.all(
+        activeSellers.map((seller) =>
+          prisma.seller_products.findFirst({
+            where: {
+              seller_id: seller.id,
+              product_id: productId,
+              ...(variantId ? { variant_id: variantId } : {}),
+              is_active: true,
+              status: 'APPROVED',
+            },
+            include: { warehouses: true },
+            orderBy: { stock_quantity: 'desc' },
+          })
+        )
+      );
+
+      for (let i = 0; i < activeSellers.length; i++) {
+        const seller = activeSellers[i];
+        const sellerProduct = sellerProducts[i];
 
         if (
           sellerProduct &&

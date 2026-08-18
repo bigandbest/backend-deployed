@@ -1,17 +1,29 @@
 import deliveryChargeMilestoneDao from "../dao/delivery-charge-milestone.dao.js";
+import redis from "../config/redis.js";
+
+const DELIVERY_CHARGE_CACHE_TTL = parseInt(process.env.DELIVERY_CHARGE_CACHE_TTL || '1800', 10);
+const CACHE_KEYS = { all: 'delivery-charges:all' };
+const invalidateDeliveryChargeCache = async () => {
+    await redis.del(CACHE_KEYS.all).catch(() => {});
+};
 
 /**
  * Get all delivery charge milestones
  */
 export const getAllMilestones = async (req, res) => {
     try {
+        const cached = await redis.get(CACHE_KEYS.all).catch(() => null);
+        if (cached) return res.status(200).json(JSON.parse(cached));
+
         const data = await deliveryChargeMilestoneDao.list();
 
-        res.status(200).json({
+        const payload = {
             success: true,
             data: data || [],
             count: data?.length || 0,
-        });
+        };
+        redis.setex(CACHE_KEYS.all, DELIVERY_CHARGE_CACHE_TTL, JSON.stringify(payload)).catch(() => {});
+        res.status(200).json(payload);
     } catch (error) {
         console.error("Error fetching milestones:", error);
         res.status(500).json({
@@ -104,6 +116,8 @@ export const createMilestone = async (req, res) => {
             is_active: is_active !== undefined ? is_active : true,
         });
 
+        invalidateDeliveryChargeCache();
+
         res.status(201).json({
             success: true,
             data,
@@ -165,6 +179,8 @@ export const updateMilestone = async (req, res) => {
 
         const data = await deliveryChargeMilestoneDao.update(parseInt(id), updateData);
 
+        invalidateDeliveryChargeCache();
+
         res.status(200).json({
             success: true,
             data,
@@ -200,6 +216,8 @@ export const deleteMilestone = async (req, res) => {
         const { id } = req.params;
 
         await deliveryChargeMilestoneDao.delete(parseInt(id));
+
+        invalidateDeliveryChargeCache();
 
         res.status(200).json({
             success: true,
@@ -243,6 +261,8 @@ export const toggleMilestoneActive = async (req, res) => {
         const data = await deliveryChargeMilestoneDao.update(milestoneId, {
             is_active: !currentData.is_active
         });
+
+        invalidateDeliveryChargeCache();
 
         res.status(200).json({
             success: true,

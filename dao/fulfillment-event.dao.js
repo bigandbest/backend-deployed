@@ -2,10 +2,15 @@ import prisma from '../config/prisma.js';
 
 class FulfillmentEventDAO {
     /**
-     * Log a fulfillment event (audit trail)
+     * Log a fulfillment event (audit trail). Pass `tx` (a Prisma transaction
+     * client) to write inside an existing transaction — required when the
+     * referenced sub_order was itself created with the same `tx` and is not
+     * yet committed, since fulfillment_events.sub_order_id is a FK to
+     * sub_orders.id and a default-client insert cannot see the uncommitted row.
      */
-    async log(subOrderId, eventType, payload = {}) {
-        return await prisma.fulfillment_events.create({
+    async log(subOrderId, eventType, payload = {}, tx = null) {
+        const client = tx || prisma;
+        return await client.fulfillment_events.create({
             data: {
                 sub_order_id: subOrderId,
                 event_type: eventType,

@@ -24,4 +24,16 @@ export const priceUpdateQueue = new Queue('bulk-price-update', {
 
 export const priceUpdateQueueEvents = new QueueEvents('bulk-price-update', { connection });
 
+// Delayed job per seller-allocated sub-order — fires once at the accept
+// deadline and auto-rejects if the seller still hasn't responded.
+export const sellerAcceptTimeoutQueue = new Queue('seller-accept-timeout', {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 2000 },
+    removeOnComplete: 200,
+    removeOnFail: 500,
+  },
+});
+
 export { connection as bullmqRedis };

@@ -129,6 +129,64 @@ class ProductWarehouseStockDAO {
         });
         return toStockShape(result);
     }
+
+    /**
+     * Find zonal-warehouse stock for a product in a given zone, with enough
+     * quantity available. Mirrors warehouseService.getZonalWarehousesForPincode's
+     * traversal (delivery_zones -> warehouse_zones -> warehouses) but takes a
+     * zoneId directly since the caller (deliveryValidationService.js) already
+     * resolved it from the pincode.
+     */
+    async getZonalStock(productId, zoneId, quantity) {
+        const warehouseZones = await prisma.warehouse_zones.findMany({
+            where: {
+                zone_id: zoneId,
+                is_active: true,
+                warehouses: { is_active: true, type: 'zonal' },
+            },
+            select: { warehouse_id: true },
+        });
+        const warehouseIds = warehouseZones.map(wz => wz.warehouse_id);
+        if (!warehouseIds.length) return null;
+
+        const candidates = await prisma.inventory.findMany({
+            where: {
+                warehouse_id: { in: warehouseIds },
+                product_variants: { product_id: productId },
+            },
+            include: { warehouses: true },
+            orderBy: { stock_qty: 'desc' },
+            take: 20,
+        });
+
+        const match = candidates.find(
+            inv => (inv.stock_qty - (inv.reserved_qty || 0)) >= quantity
+        );
+        return toStockShape(match || null);
+    }
+
+    /**
+     * Fallback stock lookup for "nationwide" products when no zonal
+     * warehouse has stock. No 'central' warehouse type exists in this
+     * schema — division warehouses are the real fallback tier (confirmed:
+     * only 'zonal' and 'division' types exist in the live database).
+     */
+    async getCentralStock(productId, quantity) {
+        const candidates = await prisma.inventory.findMany({
+            where: {
+                product_variants: { product_id: productId },
+                warehouses: { is_active: true, type: 'division' },
+            },
+            include: { warehouses: true },
+            orderBy: { stock_qty: 'desc' },
+            take: 20,
+        });
+
+        const match = candidates.find(
+            inv => (inv.stock_qty - (inv.reserved_qty || 0)) >= quantity
+        );
+        return toStockShape(match || null);
+    }
 }
 
 export default new ProductWarehouseStockDAO();
