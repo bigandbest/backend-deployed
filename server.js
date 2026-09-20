@@ -13,6 +13,7 @@ import {
   startScheduledJobs,
   stopScheduledJobs,
 } from "./services/scheduled-jobs.js";
+import { initializeGrowthCronJobs } from "./services/growthCron.js";
 
 import authRoutes from "./routes/authRoute.js";
 import adminAuthRoutes from "./routes/adminAuthRoutes.js";
@@ -122,6 +123,10 @@ import adminReferralRoutes from "./routes/adminReferralRoutes.js";
 import internalReferralRoutes from "./routes/internalReferralRoutes.js";
 import affiliateRoutes from "./routes/affiliateRoutes.js";
 import affiliateAdminRoutes from "./routes/affiliateAdminRoutes.js";
+import adminDashboardRoutes from "./routes/adminDashboardRoutes.js";
+import membershipAdminRoutes from "./routes/membershipAdminRoutes.js";
+import campaignRoutes from "./routes/campaignRoutes.js";
+import notificationTemplateRoutes from "./routes/notificationTemplateRoutes.js";
 import bankAccountRoutes from "./routes/bankAccountRoutes.js";
 import fcmTokenRoutes from "./routes/fcmTokenRoutes.js";
 import { startGeocodeRetryWorker } from "./workers/geocodeRetryWorker.js";
@@ -293,8 +298,10 @@ const createApp = () => {
   app.use("/api/zones", zoneRoutes);
   app.use("/api/stock", stockRoutes);
   app.use("/api/upload", uploadRoutes);
-  app.use("/api/admin", adminProductRoutes);
+  // bulkPriceRoutes must be mounted first: adminProductRoutes has GET /products/:productId, which would otherwise
+  // capture /products/bulk-price-export as a product id.
   app.use("/api/admin/products", bulkPriceRoutes);
+  app.use("/api/admin", adminProductRoutes);
   app.use("/api/admin/users", adminUserRoutes);
   app.use("/api/admin/sellers", adminSellerRoutes);
 
@@ -319,6 +326,10 @@ const createApp = () => {
   app.use("/api/admin/referral", adminReferralRoutes);
   app.use("/api/internal/referral", internalReferralRoutes);
   app.use("/api/admin/affiliate", affiliateAdminRoutes);
+  app.use("/api/admin/dashboard", adminDashboardRoutes);
+  app.use("/api/admin/membership", membershipAdminRoutes);
+  app.use("/api/admin/campaigns", campaignRoutes);
+  app.use("/api/admin/notification-templates", notificationTemplateRoutes);
   app.use("/api/user/addresses", userAddressRoutes);
   app.use("/api/reviews", reviewRoutes);
   app.use("/api/customer-testimonials", customerTestimonialRoutes);
@@ -662,6 +673,8 @@ const startServer = async () => {
     console.log(
       "════════════════════════════════════════════════════════════\n",
     );
+
+    if (process.env.SKIP_DB !== "true") initializeGrowthCronJobs();
 
     // Start scheduled jobs (only in first worker or standalone mode)
     // if (!IS_CLUSTERED || workerId === 1) {

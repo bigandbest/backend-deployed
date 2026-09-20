@@ -3,7 +3,7 @@ model referral_transactions {
   referrer_id             String    @db.Uuid
   referrer_profile_id     String    @db.Uuid
   referral_code_used      String    @db.VarChar(20)
-  referee_id              String    @db.Uuid
+  referee_id              String    @unique @db.Uuid // a referee has exactly one referrer
   referee_email           String?   @db.VarChar
   referee_name            String?   @db.VarChar
   referee_phone           String?   @db.VarChar
@@ -31,6 +31,14 @@ model referral_transactions {
   user_agent              String?
   created_at              DateTime  @default(now()) @db.Timestamptz
   updated_at              DateTime  @updatedAt @db.Timestamptz
+  // Campaign + Reward Rules Engine (migration 20260916150000) — financial snapshot, nullable.
+  campaign_id             String?   @db.Uuid
+  campaign_name           String?   @db.VarChar(255)
+  applied_reward_type     String?   @db.VarChar(20)
+  applied_reward_value    Decimal?  @db.Decimal(10, 2)
+  // Snapshot taken when the referred order is placed: was the referrer allowed to earn (membership) at that moment?
+  // Later lapses do not invalidate an order that was legitimately placed while eligible.
+  membership_eligible     Boolean   @default(true)
 
   // Relations
   referrer_profile user_referral_profiles @relation("ReferrerProfile", fields: [referrer_profile_id], references: [id])

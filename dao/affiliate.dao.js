@@ -220,6 +220,18 @@ class AffiliateDAO {
     return prisma.affiliate_orders.update({ where: { id }, data });
   }
 
+  // Delivered, past return window, not returned, not yet approved — ready for auto-approval.
+  async findDueForAutoApproval() {
+    return prisma.affiliate_orders.findMany({
+      where: {
+        commission_status: "PENDING",
+        is_returned: false,
+        delivered_at: { not: null },
+        return_window_ends_at: { lte: new Date() },
+      },
+    });
+  }
+
   async listAllAffiliateOrders({ status, page = 1, limit = 20 } = {}) {
     const where = {};
     if (status) where.commission_status = status;
@@ -231,7 +243,7 @@ class AffiliateDAO {
         take: limit,
         orderBy: { order_date: "desc" },
         include: {
-          affiliate_profile: {
+          affiliate_profiles: {
             select: { affiliate_code: true, display_name: true, email: true },
           },
         },
@@ -283,7 +295,7 @@ class AffiliateDAO {
         take: limit,
         orderBy: { created_at: "desc" },
         include: {
-          affiliate_profile: {
+          affiliate_profiles: {
             select: { affiliate_code: true, display_name: true, email: true },
           },
         },
@@ -333,7 +345,7 @@ class AffiliateDAO {
         take: limit,
         orderBy: { created_at: "desc" },
         include: {
-          affiliate_profile: {
+          affiliate_profiles: {
             select: { affiliate_code: true, display_name: true, email: true },
           },
         },

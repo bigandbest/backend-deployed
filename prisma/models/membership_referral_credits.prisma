@@ -1,0 +1,13 @@
+// Idempotency guard for the qualification counter: one referred user contributes to a membership at most once,
+// no matter how many reward rules match or how many times the reward job is retried.
+model membership_referral_credits {
+  id                      String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  membership_id           String   @db.Uuid
+  referee_id              String   @db.Uuid
+  referral_transaction_id String   @db.Uuid
+  counted_at              DateTime @default(now()) @db.Timestamptz
+
+  membership user_memberships @relation(fields: [membership_id], references: [id])
+
+  @@unique([membership_id, referee_id])
+}

@@ -1,6 +1,7 @@
 import returnOrderDao from "../dao/returnOrder.dao.js";
 import orderDao from "../dao/order.dao.js";
 import prisma from "../config/prisma.js";
+import { onOrderPartiallyReturned } from "../services/orderLifecycleHooks.js";
 import {
   notifyReturnCreated,
   notifyReturnStatusUpdated,
@@ -283,6 +284,11 @@ export const updateReturnRequestStatus = async (req, res) => {
     };
 
     const updated = await returnOrderDao.update(id, updateData);
+
+    // Completed partial returns reverse growth-program rewards; "cancellation" returns already fired this on creation.
+    if (status === "completed" && existing.status !== "completed" && existing.return_type !== "cancellation") {
+      await onOrderPartiallyReturned(existing.order_id, existing.refund_amount);
+    }
 
     await notifyReturnStatusUpdated({
       userId: existing.user_id,

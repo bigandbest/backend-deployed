@@ -1,9 +1,18 @@
 import jwt from "jsonwebtoken";
 import {
   verifyToken,
-  decodeToken,
   extractTokenFromHeader,
 } from "../utils/jwtUtils.js";
+
+// Claims are trusted only after the signature and expiry are verified against JWT_SECRET.
+// Any failure (bad signature, expired, malformed, JWT_SECRET missing) yields null => 401 (fail closed).
+const verifiedClaims = (token) => {
+  try {
+    return verifyToken(token);
+  } catch {
+    return null;
+  }
+};
 
 const authenticate = (req, res, next) => {
   let token = req.cookies?.token;
@@ -58,7 +67,7 @@ export const authenticateToken = async (req, res, next) => {
     }
 
     // Decode JWT token to extract user info
-    const decoded = decodeToken(token);
+    const decoded = verifiedClaims(token);
 
     if (!decoded || !decoded.id) {
       // Try alternative field names (e.g. Supabase tokens use 'sub')
@@ -120,7 +129,7 @@ export const authenticateAdmin = async (req, res, next) => {
         .json({ success: false, error: "Access token required" });
     }
 
-    const decoded = decodeToken(token);
+    const decoded = verifiedClaims(token);
 
     if (!decoded || !decoded.id) {
       return res.status(401).json({ success: false, error: "Invalid token" });
@@ -164,7 +173,7 @@ export const authenticateTokenOptional = async (req, res, next) => {
     }
 
     // Decode token
-    const decoded = decodeToken(token);
+    const decoded = verifiedClaims(token);
 
     if (decoded && decoded.id) {
       req.user = {

@@ -1,4 +1,5 @@
 import prisma from '../config/prisma.js';
+import { onOrderStatusChanged } from './orderLifecycleHooks.js';
 
 /**
  * Update parent order status based on aggregate status of all sub-orders
@@ -50,6 +51,8 @@ export const updateParentOrderStatusFromSubOrders = async (parentOrderId) => {
             where: { id: parentOrderId },
             data: { status: newParentStatus, updated_at: new Date() },
         });
+
+        await onOrderStatusChanged(parentOrderId, newParentStatus);
     } catch (err) {
         console.error(`[updateParentOrderStatus] Error for order ${parentOrderId}:`, err.message);
         // Non-fatal: tracking will eventually catch up via polling or manual checks

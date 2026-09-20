@@ -128,7 +128,7 @@ class ProductDAO {
     }
 
     async listProducts(filters = {}, pagination = {}) {
-        const { page = 1, limit = 10 } = pagination;
+        const { page = 1, limit = 10, orderBy = { created_at: "desc" } } = pagination;
         const skip = (page - 1) * limit;
 
         const where = {
@@ -194,8 +194,9 @@ class ProductDAO {
                         select: { url: true, media_type: true },
                         orderBy: { sort_order: "asc" },
                     },
+                    _count: { select: { media: true } },
                 },
-                orderBy: { created_at: "desc" },
+                orderBy,
             }),
             prisma.products.count({ where }),
         ]);

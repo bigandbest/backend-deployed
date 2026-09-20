@@ -1,4 +1,5 @@
 import prisma from "../config/prisma.js";
+import { onOrderCreated, onOrderStatusChanged } from "../services/orderLifecycleHooks.js";
 
 class OrderDAO {
   async create(data) {
@@ -11,9 +12,12 @@ class OrderDAO {
       createData.users = { connect: { id: user_id } };
     }
 
-    return await prisma.orders.create({
+    const order = await prisma.orders.create({
       data: createData,
     });
+
+    await onOrderCreated(order);
+    return order;
   }
 
   async getById(id) {
@@ -62,13 +66,16 @@ class OrderDAO {
 
 
   async update(id, data) {
-    return await prisma.orders.update({
+    const order = await prisma.orders.update({
       where: { id },
       data: {
         ...data,
         updated_at: new Date(),
       },
     });
+
+    if (data.status) await onOrderStatusChanged(id, data.status);
+    return order;
   }
 
   async logicalDelete(id) {

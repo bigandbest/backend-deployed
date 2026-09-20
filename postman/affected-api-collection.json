@@ -1,0 +1,1800 @@
+{
+  "info": {
+    "name": "Backend Changed APIs (DEV)",
+    "description": "Only APIs touched by the uncommitted reffralSystem changes (affiliate conversion/commission, campaigns, admin fraud logs, new admin product/category endpoints). Run against DEV only. Order matters: run folders top to bottom. Set baseUrl (incl. /api), accessToken, otherUserToken, adminToken, affiliateCode, orderId first.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Affiliate",
+      "item": [
+        {
+          "name": "Conversion",
+          "item": [
+            {
+              "name": "Convert - no token (401)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/affiliate/convert",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"order_id\": \"{{orderId}}\", \"affiliate_code\": \"{{affiliateCode}}\" }"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('401 without token', () => pm.response.to.have.status(401));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Convert - invalid order_id (400)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}"
+                    }
+                  ]
+                },
+                "url": "{{baseUrl}}/affiliate/convert",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"order_id\": \"not-a-uuid\", \"affiliate_code\": \"{{affiliateCode}}\" }"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('400 for malformed order_id', () => pm.response.to.have.status(400));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Convert - not the order owner (403)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{otherUserToken}}"
+                    }
+                  ]
+                },
+                "url": "{{baseUrl}}/affiliate/convert",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"order_id\": \"{{orderId}}\", \"affiliate_code\": \"{{affiliateCode}}\" }"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('403 for non-owner', () => pm.response.to.have.status(403));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Convert - happy path",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}"
+                    }
+                  ]
+                },
+                "url": "{{baseUrl}}/affiliate/convert",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"order_id\": \"{{orderId}}\", \"affiliate_code\": \"{{affiliateCode}}\" }"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('200', () => pm.response.to.have.status(200));",
+                      "const j = pm.response.json();",
+                      "pm.test('attributed', () => pm.expect(j.success).to.eql(true));",
+                      "if (j.data) pm.environment.set('affiliateOrderId', j.data.affiliateOrderId);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Convert - duplicate (no second attribution)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}"
+                    }
+                  ]
+                },
+                "url": "{{baseUrl}}/affiliate/convert",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"order_id\": \"{{orderId}}\", \"affiliate_code\": \"{{affiliateCode}}\" }"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('same affiliateOrderId returned', () => pm.expect(pm.response.json().data.affiliateOrderId).to.eql(pm.environment.get('affiliateOrderId')));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Commissions (admin)",
+          "item": [
+            {
+              "name": "List affiliate orders",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{adminToken}}"
+                    }
+                  ]
+                },
+                "url": "{{baseUrl}}/admin/affiliate/orders?page=1&limit=20"
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('200', () => pm.response.to.have.status(200));",
+                      "pm.test('paged shape', () => { const j = pm.response.json(); pm.expect(j).to.have.property('items'); pm.expect(j).to.have.property('total'); });",
+                      "pm.test('fast', () => pm.expect(pm.response.responseTime).to.be.below(3000));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Approve commission - as customer (403)",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}"
+                    }
+                  ]
+                },
+                "url": "{{baseUrl}}/admin/affiliate/orders/{{affiliateOrderId}}/approve-commission"
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('403', () => pm.response.to.have.status(403));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Approve commission #1",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{adminToken}}"
+                    }
+                  ]
+                },
+                "url": "{{baseUrl}}/admin/affiliate/orders/{{affiliateOrderId}}/approve-commission"
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('200', () => pm.response.to.have.status(200));",
+                      "pm.environment.set('commissionId', pm.response.json().data.id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Approve commission #2 - idempotent (409)",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{adminToken}}"
+                    }
+                  ]
+                },
+                "url": "{{baseUrl}}/admin/affiliate/orders/{{affiliateOrderId}}/approve-commission"
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('409 on repeat', () => pm.response.to.have.status(409));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Approve commission - invalid id (400)",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{adminToken}}"
+                    }
+                  ]
+                },
+                "url": "{{baseUrl}}/admin/affiliate/orders/not-a-uuid/approve-commission"
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('400', () => pm.response.to.have.status(400));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Cancel commission - already approved (409)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{adminToken}}"
+                    }
+                  ]
+                },
+                "url": "{{baseUrl}}/admin/affiliate/orders/{{affiliateOrderId}}/cancel-commission",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"reason\": \"postman\" }"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('409, balances untouched', () => pm.response.to.have.status(409));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "List commissions",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{adminToken}}"
+                    }
+                  ]
+                },
+                "url": "{{baseUrl}}/admin/affiliate/commissions?page=1&limit=20"
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('200', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Fraud logs",
+          "item": [
+            {
+              "name": "Affiliate fraud logs (admin)",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{adminToken}}"
+                    }
+                  ]
+                },
+                "url": "{{baseUrl}}/admin/affiliate/fraud-logs?page=1&limit=20"
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('200', () => pm.response.to.have.status(200));",
+                      "pm.test('pagination', () => pm.expect(pm.response.json().pagination).to.have.property('total'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Fraud logs - page=abc tolerated",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{adminToken}}"
+                    }
+                  ]
+                },
+                "url": "{{baseUrl}}/admin/referral/fraud-logs?page=abc&limit=100000"
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('200 with clamped paging', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().pagination.limit).to.be.at.most(100); });"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Payouts",
+          "item": [
+            {
+              "name": "Request payout - not an affiliate (403)",
+              "request": {
+                "method": "POST",
+                "url": "{{baseUrl}}/affiliate/payouts/request",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('status 403', () => pm.response.to.have.status(403));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Request payout (affiliate token; needs approved commissions >= min)",
+              "request": {
+                "method": "POST",
+                "url": "{{baseUrl}}/affiliate/payouts/request",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{affiliateToken}}"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('status 201', () => pm.response.to.have.status(201));",
+                      "const d = pm.response.json().data; pm.environment.set('payoutId', d.id);",
+                      "pm.test('net = gross - tds', () => pm.expect(Number(d.net_amount)).to.be.closeTo(Number(d.gross_amount) - Number(d.tds_amount), 0.01));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Request payout again - nothing left (400/409)",
+              "request": {
+                "method": "POST",
+                "url": "{{baseUrl}}/affiliate/payouts/request",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{affiliateToken}}"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('status 409', () => pm.response.to.have.status(409));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Update payout - invalid status (400)",
+              "request": {
+                "method": "PUT",
+                "url": "{{baseUrl}}/admin/affiliate/payouts/{{payoutId}}",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{adminToken}}"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"status\": \"BOGUS\" }"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('status 400', () => pm.response.to.have.status(400));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Update payout - COMPLETED",
+              "request": {
+                "method": "PUT",
+                "url": "{{baseUrl}}/admin/affiliate/payouts/{{payoutId}}",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{adminToken}}"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"status\": \"COMPLETED\", \"transaction_id\": \"PM-TXN\" }"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('status 200', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Update payout - COMPLETED again (409)",
+              "request": {
+                "method": "PUT",
+                "url": "{{baseUrl}}/admin/affiliate/payouts/{{payoutId}}",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{adminToken}}"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"status\": \"COMPLETED\", \"transaction_id\": \"PM-TXN\" }"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('status 409', () => pm.response.to.have.status(409));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Update payout - FAILED after COMPLETED (409)",
+              "request": {
+                "method": "PUT",
+                "url": "{{baseUrl}}/admin/affiliate/payouts/{{payoutId}}",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{adminToken}}"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"status\": \"FAILED\", \"failure_reason\": \"x\" }"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('status 409', () => pm.response.to.have.status(409));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Campaigns (admin)",
+      "item": [
+        {
+          "name": "Create - invalid date (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/admin/campaigns",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"name\": \"PM_TEST\", \"channel\": \"AFFILIATE\", \"starts_at\": \"garbage\", \"ends_at\": \"2030-01-01\", \"scope_type\": \"STORE_WIDE\", \"reward_type\": \"PERCENTAGE\", \"reward_value\": 5 }"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create - percentage > 100 (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/admin/campaigns",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"name\": \"PM_TEST\", \"channel\": \"AFFILIATE\", \"starts_at\": \"2030-01-01\", \"ends_at\": \"2030-02-01\", \"scope_type\": \"STORE_WIDE\", \"reward_type\": \"PERCENTAGE\", \"reward_value\": 150 }"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create - as customer (403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/admin/campaigns",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create - valid",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/admin/campaigns",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"name\": \"PM_TEST\", \"channel\": \"AFFILIATE\", \"starts_at\": \"2030-01-01T00:00:00Z\", \"ends_at\": \"2030-02-01T00:00:00Z\", \"scope_type\": \"STORE_WIDE\", \"reward_type\": \"PERCENTAGE\", \"reward_value\": 7, \"usage_limit\": 5, \"is_active\": false }"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "pm.environment.set('campaignId', pm.response.json().data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get by id",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/admin/campaigns/{{campaignId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get - malformed id (400)",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/admin/campaigns/not-a-uuid"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Toggle",
+          "request": {
+            "method": "PUT",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/admin/campaigns/{{campaignId}}/toggle"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/admin/campaigns?page=1&limit=20"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete (cleanup)",
+          "request": {
+            "method": "DELETE",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/admin/campaigns/{{campaignId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin catalog (new endpoints)",
+      "item": [
+        {
+          "name": "Products summary - no token (401)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/admin/products/summary"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Products summary - admin",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/admin/products/summary"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('summary.total', () => pm.expect(pm.response.json().summary).to.have.property('total'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Products filter-options - admin",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/admin/products/filter-options"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Category stats",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/categories/stats"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('shape', () => { const j = pm.response.json(); pm.expect(j).to.have.property('stats'); pm.expect(j).to.have.property('summary'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Products list - no token (401)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/admin/products?limit=1"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Products list - admin",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/admin/products?limit=1",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Product create - empty body (400, no internals leaked)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/admin/products",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('no Prisma text', () => pm.expect(pm.response.text()).to.not.match(/prisma|invocation/i));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bulk price export - no token (401)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/admin/products/bulk-price-export"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bulk price update - no token (401)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/admin/products/bulk-price-update"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Security (negative cases)",
+      "item": [
+        {
+          "name": "JWT verification",
+          "item": [
+            {
+              "name": "Forged-signature ADMIN token -> 401",
+              "request": {
+                "method": "GET",
+                "url": "{{baseUrl}}/admin/campaigns",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{forgedToken}}"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('401', () => pm.response.to.have.status(401));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "No token -> 401",
+              "request": {
+                "method": "GET",
+                "url": "{{baseUrl}}/admin/campaigns"
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('401', () => pm.response.to.have.status(401));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Customer token on admin -> 403",
+              "request": {
+                "method": "GET",
+                "url": "{{baseUrl}}/admin/campaigns",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('403', () => pm.response.to.have.status(403));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Forged token on /affiliate/convert -> 401",
+              "request": {
+                "method": "POST",
+                "url": "{{baseUrl}}/affiliate/convert",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{forgedToken}}"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"order_id\": \"{{orderId}}\", \"affiliate_code\": \"{{affiliateCode}}\" }"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('401', () => pm.response.to.have.status(401));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Internal referral routes (admin only)",
+          "item": [
+            {
+              "name": "order-delivered, no token -> 401",
+              "request": {
+                "method": "POST",
+                "url": "{{baseUrl}}/internal/referral/order-delivered",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"order_id\": \"{{orderId}}\" }"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('401', () => pm.response.to.have.status(401));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "order-delivered, customer -> 403",
+              "request": {
+                "method": "POST",
+                "url": "{{baseUrl}}/internal/referral/order-delivered",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"order_id\": \"{{orderId}}\" }"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('403', () => pm.response.to.have.status(403));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "process-expired-rewards, forged -> 401",
+              "request": {
+                "method": "POST",
+                "url": "{{baseUrl}}/internal/referral/process-expired-rewards",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{forgedToken}}"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('401', () => pm.response.to.have.status(401));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Admin product mutations",
+          "item": [
+            {
+              "name": "POST product, no token -> 401",
+              "request": {
+                "method": "POST",
+                "url": "{{baseUrl}}/admin/products",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('401', () => pm.response.to.have.status(401));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "PUT product, customer -> 403",
+              "request": {
+                "method": "PUT",
+                "url": "{{baseUrl}}/admin/products/{{productId}}",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('403', () => pm.response.to.have.status(403));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "DELETE product, no token -> 401",
+              "request": {
+                "method": "DELETE",
+                "url": "{{baseUrl}}/admin/products/{{productId}}"
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('401', () => pm.response.to.have.status(401));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Referral (wallet, withdrawals, admin)",
+      "item": [
+        {
+          "name": "Apply code - missing (400)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/referral/apply-code",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Spend negative (400)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/referral/wallet/spend",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"amount\": -50, \"order_id\": \"{{orderId}}\" }"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Spend NaN (400)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/referral/wallet/spend",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"amount\": \"abc\", \"order_id\": \"{{orderId}}\" }"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Withdraw negative (400)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/referral/withdraw",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"amount\": -500, \"payment_method\": \"UPI\", \"upi_id\": \"a@b\" }"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Withdraw NaN (400)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/referral/withdraw",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"amount\": \"abc\", \"payment_method\": \"UPI\", \"upi_id\": \"a@b\" }"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Manual credit negative (400)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/admin/referral/rewards/credit",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"user_id\": \"{{userId}}\", \"amount\": -5, \"reason\": \"pm\" }"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Manual credit unknown user (404)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/admin/referral/rewards/credit",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"user_id\": \"00000000-0000-4000-8000-000000000000\", \"amount\": 10, \"reason\": \"pm\" }"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Approve withdrawal - malformed id (400)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/admin/referral/withdrawals/not-a-uuid/approve",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reject withdrawal - unknown (404)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/admin/referral/withdrawals/00000000-0000-4000-8000-000000000000/reject",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"reason\": \"pm\" }"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

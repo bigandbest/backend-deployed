@@ -18,6 +18,7 @@ import chargeSettingDao from "../dao/charge-setting.dao.js";
 import prisma from "../config/prisma.js";
 import { createSubOrders, dispatchSellerAllocation } from "../services/subOrderService.js";
 import { buildAddressString } from '../utils/geocode.js';
+import { onOrderCreated } from "../services/orderLifecycleHooks.js";
 import walletDao from "../dao/wallet.dao.js";
 import { findWarehouseForProducts, resolveSubOrderItems } from "../services/allocationEngine.js";
 import { reserveStock, confirmReservation, releaseReservation } from '../services/stockReservationService.js';
@@ -967,6 +968,9 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
       return { order: newOrder, createdSubOrders: subOrders };
     });
     // ─────────────────────────────────────────────────────────────────────────
+
+    // Growth-program attribution, dispatched after commit like the other deferred side effects below.
+    await onOrderCreated(order);
 
     // Respond immediately — geocoding and fulfillment routing are queued below
     const response = res.status(201).json({

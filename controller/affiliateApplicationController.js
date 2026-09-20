@@ -7,6 +7,12 @@ export const applyForAffiliate = async (req, res) => {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ success: false, error: "Auth required" });
 
+    // Q5/Q7: program_enabled is a hard override on new_applications_enabled.
+    const config = await affiliateDAO.getConfig();
+    if (!config.is_enabled || !config.new_applications_enabled) {
+      return res.status(400).json({ success: false, error: "New affiliate applications are temporarily paused" });
+    }
+
     // Check existing application
     const existing = await affiliateDAO.getApplicationByUserId(userId);
     if (existing && ["PENDING", "UNDER_REVIEW", "APPROVED"].includes(existing.status)) {
@@ -29,8 +35,6 @@ export const applyForAffiliate = async (req, res) => {
     if (!full_name || !phone || !primary_platform || !promotion_strategy) {
       return res.status(400).json({ success: false, error: "Missing required fields" });
     }
-
-    const config = await affiliateDAO.getConfig();
 
     const application = await affiliateDAO.createApplication({
       user_id: userId,
@@ -93,7 +97,8 @@ export const getApplicationStatus = async (req, res) => {
       return res.json({ success: true, data: null });
     }
     if (!application) {
-      return res.json({ success: true, data: null });
+      const config = await affiliateDAO.getConfig();
+      return res.json({ success: true, data: null, new_applications_enabled: config.is_enabled !== false && config.new_applications_enabled !== false });
     }
 
     // If approved, also get profile info

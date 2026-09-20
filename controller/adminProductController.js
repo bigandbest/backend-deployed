@@ -16,6 +16,20 @@ const invalidateProductCache = async (productId) => {
 };
 
 // Create new product
+// Maps predictable Prisma failures to client errors and never echoes internal error text
+// (Prisma messages contain query/schema details). The full error is logged server-side by the caller.
+const sendProductError = (res, err, fallback) => {
+  const byCode = {
+    P2002: [409, "A product with these unique values already exists"],
+    P2025: [404, "Product or related record not found"],
+    P2003: [400, "A referenced record (category, brand, store, ...) does not exist"],
+    P2023: [400, "Malformed id in request"],
+  };
+  if (byCode[err?.code]) return res.status(byCode[err.code][0]).json({ success: false, error: byCode[err.code][1] });
+  if (err?.name === "PrismaClientValidationError") return res.status(400).json({ success: false, error: "Invalid product data" });
+  return res.status(500).json({ success: false, error: fallback });
+};
+
 export const createProduct = async (req, res) => {
   try {
     const {
@@ -48,9 +62,8 @@ export const createProduct = async (req, res) => {
 
     console.log("Creating product:", name);
 
-    // Basic validation
-    if (!name || !priceInfoCheck(req.body)) {
-      // Helper to check price if needed, but for now just name
+    if (typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({ success: false, error: "Product name is required" });
     }
 
     // Construct Product Data
@@ -281,10 +294,7 @@ export const createProduct = async (req, res) => {
     });
   } catch (err) {
     console.error("Error creating product:", err);
-    res.status(500).json({
-      success: false,
-      error: err.message || "An unexpected error occurred.",
-    });
+    return sendProductError(res, err, "Failed to create product");
   }
 };
 
@@ -293,71 +303,102 @@ function priceInfoCheck(body) {
   return true;
 }
 
+// "Available" stock = stock_qty - reserved_qty across every warehouse row of the product's variants.
+const LOW_STOCK_THRESHOLD = 10;
+
+// Product ids matching a stock status. Prisma can't compare two columns, so this is raw SQL.
+async function productIdsByStock(status) {
+  if (status === "low_stock") {
+    const rows = await prisma.$queryRaw`
+      SELECT v.product_id AS id
+      FROM product_variants v JOIN inventory i ON i.variant_id = v.id
+      GROUP BY v.product_id
+      HAVING SUM(GREATEST(i.stock_qty - i.reserved_qty, 0)) BETWEEN 1 AND ${LOW_STOCK_THRESHOLD}`;
+    return { ids: rows.map((r) => r.id), negate: false };
+  }
+  const rows = await prisma.$queryRaw`
+    SELECT DISTINCT v.product_id AS id
+    FROM product_variants v JOIN inventory i ON i.variant_id = v.id
+    WHERE i.stock_qty > i.reserved_qty`;
+  return { ids: rows.map((r) => r.id), negate: status === "out_of_stock" };
+}
+
+const ADMIN_SORTS = { created_at: "created_at", updated_at: "updated_at", name: "name", rating: "rating" };
+
 // Get all products for admin with full details
 export const getAllProductsForAdmin = async (req, res) => {
   try {
-    // Extract pagination and filter params
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
-    const categoryId = req.query.category_id;
-    const search = req.query.search;
-    const active = req.query.active;
-    const source_type = req.query.source_type;
-    const warehouse_id = req.query.warehouse_id ? parseInt(req.query.warehouse_id) : null;
+    const q = req.query;
+    const page = Math.max(parseInt(q.page) || 1, 1);
+    const limit = Math.min(parseInt(q.limit) || 50, 100);
+    const warehouse_id = q.warehouse_id ? parseInt(q.warehouse_id) : null;
 
-    // Build filters
+    // Every filter is applied here, on the server, so pagination and totals stay correct.
     const filters = {};
-    if (categoryId) filters.category_id = categoryId;
-    if (active !== undefined) filters.active = active === "true";
-    if (source_type) filters.source_type = source_type;
+    if (q.category_id) filters.category_id = q.category_id;
+    if (q.subcategory_id) filters.subcategory_id = q.subcategory_id;
+    if (q.group_id) filters.group_id = q.group_id;
+    if (q.vertical) filters.vertical = q.vertical;
+    if (q.active !== undefined && q.active !== "") filters.active = q.active === "true";
+    if (q.source_type) filters.source_type = q.source_type;
+    if (q.return_applicable !== undefined && q.return_applicable !== "") filters.return_applicable = q.return_applicable === "true";
+    if (q.brand_id) filters.brands = { some: { brand_id: q.brand_id } };
+    if (q.store_id) filters.product_recommended_store = { some: { recommended_store_id: q.store_id } };
+    if (warehouse_id) filters.product_warehouse_stock = { some: { warehouse_id, is_active: true } };
+    if (q.has_image === "false") filters.media = { none: {} };
 
-    // Filter by warehouse assignment via product_warehouse_stock
-    if (warehouse_id) {
-      filters.product_warehouse_stock = { some: { warehouse_id, is_active: true } };
-    }
-
-    // Add search filter if provided
-    if (search) {
+    if (q.search) {
+      const term = String(q.search).trim();
       filters.OR = [
-        { name: { contains: search, mode: "insensitive" } },
-        { description: { contains: search, mode: "insensitive" } },
+        { name: { contains: term, mode: "insensitive" } },
+        { description: { contains: term, mode: "insensitive" } },
+        { variants: { some: { sku: { contains: term, mode: "insensitive" } } } },
       ];
     }
 
-    // Use Prisma through ProductDAO with pagination
-    const products = await ProductDAO.listProducts(
-      { ...filters, includeAllVariants: true },
-      { limit: Math.min(limit, 100), page },
-    );
+    if (["in_stock", "out_of_stock", "low_stock"].includes(q.stock)) {
+      const { ids, negate } = await productIdsByStock(q.stock);
+      filters.id = negate ? { notIn: ids } : { in: ids };
+    }
+
+    const sortField = ADMIN_SORTS[q.sort_by] || "created_at";
+    const sortDir = q.sort_dir === "asc" ? "asc" : "desc";
+    // Secondary key keeps paging stable when many rows share a value.
+    const orderBy = sortField === "created_at" ? [{ created_at: sortDir }, { id: "asc" }] : [{ [sortField]: sortDir }, { id: "asc" }];
+
+    const products = await ProductDAO.listProducts({ ...filters, includeAllVariants: true }, { limit, page, orderBy });
 
     // Flatten the response for frontend convenience (Brand & Store)
     const flattenedProducts = (products.items || []).map((p) => {
-      const brandObj =
-        p.brands && p.brands.length > 0 ? p.brands[0].brand : null;
+      const brandObj = p.brands && p.brands.length > 0 ? p.brands[0].brand : null;
       const storeObj =
         p.product_recommended_store && p.product_recommended_store.length > 0
           ? p.product_recommended_store[0].recommended_store
           : null;
 
+      const { _count, ...rest } = p;
       return {
-        ...p,
+        ...rest,
+        media_count: _count?.media ?? 0,
         brand_id: brandObj?.id || null,
         brand_name: brandObj?.name || null,
-        // Include all variant info for admin panel
         variants:
           p.variants?.map((v) => ({
             id: v.id,
             sku: v.sku,
+            title: v.title,
+            packaging_details: v.packaging_details,
             price: v.price,
             old_price: v.old_price,
             discount_percentage: v.discount_percentage,
-            stock_qty: v.stock_qty,
             is_default: v.is_default,
             active: v.active,
             shipping_amount: v.shipping_amount,
             bulk_tiers: v.bulk_pricing_tiers ?? [],
+            inventory: v.inventory ?? [],
+            // Sellable units across warehouses, so the client never has to re-derive it.
+            available_qty: (v.inventory ?? []).reduce((sum, i) => sum + Math.max((i.stock_qty || 0) - (i.reserved_qty || 0), 0), 0),
           })) || [],
-        // Include store info from recommended_store join table
         store_id: storeObj?.id || null,
         store_name: storeObj?.name || null,
       };
@@ -377,6 +418,49 @@ export const getAllProductsForAdmin = async (req, res) => {
       success: false,
       error: "An unexpected error occurred. Please try again.",
     });
+  }
+};
+
+// GET /api/admin/products/summary — headline counts for the Products page metric cards.
+export const getProductSummaryForAdmin = async (_req, res) => {
+  try {
+    const [row] = await prisma.$queryRaw`
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE p.active IS NOT FALSE)::int AS active,
+        COUNT(*) FILTER (WHERE p.active = false)::int AS inactive,
+        COUNT(*) FILTER (WHERE NOT EXISTS (
+          SELECT 1 FROM product_variants v JOIN inventory i ON i.variant_id = v.id
+          WHERE v.product_id = p.id AND i.stock_qty > i.reserved_qty))::int AS out_of_stock,
+        COUNT(*) FILTER (WHERE (
+          SELECT COALESCE(SUM(GREATEST(i.stock_qty - i.reserved_qty, 0)), 0)
+          FROM product_variants v JOIN inventory i ON i.variant_id = v.id
+          WHERE v.product_id = p.id) BETWEEN 1 AND ${LOW_STOCK_THRESHOLD})::int AS low_stock,
+        COUNT(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM product_media m WHERE m.product_id = p.id))::int AS missing_image
+      FROM products p`;
+    res.json({ success: true, summary: { ...row, low_stock_threshold: LOW_STOCK_THRESHOLD } });
+  } catch (err) {
+    console.error("Error fetching product summary:", err);
+    res.status(500).json({ success: false, error: "An unexpected error occurred." });
+  }
+};
+
+// GET /api/admin/products/filter-options — brands, stores and verticals for the filter controls.
+export const getProductFilterOptions = async (_req, res) => {
+  try {
+    const [brands, stores] = await Promise.all([
+      prisma.brand.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+      prisma.recommended_store.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    ]);
+    res.json({
+      success: true,
+      brands,
+      stores: stores.filter((s) => s.name),
+      verticals: ["qwik", "eato", "bazar", "star"],
+    });
+  } catch (err) {
+    console.error("Error fetching product filter options:", err);
+    res.status(500).json({ success: false, error: "An unexpected error occurred." });
   }
 };
 
@@ -493,10 +577,7 @@ export const updateProductWarehouseMapping = async (req, res) => {
     });
   } catch (err) {
     console.error("Error updating warehouse mapping:", err);
-    res.status(500).json({
-      success: false,
-      error: err.message || "An unexpected error occurred. Please try again.",
-    });
+    return sendProductError(res, err, "Failed to update warehouse mapping");
   }
 };
 
@@ -1024,9 +1105,6 @@ export const updateProduct = async (req, res) => {
     });
   } catch (err) {
     console.error("Error updating product:", err);
-    res.status(500).json({
-      success: false,
-      error: err.message || "An unexpected error occurred. Please try again.",
-    });
+    return sendProductError(res, err, "Failed to update product");
   }
 };

@@ -1033,3 +1033,56 @@ export const getCategoriesForSection = async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
+
+// GET /api/categories/stats — product / child counts for every category, subcategory and group in
+// one round trip (the admin Categories page used to fire one request per category), plus the
+// headline numbers for its metric cards.
+export const getCategoryStats = async (_req, res) => {
+  try {
+    const [byCategory, bySubcategory, byGroup, subsPerCategory, groupsPerSub, categories, subcategories, groups, uncategorised] =
+      await Promise.all([
+        prisma.products.groupBy({ by: ["category_id"], _count: { _all: true } }),
+        prisma.products.groupBy({ by: ["subcategory_id"], _count: { _all: true } }),
+        prisma.products.groupBy({ by: ["group_id"], _count: { _all: true } }),
+        prisma.subcategories.groupBy({ by: ["category_id"], _count: { _all: true } }),
+        prisma.groups.groupBy({ by: ["subcategory_id"], _count: { _all: true } }),
+        prisma.categories.findMany({ select: { id: true, active: true, featured: true } }),
+        prisma.subcategories.count(),
+        prisma.groups.count(),
+        prisma.products.count({ where: { category_id: null } }),
+      ]);
+
+    const toMap = (rows, key) => Object.fromEntries(rows.filter((r) => r[key]).map((r) => [r[key], r._count._all]));
+    const products = toMap(byCategory, "category_id");
+    const subCounts = toMap(subsPerCategory, "category_id");
+
+    const stats = {
+      categories: Object.fromEntries(
+        categories.map((c) => [c.id, { products: products[c.id] || 0, subcategories: subCounts[c.id] || 0 }]),
+      ),
+      subcategories: Object.fromEntries(
+        Object.entries(toMap(bySubcategory, "subcategory_id")).map(([id, n]) => [id, { products: n }]),
+      ),
+      groups: Object.fromEntries(Object.entries(toMap(byGroup, "group_id")).map(([id, n]) => [id, { products: n }])),
+      groupsPerSubcategory: toMap(groupsPerSub, "subcategory_id"),
+    };
+
+    res.json({
+      success: true,
+      stats,
+      summary: {
+        categories: categories.length,
+        active_categories: categories.filter((c) => c.active !== false).length,
+        featured_categories: categories.filter((c) => c.featured).length,
+        subcategories,
+        groups,
+        empty_categories: categories.filter((c) => !products[c.id]).length,
+        uncategorised_products: uncategorised,
+      },
+    });
+  } catch (error) {
+    console.error("Error in getCategoryStats:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};

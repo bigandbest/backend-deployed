@@ -39,7 +39,8 @@ router.get("/application-status", authenticateToken, getApplicationStatus);
 
 // Internal – called by order placement flow
 router.post("/record-click", authenticateTokenOptional, recordRefClick);
-router.post("/convert", convertOrder); // called internally, no user auth needed
+// Requires auth: convertOrder verifies the caller owns order_id before attributing it.
+router.post("/convert", authenticateToken, convertOrder);
 
 // ─── AFFILIATE DASHBOARD (approved affiliates only) ──────────────────────
 router.get("/profile", authenticateToken, getAffiliateProfile);

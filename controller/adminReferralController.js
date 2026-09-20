@@ -63,29 +63,45 @@ export const getAnalytics = async (req, res) => {
     const days = parseInt(period);
     const since = new Date(Date.now() - days * 24 * 3600000);
 
-    const [statusBreakdown, dailySignups, topReferrers] = await Promise.all([
+    const [statusBreakdown, dailySignups, topReferrers, tierDistribution] = await Promise.all([
       prisma.referral_transactions.groupBy({
         by: ["status"],
         _count: { id: true },
         where: { created_at: { gte: since } },
       }),
-      prisma.referral_transactions.groupBy({
-        by: ["created_at"],
-        _count: { id: true },
-        where: { created_at: { gte: since } },
-        orderBy: { created_at: "asc" },
-      }),
+      // Real calendar-day bucketing in Asia/Kolkata (the app's business timezone — matches the
+      // en-IN date formatting already used across the admin panel), aggregated in Postgres rather
+      // than fetching raw rows. The previous groupBy(by:["created_at"]) grouped by exact
+      // millisecond, not by day — fetched by the frontend but never actually rendered, so the
+      // bug was silent until this phase built a real chart against it.
+      prisma.$queryRaw`
+        SELECT (created_at AT TIME ZONE 'Asia/Kolkata')::date AS day, COUNT(*)::int AS count
+        FROM referral_transactions
+        WHERE created_at >= ${since}
+        GROUP BY day
+        ORDER BY day ASC
+      `,
       prisma.user_referral_profiles.findMany({
         where: { successful_referrals: { gt: 0 } },
         orderBy: { successful_referrals: "desc" },
         take: 10,
         select: { user_id: true, referral_code: true, successful_referrals: true, total_earnings: true },
       }),
+      // Membership tier distribution (Analytics Q2) — how many users sit at each achieved tier.
+      prisma.user_referral_profiles.groupBy({
+        by: ["current_tier"],
+        _count: { id: true },
+      }),
     ]);
 
     res.json({
       success: true,
-      analytics: { status_breakdown: statusBreakdown, daily_signups: dailySignups, top_referrers: topReferrers },
+      analytics: {
+        status_breakdown: statusBreakdown,
+        daily_signups: dailySignups,
+        top_referrers: topReferrers,
+        tier_distribution: tierDistribution.map((t) => ({ tier: t.current_tier || "No tier", count: t._count.id })),
+      },
     });
   } catch (error) {
     console.error("Error in getAnalytics:", error);
@@ -137,11 +153,12 @@ export const updateConfig = async (req, res) => {
 
 export const listUsers = async (req, res) => {
   try {
-    const { page = 1, limit = 20, search, status, sort = "created_at" } = req.query;
+    const { page = 1, limit = 20, search, status, tier, sort = "created_at" } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
     const where = {};
     if (status) where.status = status;
+    if (tier) where.current_tier = tier; // Q3 (Marketing Control Center): membership tier filter
     if (search) {
       where.OR = [
         { referral_code: { contains: search, mode: "insensitive" } },
@@ -390,21 +407,33 @@ export const manualCreditReward = async (req, res) => {
     if (!user_id || !amount || !reason) {
       return res.status(400).json({ success: false, error: "user_id, amount, and reason are required" });
     }
+    const creditAmount = Number(amount);
+    if (!Number.isFinite(creditAmount) || creditAmount <= 0 || creditAmount > 1_000_000) {
+      return res.status(400).json({ success: false, error: "amount must be a positive number up to 1,000,000" });
+    }
+    const validity = Number.isFinite(Number(validity_days)) ? Math.trunc(Number(validity_days)) : NaN;
+    if (!validity || validity < 1 || validity > 3650) {
+      return res.status(400).json({ success: false, error: "validity_days must be between 1 and 3650" });
+    }
+    if (!UUID_RE.test(String(user_id))) return res.status(400).json({ success: false, error: "Invalid user_id" });
+    if (!(await prisma.users.findUnique({ where: { id: user_id }, select: { id: true } }))) {
+      return res.status(404).json({ success: false, error: "User not found" });
+    }
 
     const config = await referralService.getConfig();
     const profile = await referralService.getOrCreateReferralProfile(user_id, "User");
 
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + parseInt(validity_days));
+    expiresAt.setDate(expiresAt.getDate() + validity);
 
     const reward = await prisma.$transaction(async (tx) => {
       const r = await tx.referral_rewards.create({
         data: {
           user_id,
           user_profile_id: profile.id,
-          amount: parseFloat(amount),
-          original_amount: parseFloat(amount),
-          remaining_amount: parseFloat(amount),
+          amount: creditAmount,
+          original_amount: creditAmount,
+          remaining_amount: creditAmount,
           reward_type: "ADMIN_CREDIT",
           source_type: "ADMIN_CREDIT",
           source_description: reason,
@@ -416,8 +445,8 @@ export const manualCreditReward = async (req, res) => {
       await tx.user_referral_profiles.update({
         where: { id: profile.id },
         data: {
-          available_balance: { increment: parseFloat(amount) },
-          total_earnings: { increment: parseFloat(amount) },
+          available_balance: { increment: creditAmount },
+          total_earnings: { increment: creditAmount },
         },
       });
 
@@ -428,8 +457,7 @@ export const manualCreditReward = async (req, res) => {
       "REWARD_CREDITED_MANUALLY", `Manually credited ₹${amount}: ${reason}`, "reward", reward.id, null, { amount, reason }, req.ip);
 
     await referralService.createNotification(user_id, "ADMIN_CREDIT_RECEIVED",
-      "Reward Credited!",
-      `₹${amount} has been credited to your referral wallet. Valid for ${validity_days} days.`,
+      { amount, validity_days },
       { reward_id: reward.id });
 
     res.json({ success: true, message: "Reward credited", reward });
@@ -553,26 +581,29 @@ export const listWithdrawals = async (req, res) => {
   }
 };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// referral_withdrawals has no admin_notes / processed_by / rejected_by / transaction_id columns (DB or model), so the
+// admin metadata is kept in the append-only status_history JSON; rejection_reason and processed_at are real columns.
+// Every transition is an atomic status-guarded updateMany inside a transaction: a repeated or concurrent call
+// matches 0 rows -> 409, and can never credit/debit a balance twice.
+const historyEntry = (withdrawal, entry) => [...(Array.isArray(withdrawal.status_history) ? withdrawal.status_history : []), { ...entry, timestamp: new Date() }];
+
 export const approveWithdrawal = async (req, res) => {
   try {
     const { user } = req;
     const { id } = req.params;
     const { notes } = req.body;
+    if (!UUID_RE.test(id)) return res.status(400).json({ success: false, error: "Invalid id" });
 
     const withdrawal = await prisma.referral_withdrawals.findUnique({ where: { id } });
     if (!withdrawal) return res.status(404).json({ success: false, error: "Withdrawal not found" });
-    if (withdrawal.status !== "PENDING") return res.status(400).json({ success: false, error: "Can only approve PENDING withdrawals" });
 
-    const history = Array.isArray(withdrawal.status_history) ? withdrawal.status_history : [];
-    await prisma.referral_withdrawals.update({
-      where: { id },
-      data: {
-        status: "APPROVED",
-        admin_notes: notes,
-        processed_by: user.id,
-        status_history: [...history, { status: "APPROVED", timestamp: new Date(), by: user.id }],
-      },
+    const guard = await prisma.referral_withdrawals.updateMany({
+      where: { id, status: "PENDING" },
+      data: { status: "APPROVED", status_history: historyEntry(withdrawal, { status: "APPROVED", by: user.id, notes: notes || null }) },
     });
+    if (guard.count === 0) return res.status(409).json({ success: false, error: "Can only approve PENDING withdrawals" });
 
     await referralService.logAdminAction(user.id, user.email, user.name,
       "WITHDRAWAL_APPROVED", `Approved withdrawal of ₹${withdrawal.requested_amount}`, "withdrawal", id, { status: "PENDING" }, { status: "APPROVED" }, req.ip);
@@ -589,39 +620,39 @@ export const rejectWithdrawal = async (req, res) => {
     const { user } = req;
     const { id } = req.params;
     const { reason } = req.body;
-
+    if (!UUID_RE.test(id)) return res.status(400).json({ success: false, error: "Invalid id" });
     if (!reason) return res.status(400).json({ success: false, error: "reason is required" });
 
     const withdrawal = await prisma.referral_withdrawals.findUnique({ where: { id } });
     if (!withdrawal) return res.status(404).json({ success: false, error: "Withdrawal not found" });
 
-    await prisma.$transaction(async (tx) => {
-      const history = Array.isArray(withdrawal.status_history) ? withdrawal.status_history : [];
-      await tx.referral_withdrawals.update({
-        where: { id },
+    // Only PENDING/APPROVED can be rejected; the balance is re-credited exactly once, in the same transaction.
+    const rejected = await prisma.$transaction(async (tx) => {
+      const guard = await tx.referral_withdrawals.updateMany({
+        where: { id, status: { in: ["PENDING", "APPROVED"] } },
         data: {
           status: "REJECTED",
           rejection_reason: reason,
-          rejected_by: user.id,
-          rejected_at: new Date(),
-          status_history: [...history, { status: "REJECTED", timestamp: new Date(), reason }],
+          processed_at: new Date(),
+          status_history: historyEntry(withdrawal, { status: "REJECTED", by: user.id, reason }),
         },
       });
+      if (guard.count === 0) return false;
 
-      // Re-credit balance to user
       await tx.user_referral_profiles.update({
         where: { user_id: withdrawal.user_id },
         data: { available_balance: { increment: parseFloat(withdrawal.requested_amount) } },
       });
+      return true;
     });
+    if (!rejected) return res.status(409).json({ success: false, error: "Only PENDING or APPROVED withdrawals can be rejected" });
 
     await referralService.createNotification(withdrawal.user_id, "WITHDRAWAL_REJECTED",
-      "Withdrawal Rejected",
-      `Your withdrawal request of ₹${withdrawal.requested_amount} was rejected. Reason: ${reason}`,
+      { amount: withdrawal.requested_amount, reason },
       { withdrawal_id: id });
 
     await referralService.logAdminAction(user.id, user.email, user.name,
-      "WITHDRAWAL_REJECTED", `Rejected withdrawal: ${reason}`, "withdrawal", id, { status: "PENDING" }, { status: "REJECTED" }, req.ip);
+      "WITHDRAWAL_REJECTED", `Rejected withdrawal: ${reason}`, "withdrawal", id, { status: withdrawal.status }, { status: "REJECTED" }, req.ip);
 
     res.json({ success: true, message: "Withdrawal rejected and balance restored" });
   } catch (error) {
@@ -635,37 +666,38 @@ export const processWithdrawal = async (req, res) => {
     const { user } = req;
     const { id } = req.params;
     const { transaction_id, payment_gateway_ref, processed_amount } = req.body;
+    if (!UUID_RE.test(id)) return res.status(400).json({ success: false, error: "Invalid id" });
 
     const withdrawal = await prisma.referral_withdrawals.findUnique({ where: { id } });
     if (!withdrawal) return res.status(404).json({ success: false, error: "Withdrawal not found" });
-    if (!["APPROVED", "PROCESSING"].includes(withdrawal.status)) {
-      return res.status(400).json({ success: false, error: "Withdrawal must be APPROVED before processing" });
+
+    const paid = processed_amount !== undefined && processed_amount !== null && processed_amount !== "" ? Number(processed_amount) : Number(withdrawal.requested_amount);
+    if (!Number.isFinite(paid) || paid <= 0 || paid > Number(withdrawal.requested_amount)) {
+      return res.status(400).json({ success: false, error: "processed_amount must be a positive number not above the requested amount" });
     }
 
-    const history = Array.isArray(withdrawal.status_history) ? withdrawal.status_history : [];
-    await prisma.$transaction(async (tx) => {
-      await tx.referral_withdrawals.update({
-        where: { id },
+    const completed = await prisma.$transaction(async (tx) => {
+      const guard = await tx.referral_withdrawals.updateMany({
+        where: { id, status: { in: ["APPROVED", "PROCESSING"] } },
         data: {
           status: "COMPLETED",
-          processed_amount: processed_amount || withdrawal.requested_amount,
+          processed_amount: paid,
           processed_at: new Date(),
-          processed_by: user.id,
-          transaction_id,
-          payment_gateway_ref,
-          status_history: [...history, { status: "COMPLETED", timestamp: new Date() }],
+          status_history: historyEntry(withdrawal, { status: "COMPLETED", by: user.id, transaction_id: transaction_id || null, payment_gateway_ref: payment_gateway_ref || null }),
         },
       });
+      if (guard.count === 0) return false;
 
       await tx.user_referral_profiles.update({
         where: { user_id: withdrawal.user_id },
         data: { withdrawn_amount: { increment: parseFloat(withdrawal.requested_amount) } },
       });
+      return true;
     });
+    if (!completed) return res.status(409).json({ success: false, error: "Withdrawal must be APPROVED before processing" });
 
     await referralService.createNotification(withdrawal.user_id, "WITHDRAWAL_COMPLETED",
-      "Withdrawal Successful",
-      `₹${withdrawal.requested_amount} has been transferred to your account.`,
+      { amount: withdrawal.requested_amount },
       { withdrawal_id: id });
 
     await referralService.logAdminAction(user.id, user.email, user.name,
@@ -682,25 +714,15 @@ export const processWithdrawal = async (req, res) => {
 // FRAUD LOGS
 // ============================================================================
 
+// Q2 (Marketing Control Center): fraud logs are now shared with affiliate — this admin page
+// is specifically the Referral section, so it stays scoped to REFERRAL only.
 export const listFraudLogs = async (req, res) => {
   try {
-    const { page = 1, limit = 20, status, severity } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const where = {};
-    if (status) where.status = status;
-    if (severity) where.severity = severity;
-
-    const [logs, total] = await Promise.all([
-      prisma.referral_fraud_logs.findMany({ where, orderBy: { created_at: "desc" }, skip: offset, take: parseInt(limit) }),
-      prisma.referral_fraud_logs.count({ where }),
-    ]);
-
-    res.json({
-      success: true,
-      logs,
-      pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) },
-    });
+    const { page = 1, limit = 20, status, severity, program } = req.query;
+    // Default stays REFERRAL; the unified Fraud & Risk page passes program=ALL or AFFILIATE.
+    const scope = program === "ALL" ? null : ["REFERRAL", "AFFILIATE"].includes(program) ? program : "REFERRAL";
+    const result = await referralService.listFraudLogsByProgram(scope, { page, limit, status, severity });
+    res.json({ success: true, ...result });
   } catch (error) {
     console.error("Error in listFraudLogs:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
@@ -713,18 +735,7 @@ export const reviewFraudLog = async (req, res) => {
     const { id } = req.params;
     const { status, notes, action } = req.body;
 
-    await prisma.referral_fraud_logs.update({
-      where: { id },
-      data: {
-        status,
-        reviewed_by: user.id,
-        reviewed_at: new Date(),
-        review_notes: notes,
-        action_taken: action,
-        action_taken_by: user.id,
-        action_taken_at: new Date(),
-      },
-    });
+    await referralService.reviewFraudLogEntry(id, { status, notes, action, reviewerId: user.id });
 
     res.json({ success: true, message: "Fraud log reviewed" });
   } catch (error) {
@@ -737,13 +748,44 @@ export const reviewFraudLog = async (req, res) => {
 // ACTIVITY LOGS
 // ============================================================================
 
+// Module -> action prefix. Referral actions have no shared prefix, so "Referral" is everything
+// that is not one of the other modules.
+const ACTIVITY_MODULE_PREFIX = { Affiliate: "AFFILIATE_", Campaign: "CAMPAIGN_", Notifications: "NOTIFICATION_", Membership: "MEMBERSHIP_" };
+
 export const listActivityLogs = async (req, res) => {
   try {
-    const { page = 1, limit = 20, action } = req.query;
+    const { page = 1, limit = 20, action, module, search, from, to } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
     const where = {};
     if (action) where.action = action;
+
+    if (module && ACTIVITY_MODULE_PREFIX[module]) {
+      where.action = { ...(action ? { equals: action } : {}), startsWith: ACTIVITY_MODULE_PREFIX[module] };
+    } else if (module === "Referral") {
+      where.AND = Object.values(ACTIVITY_MODULE_PREFIX).map((prefix) => ({ NOT: { action: { startsWith: prefix } } }));
+    }
+
+    if (search && String(search).trim()) {
+      const q = String(search).trim();
+      where.OR = [
+        { admin_name: { contains: q, mode: "insensitive" } },
+        { admin_email: { contains: q, mode: "insensitive" } },
+        { action_description: { contains: q, mode: "insensitive" } },
+      ];
+    }
+
+    const fromDate = from ? new Date(from) : null;
+    const toDate = to ? new Date(to) : null;
+    if ((fromDate && !isNaN(fromDate)) || (toDate && !isNaN(toDate))) {
+      where.created_at = {};
+      if (fromDate && !isNaN(fromDate)) where.created_at.gte = fromDate;
+      if (toDate && !isNaN(toDate)) {
+        // A bare date (YYYY-MM-DD) means "through the end of that day".
+        if (/^\d{4}-\d{2}-\d{2}$/.test(String(to))) toDate.setUTCHours(23, 59, 59, 999);
+        where.created_at.lte = toDate;
+      }
+    }
 
     const [logs, total] = await Promise.all([
       prisma.referral_admin_logs.findMany({ where, orderBy: { created_at: "desc" }, skip: offset, take: parseInt(limit) }),
@@ -790,68 +832,5 @@ export const exportReport = async (req, res) => {
   }
 };
 
-// ============================================================================
-// CAMPAIGNS
-// ============================================================================
-
-export const listCampaigns = async (req, res) => {
-  try {
-    const { page = 1, limit = 20, active } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const where = {};
-    if (active !== undefined) where.is_active = active === "true";
-
-    const [campaigns, total] = await Promise.all([
-      prisma.referral_campaigns.findMany({ where, orderBy: { created_at: "desc" }, skip: offset, take: parseInt(limit) }),
-      prisma.referral_campaigns.count({ where }),
-    ]);
-
-    res.json({
-      success: true,
-      campaigns,
-      pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) },
-    });
-  } catch (error) {
-    console.error("Error in listCampaigns:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-};
-
-export const createCampaign = async (req, res) => {
-  try {
-    const { user } = req;
-    const campaign = await prisma.referral_campaigns.create({
-      data: { ...req.body, created_by: user.id },
-    });
-    res.status(201).json({ success: true, campaign });
-  } catch (error) {
-    console.error("Error in createCampaign:", error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
-
-export const updateCampaign = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const data = { ...req.body, updated_at: new Date() };
-    delete data.id;
-
-    const campaign = await prisma.referral_campaigns.update({ where: { id }, data });
-    res.json({ success: true, campaign });
-  } catch (error) {
-    console.error("Error in updateCampaign:", error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
-
-export const deleteCampaign = async (req, res) => {
-  try {
-    const { id } = req.params;
-    await prisma.referral_campaigns.update({ where: { id }, data: { is_active: false } }); // Soft delete
-    res.json({ success: true, message: "Campaign deactivated" });
-  } catch (error) {
-    console.error("Error in deleteCampaign:", error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
+// Campaign CRUD moved to controller/campaignAdminController.js (unified campaigns/campaign_rules
+// engine, Phase 5) — the old referral_campaigns stub this used to manage has been dropped.

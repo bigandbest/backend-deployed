@@ -25,10 +25,6 @@ import {
   reviewFraudLog,
   listActivityLogs,
   exportReport,
-  listCampaigns,
-  createCampaign,
-  updateCampaign,
-  deleteCampaign,
 } from "../controller/adminReferralController.js";
 import { authenticateToken } from "../middleware/authenticate.js";
 import { requireAdmin } from "../middleware/authorize.js";
@@ -80,10 +76,6 @@ router.get("/activity-logs", listActivityLogs);
 // Reports
 router.get("/reports/export", exportReport);
 
-// Campaigns
-router.get("/campaigns", listCampaigns);
-router.post("/campaigns", createCampaign);
-router.put("/campaigns/:id", updateCampaign);
-router.delete("/campaigns/:id", deleteCampaign);
+// Campaigns moved to /api/admin/campaigns (routes/campaignRoutes.js, Phase 5)
 
 export default router;

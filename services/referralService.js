@@ -1,5 +1,8 @@
 // services/referralService.js
 import prisma from "../config/prisma.js";
+import { matchReferralCampaign } from "./campaignEngine.js";
+import { renderNotification } from "./notificationTemplateService.js";
+import { evaluateEarningEligibility, creditQualifyingReferral } from "./membershipService.js";
 
 // ============================================================================
 // REFERRAL CODE GENERATION
@@ -58,16 +61,6 @@ export const getOrCreateReferralProfile = async (userId, userName) => {
   return profile;
 };
 
-/**
- * Get referral profile with stats for user
- */
-export const getReferralProfile = async (userId) => {
-  const profile = await prisma.user_referral_profiles.findUnique({
-    where: { user_id: userId },
-  });
-  return profile;
-};
-
 // ============================================================================
 // CODE VALIDATION & APPLICATION
 // ============================================================================
@@ -99,6 +92,13 @@ export const validateReferralCode = async (code) => {
  * Apply referral code when a new user signs up
  */
 export const applyReferralCode = async (refereeId, refereeData, referralCode, ipAddress, userAgent) => {
+  // Q5/Q10: program_enabled is a hard override on the new_referral_signups_enabled sub-toggle.
+  // Gates only relationship formation here — generate-code and validate-code stay unaffected.
+  const config = await getConfig();
+  if (!config.is_enabled || !config.new_referral_signups_enabled) {
+    return { success: false, error: "New referral signups are temporarily paused" };
+  }
+
   const validation = await validateReferralCode(referralCode);
   if (!validation.valid) return { success: false, error: validation.error };
 
@@ -118,7 +118,6 @@ export const applyReferralCode = async (refereeId, refereeData, referralCode, ip
   }
 
   // Check IP-based fraud (max referrals per IP)
-  const config = await getConfig();
   if (config.enable_ip_tracking && ipAddress) {
     const recentFromIp = await prisma.referral_transactions.count({
       where: {
@@ -137,53 +136,70 @@ export const applyReferralCode = async (refereeId, refereeData, referralCode, ip
     where: { referral_code: referralCode.toUpperCase() },
   });
 
-  // Create referral transaction
-  const transaction = await prisma.referral_transactions.create({
-    data: {
-      referrer_id: referrerProfile.user_id,
-      referrer_profile_id: referrerProfile.id,
-      referral_code_used: referralCode.toUpperCase(),
-      referee_id: refereeId,
-      referee_email: refereeData.email || null,
-      referee_name: refereeData.name,
-      referee_phone: refereeData.phone,
-      status: "SIGNUP_COMPLETED",
-      status_history: [{ status: "PENDING", timestamp: new Date(), note: "Transaction created" },
-                       { status: "SIGNUP_COMPLETED", timestamp: new Date(), note: "Referee signed up" }],
-      ip_address: ipAddress,
-      user_agent: userAgent,
-    },
-  });
+  // Make sure the referee has a profile row first (outside the transaction: a concurrent create hitting the
+  // unique user_id would otherwise abort it). was_referred starts false and is claimed atomically below.
+  try {
+    await prisma.user_referral_profiles.upsert({
+      where: { user_id: refereeId },
+      update: {},
+      create: {
+        user_id: refereeId,
+        referral_code: await generateReferralCode(refereeData.phone || refereeData.name),
+        was_referred: false,
+      },
+    });
+  } catch (err) {
+    if (err.code !== "P2002") throw err; // concurrent request already created it
+  }
 
-  // Update or create referee's referral profile
-  await prisma.user_referral_profiles.upsert({
-    where: { user_id: refereeId },
-    update: {
-      was_referred: true,
-      referred_by_user_id: referrerProfile.user_id,
-      referred_by_code: referralCode.toUpperCase(),
-      referred_at: new Date(),
-    },
-    create: {
-      user_id: refereeId,
-      referral_code: await generateReferralCode(refereeData.phone || refereeData.name),
-      was_referred: true,
-      referred_by_user_id: referrerProfile.user_id,
-      referred_by_code: referralCode.toUpperCase(),
-      referred_at: new Date(),
-    },
-  });
+  let transaction;
+  try {
+    transaction = await prisma.$transaction(async (tx) => {
+      // Atomic claim: concurrent/repeated requests block on this row, then match 0 rows and are rejected —
+      // one referee can never end up with two referral transactions.
+      const claim = await tx.user_referral_profiles.updateMany({
+        where: { user_id: refereeId, was_referred: false },
+        data: {
+          was_referred: true,
+          referred_by_user_id: referrerProfile.user_id,
+          referred_by_code: referralCode.toUpperCase(),
+          referred_at: new Date(),
+        },
+      });
+      if (claim.count === 0) throw Object.assign(new Error("ALREADY_REFERRED"), { code: "ALREADY_REFERRED" });
 
-  // Increment referrer's pending count
-  await prisma.user_referral_profiles.update({
-    where: { id: referrerProfile.id },
-    data: { total_referrals: { increment: 1 }, pending_referrals: { increment: 1 } },
-  });
+      const created = await tx.referral_transactions.create({
+        data: {
+          referrer_id: referrerProfile.user_id,
+          referrer_profile_id: referrerProfile.id,
+          referral_code_used: referralCode.toUpperCase(),
+          referee_id: refereeId,
+          referee_email: refereeData.email || null,
+          referee_name: refereeData.name,
+          referee_phone: refereeData.phone,
+          status: "SIGNUP_COMPLETED",
+          status_history: [{ status: "PENDING", timestamp: new Date(), note: "Transaction created" },
+                           { status: "SIGNUP_COMPLETED", timestamp: new Date(), note: "Referee signed up" }],
+          ip_address: ipAddress,
+          user_agent: userAgent,
+        },
+      });
+
+      // Increment referrer's pending count
+      await tx.user_referral_profiles.update({
+        where: { id: referrerProfile.id },
+        data: { total_referrals: { increment: 1 }, pending_referrals: { increment: 1 } },
+      });
+      return created;
+    });
+  } catch (err) {
+    if (err.code === "ALREADY_REFERRED") return { success: false, error: "You have already used a referral code" };
+    throw err;
+  }
 
   // Send notification to referrer
   await createNotification(referrerProfile.user_id, "REFERRAL_SIGNUP",
-    "New Referral!",
-    `${refereeData.name || "Someone"} joined using your referral code!`,
+    { referee_name: refereeData.name || "Someone" },
     { referral_transaction_id: transaction.id });
 
   return { success: true, transaction };
@@ -214,24 +230,57 @@ export const onOrderPlaced = async (refereeId, orderId, orderNumber, orderAmount
   // Check minimum order value
   if (parseFloat(orderAmount) < parseFloat(config.min_order_value)) return;
 
-  // Update transaction with order details
+  // Atomic guard: two concurrent calls for the same referee must not both flip this transaction.
   const history = Array.isArray(referralTx.status_history) ? referralTx.status_history : [];
-  await prisma.referral_transactions.update({
-    where: { id: referralTx.id },
+  // Membership earning gate, snapshotted at order placement: a lapse during the return window must not
+  // retroactively invalidate an order that was placed while the referrer was eligible.
+  const orderDate = new Date();
+  const membershipEligible = await evaluateEarningEligibility(referralTx.referrer_id, orderDate);
+  const guard = await prisma.referral_transactions.updateMany({
+    where: { id: referralTx.id, status: "SIGNUP_COMPLETED" },
     data: {
       status: "ORDER_PLACED",
       order_id: orderId,
       order_number: orderNumber,
       order_amount: orderAmount,
-      order_date: new Date(),
-      status_history: [...history, { status: "ORDER_PLACED", timestamp: new Date(), note: `Order ${orderNumber} placed` }],
+      order_date: orderDate,
+      membership_eligible: membershipEligible,
+      status_history: [...history, { status: "ORDER_PLACED", timestamp: new Date(), note: `Order ${orderNumber} placed${membershipEligible ? "" : " (referrer membership not eligible to earn)"}` }],
     },
   });
+  if (guard.count === 0) return; // already processed by a concurrent call
+
+  // Q9/Q15: match & reserve a campaign now that this order has won the transaction (avoids
+  // wasting a usage slot on the losing side of the race above). Never touches attribution —
+  // that's already resolved. Swallowed on error so a campaign-engine bug can't block the order.
+  try {
+    const orderItems = await prisma.order_items.findMany({
+      where: { order_id: orderId },
+      select: { product_variants: { select: { product_id: true, products: { select: { category_id: true } } } } },
+    });
+    const items = orderItems.map((oi) => ({
+      productId: oi.product_variants?.product_id || null,
+      categoryId: oi.product_variants?.products?.category_id || null,
+    }));
+    const campaignMatch = await matchReferralCampaign({ orderId, items, eligibleBase: orderAmount });
+    if (campaignMatch) {
+      await prisma.referral_transactions.update({
+        where: { id: referralTx.id },
+        data: {
+          campaign_id: campaignMatch.campaign_id,
+          campaign_name: campaignMatch.campaign_name,
+          applied_reward_type: campaignMatch.applied_reward_type,
+          applied_reward_value: campaignMatch.applied_reward_value,
+        },
+      });
+    }
+  } catch (err) {
+    console.error(`[referralService] campaign match failed for order ${orderId}:`, err.message);
+  }
 
   // Notify referrer
   await createNotification(referralTx.referrer_id, "REFERRAL_ORDER_PLACED",
-    "Order Placed",
-    "Your referee placed an order! Reward pending after delivery.",
+    {},
     { referral_transaction_id: referralTx.id });
 };
 
@@ -250,8 +299,8 @@ export const onOrderDelivered = async (orderId, deliveredAt) => {
   returnWindowEnd.setDate(returnWindowEnd.getDate() + config.return_window_days);
 
   const history = Array.isArray(referralTx.status_history) ? referralTx.status_history : [];
-  await prisma.referral_transactions.update({
-    where: { id: referralTx.id },
+  const guard = await prisma.referral_transactions.updateMany({
+    where: { id: referralTx.id, status: "ORDER_PLACED" },
     data: {
       status: "RETURN_WINDOW_ACTIVE",
       delivered_at: deliveredAt,
@@ -262,10 +311,10 @@ export const onOrderDelivered = async (orderId, deliveredAt) => {
         { status: "RETURN_WINDOW_ACTIVE", timestamp: new Date(), note: `Return window ends ${returnWindowEnd.toISOString()}` }],
     },
   });
+  if (guard.count === 0) return; // already processed by a concurrent call
 
   await createNotification(referralTx.referrer_id, "REFERRAL_ORDER_DELIVERED",
-    "Order Delivered",
-    "Order delivered! Your reward will be credited after the return window.",
+    {},
     { referral_transaction_id: referralTx.id });
 };
 
@@ -282,20 +331,33 @@ export const processReturnWindowExpiry = async (referralTransactionId) => {
 
   const config = await getConfig();
 
-  // Calculate reward amounts (tiered or flat)
-  const { referrerAmount, refereeAmount } = await calculateRewardAmounts(
-    referralTx.referrer_profile,
-    referralTx.order_amount,
-    config
-  );
+  // Q3/Q10: a campaign match at placement time fully replaces the referrer's reward — the
+  // snapshot already holds the final, capped rupee amount, nothing to re-derive. The referee's
+  // signup bonus is unaffected either way; campaigns are a referrer-incentive tool, not a
+  // referee-signup one, so it always comes from the flat config default.
+  const refereeAmount = parseFloat(config.referee_reward_amount);
+  const referrerAmount = referralTx.campaign_id && referralTx.applied_reward_value != null
+    ? parseFloat(referralTx.applied_reward_value)
+    : (await calculateRewardAmounts(referralTx.referrer_profile, referralTx.order_amount, config)).referrerAmount;
 
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + config.reward_validity_days);
 
   // Use a transaction for atomicity
-  const [referrerReward, refereeReward] = await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
+    // Atomic guard: a concurrent/overlapping cron run must not credit this transaction twice.
+    const guard = await tx.referral_transactions.updateMany({
+      where: { id: referralTx.id, status: "RETURN_WINDOW_ACTIVE" },
+      data: { status: "COMPLETED" },
+    });
+    if (guard.count === 0) return null; // already completed by a concurrent run
+
+    // Membership decides WHETHER the referrer earns (snapshot taken at order placement); tiers/campaigns decide HOW MUCH.
+    // The referee's signup bonus is unaffected by the referrer's membership.
+    const referrerEligible = referralTx.membership_eligible !== false;
+
     // Credit referrer reward
-    const rr = await tx.referral_rewards.create({
+    const rr = referrerEligible ? await tx.referral_rewards.create({
       data: {
         user_id: referralTx.referrer_id,
         user_profile_id: referralTx.referrer_profile_id,
@@ -309,7 +371,7 @@ export const processReturnWindowExpiry = async (referralTransactionId) => {
         expires_at: expiresAt,
         status: "ACTIVE",
       },
-    });
+    }) : null;
 
     // Credit referee reward
     const refeeProfile = await tx.user_referral_profiles.findUnique({
@@ -345,16 +407,31 @@ export const processReturnWindowExpiry = async (referralTransactionId) => {
       });
     }
 
-    // Update referrer profile balance and stats
-    await tx.user_referral_profiles.update({
+    // Update referrer profile balance and stats (an ineligible referral earns nothing and is not a "successful" referral)
+    const updatedReferrerProfile = await tx.user_referral_profiles.update({
       where: { id: referralTx.referrer_profile_id },
-      data: {
-        available_balance: { increment: referrerAmount },
-        total_earnings: { increment: referrerAmount },
-        pending_referrals: { decrement: 1 },
-        successful_referrals: { increment: 1 },
-      },
+      data: referrerEligible
+        ? {
+            available_balance: { increment: referrerAmount },
+            total_earnings: { increment: referrerAmount },
+            pending_referrals: { decrement: 1 },
+            successful_referrals: { increment: 1 },
+          }
+        : { pending_referrals: { decrement: 1 } },
     });
+
+    // Membership Q3/Q4: derive tier from the just-incremented successful_referrals count,
+    // using the same shared ladder tiered rewards already reads (Q6) — never write backwards
+    // (Q4/monotonicity constraint): a config edit that would otherwise "unqualify" an
+    // already-achieved tier must never revoke it.
+    const tiers = Array.isArray(config.tiered_rewards_config?.tiers) ? config.tiered_rewards_config.tiers : [];
+    const derivedTier = deriveTierName(updatedReferrerProfile.successful_referrals, tiers);
+    if (referrerEligible && tierRank(derivedTier, tiers) > tierRank(updatedReferrerProfile.current_tier, tiers)) {
+      await tx.user_referral_profiles.update({
+        where: { id: referralTx.referrer_profile_id },
+        data: { current_tier: derivedTier },
+      });
+    }
 
     // Update referral transaction
     const history = Array.isArray(referralTx.status_history) ? referralTx.status_history : [];
@@ -362,28 +439,34 @@ export const processReturnWindowExpiry = async (referralTransactionId) => {
       where: { id: referralTx.id },
       data: {
         status: "COMPLETED",
-        referrer_reward_amount: referrerAmount,
+        referrer_reward_amount: referrerEligible ? referrerAmount : 0,
         referee_reward_amount: refereeAmount,
-        referrer_reward_id: rr.id,
+        referrer_reward_id: rr?.id,
         referee_reward_id: re?.id,
         reward_credited_at: new Date(),
-        status_history: [...history, { status: "COMPLETED", timestamp: new Date(), note: "Rewards credited" }],
+        status_history: [...history, { status: "COMPLETED", timestamp: new Date(), note: referrerEligible ? "Rewards credited" : "Referee bonus credited; referrer not eligible to earn (membership)" }],
       },
     });
 
+    // Membership qualification in the SAME transaction as the reward: unique per referred user, replay-safe.
+    await creditQualifyingReferral(tx, referralTx);
+
     return [rr, re];
-  });
+  }, { maxWait: 10000, timeout: 30000 }); // many sequential statements; the 5s default is too tight over a remote pooler
+
+  if (!result) return null; // guard tripped — a concurrent run already credited this transaction
+  const [referrerReward, refereeReward] = result;
 
   // Send notifications
-  await createNotification(referralTx.referrer_id, "REWARD_CREDITED",
-    "Reward Credited!",
-    `₹${referrerAmount} has been credited to your wallet! Valid for ${config.reward_validity_days} days.`,
-    { reward_id: referrerReward.id, amount: referrerAmount });
+  if (referrerReward) {
+    await createNotification(referralTx.referrer_id, "REWARD_CREDITED",
+      { amount: referrerAmount, validity_days: config.reward_validity_days },
+      { reward_id: referrerReward.id, amount: referrerAmount });
+  }
 
   if (refereeReward) {
     await createNotification(referralTx.referee_id, "REWARD_CREDITED",
-      "Reward Credited!",
-      `₹${refereeAmount} has been credited to your wallet! Valid for ${config.reward_validity_days} days.`,
+      { amount: refereeAmount, validity_days: config.reward_validity_days },
       { reward_id: refereeReward.id, amount: refereeAmount });
   }
 
@@ -403,9 +486,9 @@ export const onOrderReturned = async (orderId, returnType, returnAmount) => {
   const history = Array.isArray(referralTx.status_history) ? referralTx.status_history : [];
 
   if (returnType === "FULL") {
-    // Full return: mark as failed
-    await prisma.referral_transactions.update({
-      where: { id: referralTx.id },
+    // Full return: mark as failed. Guarded so a duplicate call for the same order is a no-op.
+    const guard = await prisma.referral_transactions.updateMany({
+      where: { id: referralTx.id, status: { in: ["ORDER_PLACED", "RETURN_WINDOW_ACTIVE"] } },
       data: {
         status: "FAILED",
         is_returned: true,
@@ -416,13 +499,16 @@ export const onOrderReturned = async (orderId, returnType, returnAmount) => {
         status_history: [...history, { status: "FAILED", timestamp: new Date(), note: "Full order return" }],
       },
     });
+    if (guard.count === 0) return;
 
     await prisma.user_referral_profiles.update({
       where: { id: referralTx.referrer_profile_id },
       data: { pending_referrals: { decrement: 1 }, failed_referrals: { increment: 1 } },
     });
   } else if (returnType === "PARTIAL") {
-    // Partial return: reduce order amount, let return window continue
+    // Partial return: reduce order amount, let return window continue.
+    // Not idempotency-guarded against duplicate calls for the same physical return event —
+    // callers must only invoke this once per distinct partial-return approval.
     await prisma.referral_transactions.update({
       where: { id: referralTx.id },
       data: {
@@ -435,6 +521,33 @@ export const onOrderReturned = async (orderId, returnType, returnAmount) => {
       },
     });
   }
+};
+
+/**
+ * Q1: a valid affiliate attribution on this order takes precedence over the permanent
+ * referral relationship — called by affiliateService once it successfully attributes an order.
+ * Does not touch the permanent referred_by_user_id relationship, only this order's transaction.
+ */
+export const supersedeByAffiliateAttribution = async (orderId) => {
+  const referralTx = await prisma.referral_transactions.findFirst({
+    where: { order_id: orderId, status: { in: ["ORDER_PLACED", "RETURN_WINDOW_ACTIVE"] } },
+  });
+  if (!referralTx) return;
+
+  const history = Array.isArray(referralTx.status_history) ? referralTx.status_history : [];
+  const guard = await prisma.referral_transactions.updateMany({
+    where: { id: referralTx.id, status: { in: ["ORDER_PLACED", "RETURN_WINDOW_ACTIVE"] } },
+    data: {
+      status: "SUPERSEDED_BY_AFFILIATE",
+      status_history: [...history, { status: "SUPERSEDED_BY_AFFILIATE", timestamp: new Date(), note: "Affiliate attribution took precedence for this order" }],
+    },
+  });
+  if (guard.count === 0) return;
+
+  await prisma.user_referral_profiles.update({
+    where: { id: referralTx.referrer_profile_id },
+    data: { pending_referrals: { decrement: 1 } },
+  });
 };
 
 // ============================================================================
@@ -465,9 +578,17 @@ export const getWalletBalance = async (userId) => {
 
   const expiringSoon = activeRewards.filter(r => new Date(r.expires_at) <= in48h);
 
+  // profile.pending_balance is never written anywhere — derive the real pending estimate instead
+  // from in-flight referral transactions (flat reward amount; doesn't account for tiering/caps).
+  const config = await getConfig();
+  const pendingTxCount = await prisma.referral_transactions.count({
+    where: { referrer_id: userId, status: { in: ["ORDER_PLACED", "RETURN_WINDOW_ACTIVE"] } },
+  });
+  const pendingEstimate = pendingTxCount * parseFloat(config.referrer_reward_amount);
+
   return {
     available: parseFloat(profile.available_balance),
-    pending: parseFloat(profile.pending_balance),
+    pending: pendingEstimate,
     expiringSoon: expiringSoon.reduce((s, r) => s + parseFloat(r.remaining_amount), 0),
     totalEarned: parseFloat(profile.total_earnings),
     withdrawn: parseFloat(profile.withdrawn_amount),
@@ -481,48 +602,43 @@ export const getWalletBalance = async (userId) => {
  * Spend referral wallet balance on an order (FIFO)
  */
 export const spendReferralBalance = async (userId, amount, orderId, orderNumber) => {
-  const profile = await prisma.user_referral_profiles.findUnique({
-    where: { user_id: userId },
-  });
+  amount = Number(amount);
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("Invalid amount");
+  amount = Math.round(amount * 100) / 100;
 
+  const profile = await prisma.user_referral_profiles.findUnique({ where: { user_id: userId } });
   if (!profile) throw new Error("Referral profile not found");
-  if (parseFloat(profile.available_balance) < amount) throw new Error("Insufficient referral balance");
-
-  const now = new Date();
-  const activeRewards = await prisma.referral_rewards.findMany({
-    where: {
-      user_id: userId,
-      status: { in: ["ACTIVE", "PARTIALLY_USED"] },
-      expires_at: { gt: now },
-    },
-    orderBy: { expires_at: "asc" }, // FIFO: oldest expiry first
-  });
-
-  let remaining = parseFloat(amount);
-  const usages = [];
-
-  for (const reward of activeRewards) {
-    if (remaining <= 0) break;
-    const canUse = Math.min(parseFloat(reward.remaining_amount), remaining);
-    if (canUse <= 0) continue;
-
-    const newRemaining = parseFloat(reward.remaining_amount) - canUse;
-    usages.push({ reward, canUse, newRemaining });
-    remaining -= canUse;
-  }
-
-  if (remaining > 0) throw new Error("Insufficient referral balance");
 
   await prisma.$transaction(async (tx) => {
-    for (const { reward, canUse, newRemaining } of usages) {
-      const newStatus = newRemaining <= 0 ? "FULLY_USED" : "PARTIALLY_USED";
+    // Atomic balance claim first: it locks the profile row, so concurrent spends run one at a time and the
+    // balance can never go negative or be spent twice.
+    const claim = await tx.user_referral_profiles.updateMany({
+      where: { user_id: userId, available_balance: { gte: amount } },
+      data: { available_balance: { decrement: amount }, used_for_purchase: { increment: amount } },
+    });
+    if (claim.count === 0) throw new Error("Insufficient referral balance");
+
+    const activeRewards = await tx.referral_rewards.findMany({
+      where: { user_id: userId, status: { in: ["ACTIVE", "PARTIALLY_USED"] }, expires_at: { gt: new Date() } },
+      orderBy: { expires_at: "asc" }, // FIFO: oldest expiry first
+    });
+
+    let remaining = amount;
+    for (const reward of activeRewards) {
+      if (remaining <= 0) break;
+      const canUse = Math.min(parseFloat(reward.remaining_amount), remaining);
+      if (canUse <= 0) continue;
+
+      // Relative decrement on the locked row (never an absolute value computed from an earlier read).
+      const updated = await tx.referral_rewards.update({
+        where: { id: reward.id },
+        data: { used_amount: { increment: canUse }, remaining_amount: { decrement: canUse } },
+      });
+      const newRemaining = parseFloat(updated.remaining_amount);
+      if (newRemaining < 0) throw new Error("Insufficient referral balance");
       await tx.referral_rewards.update({
         where: { id: reward.id },
-        data: {
-          used_amount: { increment: canUse },
-          remaining_amount: newRemaining,
-          status: newStatus,
-        },
+        data: { status: newRemaining <= 0 ? "FULLY_USED" : "PARTIALLY_USED" },
       });
 
       await tx.referral_reward_usages.create({
@@ -537,15 +653,11 @@ export const spendReferralBalance = async (userId, amount, orderId, orderNumber)
           note: `Used for order ${orderNumber}`,
         },
       });
+      remaining = Math.round((remaining - canUse) * 100) / 100;
     }
 
-    await tx.user_referral_profiles.update({
-      where: { user_id: userId },
-      data: {
-        available_balance: { decrement: amount },
-        used_for_purchase: { increment: amount },
-      },
-    });
+    // Not enough unexpired rewards to cover the spend: roll everything back.
+    if (remaining > 0) throw new Error("Insufficient referral balance");
   });
 
   return { success: true, amountUsed: amount };
@@ -559,31 +671,41 @@ export const spendReferralBalance = async (userId, amount, orderId, orderNumber)
  * Request a withdrawal
  */
 export const requestWithdrawal = async (userId, amount, paymentMethod, paymentDetails) => {
+  amount = Number(amount);
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("Invalid withdrawal amount");
+  amount = Math.round(amount * 100) / 100;
+
   const config = await getConfig();
+  if (!config.withdrawal_enabled) throw new Error("Withdrawals are temporarily paused");
+
   const profile = await prisma.user_referral_profiles.findUnique({ where: { user_id: userId } });
 
   if (!profile) throw new Error("Referral profile not found");
   if (profile.is_blocked) throw new Error("Your referral account is blocked");
-  if (parseFloat(amount) < parseFloat(config.min_withdrawal_amount)) {
+  if (amount < parseFloat(config.min_withdrawal_amount)) {
     throw new Error(`Minimum withdrawal amount is ₹${config.min_withdrawal_amount}`);
   }
-  if (parseFloat(profile.available_balance) < parseFloat(amount)) {
-    throw new Error("Insufficient balance");
-  }
 
-  // Check monthly withdrawal limit
   const startOfMonth = new Date();
   startOfMonth.setDate(1); startOfMonth.setHours(0, 0, 0, 0);
-  const monthlyCount = await prisma.referral_withdrawals.count({
-    where: { user_id: userId, created_at: { gte: startOfMonth }, status: { notIn: ["REJECTED", "CANCELLED"] } },
-  });
-  if (monthlyCount >= config.max_withdrawals_per_month) {
-    throw new Error(`Maximum ${config.max_withdrawals_per_month} withdrawals per month`);
-  }
 
-  // Lock balance
+  // Lock balance. The atomic conditional decrement comes first: it locks the profile row, so concurrent requests
+  // are serialized — each sees the previous one's debit and withdrawal count, and the balance can't go negative.
   const withdrawal = await prisma.$transaction(async (tx) => {
-    const w = await tx.referral_withdrawals.create({
+    const claim = await tx.user_referral_profiles.updateMany({
+      where: { id: profile.id, is_blocked: false, available_balance: { gte: amount } },
+      data: { available_balance: { decrement: amount } },
+    });
+    if (claim.count === 0) throw new Error("Insufficient balance");
+
+    const monthlyCount = await tx.referral_withdrawals.count({
+      where: { user_id: userId, created_at: { gte: startOfMonth }, status: { notIn: ["REJECTED", "CANCELLED"] } },
+    });
+    if (monthlyCount >= config.max_withdrawals_per_month) {
+      throw new Error(`Maximum ${config.max_withdrawals_per_month} withdrawals per month`);
+    }
+
+    return tx.referral_withdrawals.create({
       data: {
         user_id: userId,
         user_profile_id: profile.id,
@@ -594,18 +716,10 @@ export const requestWithdrawal = async (userId, amount, paymentMethod, paymentDe
         ...paymentDetails,
       },
     });
-
-    await tx.user_referral_profiles.update({
-      where: { id: profile.id },
-      data: { available_balance: { decrement: amount } },
-    });
-
-    return w;
   });
 
   await createNotification(userId, "WITHDRAWAL_REQUESTED",
-    "Withdrawal Initiated",
-    `Withdrawal of ₹${amount} has been initiated.`,
+    { amount },
     { withdrawal_id: withdrawal.id });
 
   return withdrawal;
@@ -650,17 +764,23 @@ export const processExpiredRewards = async () => {
   });
 
   for (const reward of expiredRewards) {
-    await prisma.$transaction(async (tx) => {
-      await tx.referral_rewards.update({
-        where: { id: reward.id },
+    const expired = await prisma.$transaction(async (tx) => {
+      // Atomic guard: an overlapping/repeated run matches 0 rows and must not debit the balance again.
+      const guard = await tx.referral_rewards.updateMany({
+        where: { id: reward.id, status: { in: ["ACTIVE", "PARTIALLY_USED"] } },
         data: { status: "EXPIRED", expired_at: new Date() },
       });
+      if (guard.count === 0) return false;
+
+      // Re-read under the row lock: a spend between the list query and here may have reduced remaining_amount.
+      const fresh = await tx.referral_rewards.findUnique({ where: { id: reward.id }, select: { remaining_amount: true } });
+      const remainingNow = parseFloat(fresh.remaining_amount);
 
       await tx.user_referral_profiles.update({
         where: { user_id: reward.user_id },
         data: {
-          available_balance: { decrement: parseFloat(reward.remaining_amount) },
-          expired_amount: { increment: parseFloat(reward.remaining_amount) },
+          available_balance: { decrement: remainingNow },
+          expired_amount: { increment: remainingNow },
         },
       });
 
@@ -668,17 +788,18 @@ export const processExpiredRewards = async () => {
         data: {
           reward_id: reward.id,
           user_id: reward.user_id,
-          amount_used: parseFloat(reward.remaining_amount),
+          amount_used: remainingNow,
           usage_type: "EXPIRY",
           reward_balance_after: 0,
           note: "Reward expired",
         },
       });
+      return true;
     });
+    if (!expired) continue;
 
     await createNotification(reward.user_id, "REWARD_EXPIRED",
-      "Reward Expired",
-      `Your ₹${parseFloat(reward.original_amount)} reward has expired. Keep referring to earn more!`,
+      { amount: parseFloat(reward.original_amount) },
       { reward_id: reward.id });
   }
 
@@ -704,8 +825,7 @@ export const sendExpiryReminders = async () => {
 
   for (const reward of rewards48h) {
     await createNotification(reward.user_id, "REWARD_EXPIRING_SOON",
-      "Reward Expiring Soon",
-      `Your ₹${parseFloat(reward.remaining_amount)} reward expires in 2 days! Use or withdraw now.`,
+      { amount: parseFloat(reward.remaining_amount) },
       { reward_id: reward.id });
 
     await prisma.referral_rewards.update({
@@ -726,8 +846,7 @@ export const sendExpiryReminders = async () => {
 
   for (const reward of rewards24h) {
     await createNotification(reward.user_id, "REWARD_EXPIRING_URGENT",
-      "Last Chance!",
-      `Your ₹${parseFloat(reward.remaining_amount)} reward expires tomorrow! Don't miss out.`,
+      { amount: parseFloat(reward.remaining_amount) },
       { reward_id: reward.id });
 
     await prisma.referral_rewards.update({
@@ -782,13 +901,74 @@ const calculateRewardAmounts = async (referrerProfile, orderAmount, config) => {
   return { referrerAmount, refereeAmount };
 };
 
+// ============================================================================
+// MEMBERSHIP (Q1-Q7) — status/display only, derived from the same tier ladder
+// tiered_rewards_config already uses for the reward-amount bump (Q6: shared
+// config, independent consumers — membership never touches reward calculation).
+// ============================================================================
+
 /**
- * Create a referral notification
+ * Highest tier whose minReferrals threshold the count has reached, or null if the
+ * ladder is empty/unconfigured or no tier's threshold is met yet.
  */
-export const createNotification = async (userId, type, title, message, data = {}) => {
+export const deriveTierName = (successfulReferrals, tiers) => {
+  if (!Array.isArray(tiers) || tiers.length === 0) return null;
+  const sorted = [...tiers].sort((a, b) => Number(a.minReferrals) - Number(b.minReferrals));
+  let achieved = null;
+  for (const t of sorted) {
+    if (Number(successfulReferrals) >= Number(t.minReferrals)) achieved = t;
+  }
+  return achieved?.name || null;
+};
+
+/**
+ * Position of a tier name in the ladder (higher = better). Unknown/null tiers rank
+ * lowest (-1) so any real derived tier always outranks "no tier yet", and a tier name
+ * that no longer exists in an edited ladder never blocks further progress upward.
+ */
+const tierRank = (tierName, tiers) => {
+  if (!tierName || !Array.isArray(tiers)) return -1;
+  const sorted = [...tiers].sort((a, b) => Number(a.minReferrals) - Number(b.minReferrals));
+  return sorted.findIndex((t) => t.name === tierName);
+};
+
+/**
+ * Membership progress for the referral dashboard — computed at read time, nothing
+ * persisted beyond the already-stored current_tier (Q7: status/display only).
+ */
+export const getMembershipStatus = async (profile, config) => {
+  const tiers = Array.isArray(config?.tiered_rewards_config?.tiers)
+    ? [...config.tiered_rewards_config.tiers].sort((a, b) => Number(a.minReferrals) - Number(b.minReferrals))
+    : [];
+  const successfulReferrals = profile.successful_referrals;
+  const currentTier = profile.current_tier;
+  const currentRank = tierRank(currentTier, tiers);
+  const next = tiers[currentRank + 1] || null;
+
+  return {
+    current_tier: currentTier,
+    successful_referrals: successfulReferrals,
+    next_tier: next?.name || null,
+    next_tier_threshold: next ? Number(next.minReferrals) : null,
+    referrals_to_next_tier: next ? Math.max(0, Number(next.minReferrals) - successfulReferrals) : null,
+  };
+};
+
+/**
+ * Create a referral notification. Title/message come from an admin-configured template when one
+ * is active for this type, otherwise the hardcoded default — both rendered through the same
+ * interpolation path (Q1). `variables` are the named values the copy can reference (e.g.
+ * {amount, validity_days}); `data` is the existing separate metadata payload, unchanged.
+ */
+export const createNotification = async (userId, type, variables = {}, data = {}) => {
   try {
+    const rendered = await renderNotification(type, variables);
+    if (!rendered) {
+      console.error(`Unknown notification type "${type}" — skipping`);
+      return;
+    }
     await prisma.referral_notifications.create({
-      data: { user_id: userId, type, title, message, data, channels: ["in_app"] },
+      data: { user_id: userId, type, title: rendered.title, message: rendered.message, data, channels: ["in_app"] },
     });
   } catch (err) {
     console.error("Error creating referral notification:", err);
@@ -796,12 +976,16 @@ export const createNotification = async (userId, type, title, message, data = {}
 };
 
 /**
- * Log a fraud event
+ * Log a fraud event. Shared across referral and affiliate (Q2, Marketing Control Center) via
+ * the `program` discriminator — exported so affiliateService.js can log its own self-referral
+ * block without a second fraud-log table. Already swallows its own errors, so a logging failure
+ * can never turn a blocked (or valid) transaction into something else.
  */
-const logFraud = async (userId, referralCode, transactionId, fraudType, severity, description, ipAddress, userAgent) => {
+export const logFraud = async (userId, referralCode, transactionId, fraudType, severity, description, ipAddress, userAgent, program = "REFERRAL") => {
   try {
     await prisma.referral_fraud_logs.create({
       data: {
+        program,
         user_id: userId,
         referral_code: referralCode,
         referral_transaction_id: transactionId,
@@ -816,6 +1000,41 @@ const logFraud = async (userId, referralCode, transactionId, fraudType, severity
   } catch (err) {
     console.error("Error logging fraud:", err);
   }
+};
+
+// Shared list/review for the admin fraud-log pages (referral + affiliate) — the two admin
+// controllers only differ in which `program` they're scoped to, so that logic lives here once.
+export const listFraudLogsByProgram = async (program, { page = 1, limit = 20, status, severity } = {}) => {
+  // Non-numeric / non-positive input falls back to defaults; limit is capped so one request can't pull the whole table.
+  page = Math.max(1, parseInt(page) || 1);
+  limit = Math.min(100, Math.max(1, parseInt(limit) || 20));
+  const offset = (page - 1) * limit;
+  // `program` omitted = every program (unified Fraud & Risk page).
+  const where = program ? { program } : {};
+  if (status) where.status = status;
+  if (severity) where.severity = severity;
+
+  const [logs, total] = await Promise.all([
+    prisma.referral_fraud_logs.findMany({ where, orderBy: { created_at: "desc" }, skip: offset, take: parseInt(limit) }),
+    prisma.referral_fraud_logs.count({ where }),
+  ]);
+
+  return { logs, pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) } };
+};
+
+export const reviewFraudLogEntry = async (id, { status, notes, action, reviewerId }) => {
+  return prisma.referral_fraud_logs.update({
+    where: { id },
+    data: {
+      status,
+      reviewed_by: reviewerId,
+      reviewed_at: new Date(),
+      review_notes: notes,
+      action_taken: action,
+      action_taken_by: reviewerId,
+      action_taken_at: new Date(),
+    },
+  });
 };
 
 /**

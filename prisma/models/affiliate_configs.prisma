@@ -21,4 +21,8 @@ model affiliate_configs {
   updated_by               String?   @db.Uuid
   created_at               DateTime  @default(now()) @db.Timestamptz
   updated_at               DateTime  @updatedAt @db.Timestamptz
+  // Marketing Controls (migration 20260915190000) — granular acquisition/withdrawal toggles.
+  new_applications_enabled Boolean   @default(true)
+  new_links_enabled        Boolean   @default(true)
+  withdrawal_enabled       Boolean   @default(true)
 }

@@ -23,4 +23,6 @@ model referral_configs {
   updated_by                String?   @db.Uuid
   created_at                DateTime  @default(now()) @db.Timestamptz
   updated_at                DateTime  @updatedAt @db.Timestamptz
+  // Marketing Controls (migration 20260915190000) — blocks new signups without affecting existing referrers.
+  new_referral_signups_enabled Boolean @default(true)
 }

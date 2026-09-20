@@ -1,3 +1,4 @@
+import prisma from "../config/prisma.js";
 import affiliateDAO from "../dao/affiliate.dao.js";
 import { processAffiliateOrder } from "../services/affiliateService.js";
 
@@ -109,12 +110,23 @@ export const recordRefClick = async (req, res) => {
   }
 };
 
-// POST /api/affiliate/convert - called internally when order is placed
+// POST /api/affiliate/convert - called by the client right after it places an order
 export const convertOrder = async (req, res) => {
   try {
     const { order_id, affiliate_code, click_id } = req.body;
     if (!order_id || !affiliate_code) {
       return res.status(400).json({ success: false, error: "order_id and affiliate_code required" });
+    }
+
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(order_id))) {
+      return res.status(400).json({ success: false, error: "order_id must be a valid UUID" });
+    }
+
+    // Require the caller to own the order — otherwise anyone could attribute any order_id
+    // to any affiliate_code just by guessing IDs, stealing commission for orders they didn't drive.
+    const order = await prisma.orders.findUnique({ where: { id: order_id }, select: { user_id: true } });
+    if (!order || order.user_id !== req.user.id) {
+      return res.status(403).json({ success: false, error: "Not your order" });
     }
 
     const result = await processAffiliateOrder(order_id, affiliate_code, { clickId: click_id });

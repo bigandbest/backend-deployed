@@ -1,0 +1,14 @@
+// Append-only audit trail of membership status changes.
+model membership_status_log {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  membership_id String   @db.Uuid
+  from_status   String?  @db.VarChar(20)
+  to_status     String   @db.VarChar(20)
+  reason        String   @db.VarChar(100)
+  actor         String   @default("SYSTEM") @db.VarChar(10) // SYSTEM | ADMIN | USER
+  created_at    DateTime @default(now()) @db.Timestamptz
+
+  membership user_memberships @relation(fields: [membership_id], references: [id])
+
+  @@index([membership_id, created_at])
+}

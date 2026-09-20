@@ -14,4 +14,14 @@ model referral_fraud_logs {
   resolved_by              String?   @db.VarChar
   resolution_note          String?
   created_at               DateTime  @default(now()) @db.Timestamptz
+  // Marketing Control Center Q2 — shared with affiliate via the program discriminator, plus the
+  // review/status columns the admin review flow already expected (migration 20260916210000).
+  program                  String    @default("REFERRAL") @db.VarChar(20)
+  status                   String    @default("PENDING_REVIEW") @db.VarChar(30)
+  reviewed_by              String?   @db.Uuid
+  reviewed_at              DateTime? @db.Timestamptz
+  review_notes             String?
+  action_taken             String?   @db.VarChar(100)
+  action_taken_by          String?   @db.Uuid
+  action_taken_at          DateTime? @db.Timestamptz
 }

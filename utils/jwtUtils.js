@@ -28,7 +28,7 @@ export function verifyToken(token) {
   }
 
   try {
-    return jwt.verify(token, JWT_SECRET);
+    return jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
   } catch (error) {
     if (error.name === "TokenExpiredError") {
       throw new Error("Token has expired");

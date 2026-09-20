@@ -1,0 +1,47 @@
+// Campaign + Reward Rules Engine (migration 20260916150000). Replaces the dropped referral_campaigns stub.
+model campaigns {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String    @db.VarChar(255)
+  description    String?
+  channel        String    @db.VarChar(20)
+  starts_at      DateTime  @db.Timestamptz
+  ends_at        DateTime  @db.Timestamptz
+  usage_limit    Int?
+  used_count     Int       @default(0)
+  is_active      Boolean   @default(true)
+  created_by     String?   @db.Uuid
+  created_at     DateTime  @default(now()) @db.Timestamptz
+  updated_at     DateTime  @updatedAt @db.Timestamptz
+
+  campaign_rule  campaign_rules?
+  campaign_usage campaign_usage[]
+
+  @@index([channel, is_active, starts_at, ends_at])
+}
+
+model campaign_rules {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  campaign_id     String   @unique @db.Uuid
+  scope_type      String   @db.VarChar(20)
+  scope_id        String?  @db.Uuid
+  reward_type     String   @db.VarChar(20)
+  reward_value    Decimal  @db.Decimal(10, 2)
+  max_reward_cap  Decimal? @db.Decimal(10, 2)
+  min_order_value Decimal? @db.Decimal(10, 2)
+
+  campaigns campaigns @relation(fields: [campaign_id], references: [id], onDelete: Cascade)
+
+  @@index([scope_type, scope_id])
+}
+
+model campaign_usage {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  campaign_id String   @db.Uuid
+  order_id    String   @db.Uuid
+  channel     String   @db.VarChar(20)
+  created_at  DateTime @default(now()) @db.Timestamptz
+
+  campaigns campaigns @relation(fields: [campaign_id], references: [id], onDelete: Cascade)
+
+  @@unique([campaign_id, order_id])
+}

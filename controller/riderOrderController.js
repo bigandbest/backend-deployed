@@ -2,6 +2,7 @@ import prisma from '../config/prisma.js';
 import { calculateDistanceKm } from '../utils/distanceUtils.js';
 import { calculateAndCreatePayout } from '../services/payoutService.js';
 import { updateParentOrderStatusFromSubOrders } from '../services/orderFulfillmentService.js';
+import { onOrderStatusChanged } from '../services/orderLifecycleHooks.js';
 
 // ============ GET ASSIGNABLE ORDERS ============
 export const getAssignableOrders = async (req, res) => {
@@ -404,6 +405,7 @@ export const completeDelivery = async (req, res) => {
             where: { id: orderId },
             data: { status: 'Delivered', updated_at: new Date() }
         });
+        await onOrderStatusChanged(orderId, 'Delivered');
 
         const isCod = updated.payment_method?.toLowerCase() === 'cod';
         const riderUserId = req.user.id; // capture before async boundary

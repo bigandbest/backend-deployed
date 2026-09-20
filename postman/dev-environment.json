@@ -1,0 +1,117 @@
+{
+  "id": "dev-env-backend-change-audit",
+  "name": "BBM Backend - DEV (change audit)",
+  "values": [
+    {
+      "key": "baseUrl",
+      "value": "",
+      "type": "default",
+      "enabled": true,
+      "description": "e.g. http://localhost:8000/api - must point at the DEV database (.env.local)"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "secret",
+      "enabled": true,
+      "description": "Customer bearer token (owner of orderId)"
+    },
+    {
+      "key": "otherUserToken",
+      "value": "",
+      "type": "secret",
+      "enabled": true,
+      "description": "A different customer token (for ownership/403 test)"
+    },
+    {
+      "key": "adminToken",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "affiliateId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "affiliateCode",
+      "value": "",
+      "type": "default",
+      "enabled": true,
+      "description": "ACTIVE affiliate code that is NOT the customer's own"
+    },
+    {
+      "key": "referralCode",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "orderId",
+      "value": "",
+      "type": "default",
+      "enabled": true,
+      "description": "DEV order owned by accessToken's user"
+    },
+    {
+      "key": "affiliateOrderId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "commissionId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "campaignId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "payoutId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "forgedToken",
+      "value": "",
+      "type": "secret",
+      "enabled": true,
+      "description": "A JWT signed with a WRONG secret (claims role ADMIN) - must be rejected"
+    },
+    {
+      "key": "productId",
+      "value": "",
+      "type": "default",
+      "enabled": true,
+      "description": "Any product id; only used for 401/403 negative tests (never reaches the handler)"
+    },
+    {
+      "key": "affiliateToken",
+      "value": "",
+      "type": "secret",
+      "enabled": true,
+      "description": "Token of the ACTIVE affiliate user (payout tests)"
+    }
+  ],
+  "_postman_variable_scope": "environment"
+}

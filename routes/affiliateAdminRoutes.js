@@ -22,6 +22,9 @@ import {
   listPayouts,
   updatePayout,
   getAdminDashboard,
+  getAnalytics,
+  listFraudLogs,
+  reviewFraudLog,
 } from "../controller/affiliateAdminController.js";
 
 const router = express.Router();
@@ -29,6 +32,11 @@ router.use(authenticateToken, requireAdmin);
 
 // Dashboard
 router.get("/dashboard", getAdminDashboard);
+router.get("/analytics", getAnalytics);
+
+// Fraud Logs
+router.get("/fraud-logs", listFraudLogs);
+router.put("/fraud-logs/:id/review", reviewFraudLog);
 
 // Config
 router.get("/config", getConfig);

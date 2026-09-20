@@ -1,0 +1,18 @@
+// Free membership (Release 1). Plan = configuration; user_memberships = per-user state.
+// price / billing_cycle exist for Release 2 (paid membership) and drive NO behaviour yet.
+model membership_plans {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                  String   @unique @db.VarChar(50)
+  name                  String   @db.VarChar(255)
+  trial_duration_days   Int
+  trial_referral_target Int
+  count_basis           String   @default("FIRST_ORDER") @db.VarChar(20) // REGISTRATION is modelled but only FIRST_ORDER is implemented
+  price                 Decimal  @default(0) @db.Decimal(10, 2)
+  billing_cycle         String   @default("ONE_TIME") @db.VarChar(20)
+  grace_period_days     Int      @default(0)
+  is_active             Boolean  @default(true)
+  created_at            DateTime @default(now()) @db.Timestamptz
+  updated_at            DateTime @updatedAt @db.Timestamptz
+
+  user_memberships user_memberships[]
+}

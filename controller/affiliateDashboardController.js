@@ -48,8 +48,18 @@ export const getAffiliateDashboard = async (req, res) => {
     const profile = await requireProfile(req.user.id);
     if (!profile) return res.status(403).json({ success: false, error: "Not an affiliate" });
 
-    const stats = await affiliateDAO.getAffiliateDashboardStats(profile.id);
-    return res.json({ success: true, data: stats });
+    const [stats, dashConfig] = await Promise.all([affiliateDAO.getAffiliateDashboardStats(profile.id), affiliateDAO.getConfig()]);
+    // Q5: program_enabled is a hard override — surface the effective state, not the raw columns.
+    const programEnabled = dashConfig?.is_enabled !== false;
+    return res.json({
+      success: true,
+      data: {
+        ...stats,
+        program_enabled: programEnabled,
+        new_links_enabled: programEnabled && dashConfig?.new_links_enabled !== false,
+        withdrawal_enabled: dashConfig?.withdrawal_enabled !== false,
+      },
+    });
   } catch (err) {
     return res.status(500).json({ success: false, error: "Server error" });
   }
@@ -99,6 +109,12 @@ export const generateLink = async (req, res) => {
   try {
     const profile = await requireProfile(req.user.id);
     if (!profile) return res.status(403).json({ success: false, error: "Not an affiliate" });
+
+    // Q5/Q8: program_enabled is a hard override on new_links_enabled; existing links keep earning regardless.
+    const linkConfig = await affiliateDAO.getConfig();
+    if (!linkConfig.is_enabled || !linkConfig.new_links_enabled) {
+      return res.status(400).json({ success: false, error: "New affiliate link creation is temporarily paused" });
+    }
 
     const { destination_type, product_id, category_id, search_query, campaign_name, sub_id } = req.body;
 
@@ -240,6 +256,9 @@ export const requestPayout = async (req, res) => {
     if (!profile) return res.status(403).json({ success: false, error: "Not an affiliate" });
 
     const config = await affiliateDAO.getConfig();
+    if (!config.withdrawal_enabled) {
+      return res.status(400).json({ success: false, error: "Payouts are temporarily paused" });
+    }
     const minPayout = Number(config.minimum_payout_amount);
 
     if (Number(profile.available_balance) < minPayout) {
@@ -249,48 +268,68 @@ export const requestPayout = async (req, res) => {
       });
     }
 
-    const commissions = await affiliateDAO.getApprovedUnpaidCommissions(profile.id);
-    if (!commissions.length) {
-      return res.status(400).json({ success: false, error: "No approved commissions available for payout" });
-    }
-
-    const grossAmount = commissions.reduce((s, c) => s + Number(c.final_amount), 0);
-    const tdsAmount = commissions.reduce((s, c) => s + Number(c.tds_amount), 0);
-    const netAmount = grossAmount - tdsAmount;
-
     const { generatePayoutNumber } = await import("../services/affiliateService.js");
-    const payoutNumber = await generatePayoutNumber();
+    const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
-    const payout = await affiliateDAO.createPayout({
-      affiliate_id: profile.id,
-      payout_number: payoutNumber,
-      gross_amount: grossAmount,
-      tds_amount: tdsAmount,
-      net_amount: netAmount,
-      commission_count: commissions.length,
-      payment_method: profile.payment_method,
-      bank_name: profile.bank_name,
-      bank_account_number: profile.bank_account_number,
-      bank_ifsc_code: profile.bank_ifsc_code,
-      account_holder_name: profile.account_holder_name,
-      upi_id: profile.upi_id,
-      status: "PENDING",
-    });
+    // Everything below is one transaction. The atomic claim of the APPROVED, unpaid commissions comes first:
+    // a concurrent/repeated request blocks on the row locks, then claims 0 rows and aborts with NO_COMMISSIONS,
+    // so a commission can never be paid out twice or move the balance twice.
+    let payout;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        payout = await prisma.$transaction(async (tx) => {
+          const commissions = await tx.affiliate_commissions.findMany({
+            where: { affiliate_id: profile.id, status: "APPROVED", payout_id: null },
+          });
+          if (!commissions.length) throw Object.assign(new Error("No approved commissions available for payout"), { code: "NO_COMMISSIONS" });
 
-    // Link commissions to payout
-    await prisma.affiliate_commissions.updateMany({
-      where: { id: { in: commissions.map((c) => c.id) } },
-      data: { payout_id: payout.id, status: "IN_PAYOUT" },
-    });
+          const claimed = await tx.affiliate_commissions.updateMany({
+            where: { id: { in: commissions.map((c) => c.id) }, status: "APPROVED", payout_id: null },
+            data: { status: "IN_PAYOUT" },
+          });
+          if (claimed.count !== commissions.length) throw Object.assign(new Error("Commissions were claimed by another payout"), { code: "NO_COMMISSIONS" });
 
-    // Deduct from available balance
-    await affiliateDAO.incrementProfileStats(profile.id, {
-      available_balance: { decrement: grossAmount },
-      processing_balance: { increment: grossAmount },
-    });
+          // final_amount is already net of TDS (see approveCommission): gross = pre-TDS, net = what is owed.
+          const grossAmount = round2(commissions.reduce((sum, c) => sum + Number(c.gross_commission), 0));
+          const tdsAmount = round2(commissions.reduce((sum, c) => sum + Number(c.tds_amount), 0));
+          const netAmount = round2(commissions.reduce((sum, c) => sum + Number(c.final_amount), 0));
+
+          const created = await tx.affiliate_payouts.create({
+            data: {
+              affiliate_id: profile.id,
+              payout_number: await generatePayoutNumber(),
+              gross_amount: grossAmount,
+              tds_amount: tdsAmount,
+              net_amount: netAmount,
+              commission_count: commissions.length,
+              payment_method: profile.payment_method,
+              bank_name: profile.bank_name,
+              bank_account_number: profile.bank_account_number,
+              bank_ifsc_code: profile.bank_ifsc_code,
+              account_holder_name: profile.account_holder_name,
+              upi_id: profile.upi_id,
+              status: "PENDING",
+            },
+          });
+          await tx.affiliate_commissions.updateMany({ where: { id: { in: commissions.map((c) => c.id) } }, data: { payout_id: created.id } });
+
+          // available_balance was credited with final_amount at approval, so the same net amount moves out.
+          await tx.affiliate_profiles.update({
+            where: { id: profile.id },
+            data: { available_balance: { decrement: netAmount }, processing_balance: { increment: netAmount } },
+          });
+          return created;
+        });
+        break;
+      } catch (err) {
+        if (err.code === "P2002" && attempt < 3) continue; // payout_number collision with another affiliate's request
+        throw err;
+      }
+    }
 
     return res.status(201).json({ success: true, data: payout });
   } catch (err) {
+    if (err.code === "NO_COMMISSIONS") return res.status(409).json({ success: false, error: err.message });
     console.error("requestPayout error:", err);
     return res.status(500).json({ success: false, error: "Server error" });
   }

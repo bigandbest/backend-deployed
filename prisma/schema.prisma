@@ -131,7 +131,7 @@ model affiliate_clicks {
 model affiliate_commissions {
   id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   affiliate_id         String    @db.Uuid
-  affiliate_order_id   String    @db.Uuid
+  affiliate_order_id   String @unique @db.Uuid
   order_id             String    @db.Uuid
   order_value          Decimal   @db.Decimal(10, 2)
   base_commission_rate Decimal   @db.Decimal(10, 2)
@@ -153,6 +153,10 @@ model affiliate_commissions {
   cancellation_reason  String?
   created_at           DateTime  @default(now()) @db.Timestamptz
   updated_at           DateTime  @updatedAt @db.Timestamptz
+  // Campaign + Reward Rules Engine (migration 20260916150000) — financial snapshot, nullable.
+  campaign_id          String?   @db.Uuid
+  campaign_name        String?   @db.VarChar(255)
+  campaign_breakdown   Json?
 
   // Relations
   affiliate_profiles affiliate_profiles @relation(fields: [affiliate_id], references: [id])
@@ -185,6 +189,10 @@ model affiliate_configs {
   updated_by               String?   @db.Uuid
   created_at               DateTime  @default(now()) @db.Timestamptz
   updated_at               DateTime  @updatedAt @db.Timestamptz
+  // Marketing Controls (migration 20260915190000) — granular acquisition/withdrawal toggles.
+  new_applications_enabled Boolean   @default(true)
+  new_links_enabled        Boolean   @default(true)
+  withdrawal_enabled       Boolean   @default(true)
 }
 
 
@@ -225,7 +233,7 @@ model affiliate_orders {
   affiliate_id          String    @db.Uuid
   affiliate_code        String
   click_id              String?   @db.Uuid
-  order_id              String    @db.Uuid
+  order_id              String @unique @db.Uuid
   order_number          String?
   customer_id           String    @db.Uuid
   customer_email        String?
@@ -248,10 +256,14 @@ model affiliate_orders {
   processed_at          DateTime? @db.Timestamptz
   created_at            DateTime  @default(now()) @db.Timestamptz
   updated_at            DateTime  @updatedAt @db.Timestamptz
+  // Campaign + Reward Rules Engine (migration 20260916150000) — financial snapshot, nullable.
+  campaign_id           String?   @db.Uuid
+  campaign_name         String?   @db.VarChar(255)
+  campaign_breakdown    Json?
 
   // Relations
   affiliate_profiles    affiliate_profiles    @relation(fields: [affiliate_id], references: [id])
-  affiliate_commissions affiliate_commissions[]
+  affiliate_commissions affiliate_commissions?
 }
 
 
@@ -434,6 +446,56 @@ model bulk_pricing_tiers {
   product_variants product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
 
   @@index([variant_id])
+}
+
+
+// --- Model: campaigns.prisma ---
+// Campaign + Reward Rules Engine (migration 20260916150000). Replaces the dropped referral_campaigns stub.
+model campaigns {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String    @db.VarChar(255)
+  description    String?
+  channel        String    @db.VarChar(20)
+  starts_at      DateTime  @db.Timestamptz
+  ends_at        DateTime  @db.Timestamptz
+  usage_limit    Int?
+  used_count     Int       @default(0)
+  is_active      Boolean   @default(true)
+  created_by     String?   @db.Uuid
+  created_at     DateTime  @default(now()) @db.Timestamptz
+  updated_at     DateTime  @updatedAt @db.Timestamptz
+
+  campaign_rule  campaign_rules?
+  campaign_usage campaign_usage[]
+
+  @@index([channel, is_active, starts_at, ends_at])
+}
+
+model campaign_rules {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  campaign_id     String   @unique @db.Uuid
+  scope_type      String   @db.VarChar(20)
+  scope_id        String?  @db.Uuid
+  reward_type     String   @db.VarChar(20)
+  reward_value    Decimal  @db.Decimal(10, 2)
+  max_reward_cap  Decimal? @db.Decimal(10, 2)
+  min_order_value Decimal? @db.Decimal(10, 2)
+
+  campaigns campaigns @relation(fields: [campaign_id], references: [id], onDelete: Cascade)
+
+  @@index([scope_type, scope_id])
+}
+
+model campaign_usage {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  campaign_id String   @db.Uuid
+  order_id    String   @db.Uuid
+  channel     String   @db.VarChar(20)
+  created_at  DateTime @default(now()) @db.Timestamptz
+
+  campaigns campaigns @relation(fields: [campaign_id], references: [id], onDelete: Cascade)
+
+  @@unique([campaign_id, order_id])
 }
 
 
@@ -900,6 +962,74 @@ model invoice_sequences {
   fiscal_year   String   @id @db.VarChar(5)
   last_sequence Int      @default(0)
   updated_at    DateTime @db.Timestamptz(6)
+}
+
+
+// --- Model: membership_plans.prisma ---
+// Free membership (Release 1). Plan = configuration; user_memberships = per-user state.
+// price / billing_cycle exist for Release 2 (paid membership) and drive NO behaviour yet.
+model membership_plans {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                  String   @unique @db.VarChar(50)
+  name                  String   @db.VarChar(255)
+  trial_duration_days   Int
+  trial_referral_target Int
+  count_basis           String   @default("FIRST_ORDER") @db.VarChar(20) // REGISTRATION is modelled but only FIRST_ORDER is implemented
+  price                 Decimal  @default(0) @db.Decimal(10, 2)
+  billing_cycle         String   @default("ONE_TIME") @db.VarChar(20)
+  grace_period_days     Int      @default(0)
+  is_active             Boolean  @default(true)
+  created_at            DateTime @default(now()) @db.Timestamptz
+  updated_at            DateTime @updatedAt @db.Timestamptz
+
+  user_memberships user_memberships[]
+}
+
+
+// --- Model: membership_referral_credits.prisma ---
+// Idempotency guard for the qualification counter: one referred user contributes to a membership at most once,
+// no matter how many reward rules match or how many times the reward job is retried.
+model membership_referral_credits {
+  id                      String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  membership_id           String   @db.Uuid
+  referee_id              String   @db.Uuid
+  referral_transaction_id String   @db.Uuid
+  counted_at              DateTime @default(now()) @db.Timestamptz
+
+  membership user_memberships @relation(fields: [membership_id], references: [id])
+
+  @@unique([membership_id, referee_id])
+}
+
+
+// --- Model: membership_status_log.prisma ---
+// Append-only audit trail of membership status changes.
+model membership_status_log {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  membership_id String   @db.Uuid
+  from_status   String?  @db.VarChar(20)
+  to_status     String   @db.VarChar(20)
+  reason        String   @db.VarChar(100)
+  actor         String   @default("SYSTEM") @db.VarChar(10) // SYSTEM | ADMIN | USER
+  created_at    DateTime @default(now()) @db.Timestamptz
+
+  membership user_memberships @relation(fields: [membership_id], references: [id])
+
+  @@index([membership_id, created_at])
+}
+
+
+// --- Model: notification_templates.prisma ---
+// Marketing Control Center Q1 — admin-editable copy for in-app notifications (migration 20260916210000).
+model notification_templates {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  notification_type   String   @unique @db.VarChar(100)
+  title_template       String
+  message_template     String
+  supported_variables  Json     @default("[]")
+  is_active            Boolean  @default(true)
+  created_at           DateTime @default(now()) @db.Timestamptz
+  updated_at           DateTime @updatedAt @db.Timestamptz
 }
 
 
@@ -1625,18 +1755,6 @@ model referral_admin_logs {
 }
 
 
-// --- Model: referral_campaigns.prisma ---
-model referral_campaigns {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String   @db.VarChar(255)
-  description String?
-  is_active   Boolean  @default(true)
-  created_by  String?  @db.Uuid
-  created_at  DateTime @default(now()) @db.Timestamptz
-  updated_at  DateTime @updatedAt @db.Timestamptz
-}
-
-
 // --- Model: referral_configs.prisma ---
 model referral_configs {
   id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -1663,6 +1781,8 @@ model referral_configs {
   updated_by                String?   @db.Uuid
   created_at                DateTime  @default(now()) @db.Timestamptz
   updated_at                DateTime  @updatedAt @db.Timestamptz
+  // Marketing Controls (migration 20260915190000) — blocks new signups without affecting existing referrers.
+  new_referral_signups_enabled Boolean @default(true)
 }
 
 
@@ -1683,6 +1803,16 @@ model referral_fraud_logs {
   resolved_by              String?   @db.VarChar
   resolution_note          String?
   created_at               DateTime  @default(now()) @db.Timestamptz
+  // Marketing Control Center Q2 — shared with affiliate via the program discriminator, plus the
+  // review/status columns the admin review flow already expected (migration 20260916210000).
+  program                  String    @default("REFERRAL") @db.VarChar(20)
+  status                   String    @default("PENDING_REVIEW") @db.VarChar(30)
+  reviewed_by              String?   @db.Uuid
+  reviewed_at              DateTime? @db.Timestamptz
+  review_notes             String?
+  action_taken             String?   @db.VarChar(100)
+  action_taken_by          String?   @db.Uuid
+  action_taken_at          DateTime? @db.Timestamptz
 }
 
 
@@ -1755,7 +1885,7 @@ model referral_transactions {
   referrer_id             String    @db.Uuid
   referrer_profile_id     String    @db.Uuid
   referral_code_used      String    @db.VarChar(20)
-  referee_id              String    @db.Uuid
+  referee_id              String    @unique @db.Uuid // a referee has exactly one referrer
   referee_email           String?   @db.VarChar
   referee_name            String?   @db.VarChar
   referee_phone           String?   @db.VarChar
@@ -1783,6 +1913,14 @@ model referral_transactions {
   user_agent              String?
   created_at              DateTime  @default(now()) @db.Timestamptz
   updated_at              DateTime  @updatedAt @db.Timestamptz
+  // Campaign + Reward Rules Engine (migration 20260916150000) — financial snapshot, nullable.
+  campaign_id             String?   @db.Uuid
+  campaign_name           String?   @db.VarChar(255)
+  applied_reward_type     String?   @db.VarChar(20)
+  applied_reward_value    Decimal?  @db.Decimal(10, 2)
+  // Snapshot taken when the referred order is placed: was the referrer allowed to earn (membership) at that moment?
+  // Later lapses do not invalidate an order that was legitimately placed while eligible.
+  membership_eligible     Boolean   @default(true)
 
   // Relations
   referrer_profile user_referral_profiles @relation("ReferrerProfile", fields: [referrer_profile_id], references: [id])
@@ -2414,6 +2552,7 @@ model shopping_lists {
   users       users                 @relation(fields: [user_id], references: [id], onDelete: Cascade)
   items       shopping_list_items[]
 
+  @@unique([user_id, name])
   @@index([user_id])
 }
 
@@ -2742,6 +2881,32 @@ model user_addresses {
   // Relations
   users            users                @relation(fields: [user_id], references: [id])
   service_bookings service_bookings[]
+}
+
+
+// --- Model: user_memberships.prisma ---
+// One row per user. Status machine (no LAPSED->ACTIVE, no ACTIVE->LAPSED, no re-trial):
+//   TRIAL -> ACTIVE (target reached) | TRIAL -> LAPSED (trial_ends_at + max(grace, return window) passed)
+//   LAPSED -> ACTIVE_PAID (Release 2)   CANCELLED reserved.
+// referrals_counted only ever goes up: a later reward reversal does not un-qualify a membership.
+model user_memberships {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id           String    @unique @db.Uuid
+  plan_id           String    @db.Uuid
+  status            String    @default("TRIAL") @db.VarChar(20)
+  trial_started_at  DateTime  @db.Timestamptz
+  trial_ends_at     DateTime  @db.Timestamptz
+  referrals_counted Int       @default(0)
+  qualified_at      DateTime? @db.Timestamptz
+  lapsed_at         DateTime? @db.Timestamptz
+  created_at        DateTime  @default(now()) @db.Timestamptz
+  updated_at        DateTime  @updatedAt @db.Timestamptz
+
+  plan                       membership_plans             @relation(fields: [plan_id], references: [id])
+  membership_referral_credits membership_referral_credits[]
+  membership_status_log      membership_status_log[]
+
+  @@index([status, trial_ends_at])
 }
 
 

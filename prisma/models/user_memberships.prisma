@@ -1,0 +1,23 @@
+// One row per user. Status machine (no LAPSED->ACTIVE, no ACTIVE->LAPSED, no re-trial):
+//   TRIAL -> ACTIVE (target reached) | TRIAL -> LAPSED (trial_ends_at + max(grace, return window) passed)
+//   LAPSED -> ACTIVE_PAID (Release 2)   CANCELLED reserved.
+// referrals_counted only ever goes up: a later reward reversal does not un-qualify a membership.
+model user_memberships {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id           String    @unique @db.Uuid
+  plan_id           String    @db.Uuid
+  status            String    @default("TRIAL") @db.VarChar(20)
+  trial_started_at  DateTime  @db.Timestamptz
+  trial_ends_at     DateTime  @db.Timestamptz
+  referrals_counted Int       @default(0)
+  qualified_at      DateTime? @db.Timestamptz
+  lapsed_at         DateTime? @db.Timestamptz
+  created_at        DateTime  @default(now()) @db.Timestamptz
+  updated_at        DateTime  @updatedAt @db.Timestamptz
+
+  plan                       membership_plans             @relation(fields: [plan_id], references: [id])
+  membership_referral_credits membership_referral_credits[]
+  membership_status_log      membership_status_log[]
+
+  @@index([status, trial_ends_at])
+}

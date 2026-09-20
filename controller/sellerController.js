@@ -3,6 +3,7 @@ import ProductDAO from '../dao/product.dao.js';
 import prisma from '../config/prisma.js';
 import { resolveApplicablePlatformFee, batchResolvePlatformFees } from '../services/platformFeeService.js';
 import { updateParentOrderStatusFromSubOrders } from '../services/orderFulfillmentService.js';
+import { onOrderStatusChanged } from '../services/orderLifecycleHooks.js';
 
 const ensureSellerOwnedProductsInInventory = async (sellerId) => {
     // Seller products can be approved (active=true) but still miss seller_products rows.
@@ -1066,6 +1067,7 @@ export const updateSellerOrderStatus = async (req, res) => {
             where: { id: orderId },
             data: { status: dbStatus }
         });
+        await onOrderStatusChanged(orderId, dbStatus);
 
         res.status(200).json({
             success: true,

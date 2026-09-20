@@ -1,6 +1,7 @@
 // controller/referralController.js
 import prisma from "../config/prisma.js";
 import * as referralService from "../services/referralService.js";
+import * as membershipService from "../services/membershipService.js";
 
 // ============================================================================
 // USER PROFILE & STATS
@@ -52,7 +53,9 @@ export const getProfile = async (req, res) => {
   try {
     const { user } = req;
     const profile = await referralService.getOrCreateReferralProfile(user.id, user.phone || user.name);
-    res.json({ success: true, profile });
+    // Read-only: viewing the profile never starts a membership trial.
+    const membership = await membershipService.getMembershipSummary(user.id);
+    res.json({ success: true, profile, membership });
   } catch (error) {
     console.error("Error in getProfile:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
@@ -64,12 +67,24 @@ export const generateCode = async (req, res) => {
     const { user } = req;
     let profile = await prisma.user_referral_profiles.findUnique({ where: { user_id: user.id } });
 
+    // The free-membership trial starts on the FIRST successful call here (and only here). ensureMembership is idempotent,
+    // so it runs before the early return below: a profile/code that already exists (e.g. created by apply-code) must still
+    // start the trial the first time the user explicitly generates their code, and repeat calls never restart it.
+    // Blocked users never start a trial.
+    const startTrial = async () => {
+      if (profile?.is_blocked) return null;
+      await membershipService.ensureMembership(user.id);
+      return membershipService.getMembershipSummary(user.id);
+    };
+
     if (profile?.referral_code) {
-      return res.json({ success: true, referral_code: profile.referral_code, profile });
+      const membership = await startTrial();
+      return res.json({ success: true, referral_code: profile.referral_code, profile, membership });
     }
 
     profile = await referralService.getOrCreateReferralProfile(user.id, user.phone || user.name);
-    res.json({ success: true, referral_code: profile.referral_code, profile });
+    const membership = await startTrial();
+    res.json({ success: true, referral_code: profile.referral_code, profile, membership });
   } catch (error) {
     console.error("Error in generateCode:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
@@ -85,6 +100,10 @@ export const getStats = async (req, res) => {
       prisma.referral_configs.findFirst(),
     ]);
 
+    // Membership Q7: status/display only, computed at read time from the same tier
+    // ladder tiered_rewards_config already uses for the reward bump (Q6).
+    const membership = await referralService.getMembershipStatus(profile, config);
+
     res.json({
       success: true,
       stats: {
@@ -98,10 +117,15 @@ export const getStats = async (req, res) => {
         pending_balance: wallet.pending,
         expiring_soon: wallet.expiringSoon,
         current_tier: profile.current_tier,
+        next_tier: membership.next_tier,
+        next_tier_threshold: membership.next_tier_threshold,
+        referrals_to_next_tier: membership.referrals_to_next_tier,
         was_referred: profile.was_referred,
         referred_by_code: profile.referred_by_code,
         withdrawal_enabled: config?.withdrawal_enabled !== false,
         program_enabled: config?.is_enabled !== false,
+        // Q5: program_enabled is a hard override — surface the effective state, not the raw column.
+        new_signups_enabled: config?.is_enabled !== false && config?.new_referral_signups_enabled !== false,
       },
     });
   } catch (error) {
