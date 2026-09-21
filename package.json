@@ -8,6 +8,7 @@
     "test": "jest --testTimeout=30000",
     "test:wallet": "jest wallet.test.js --testTimeout=30000",
     "test:watch": "jest --watch",
+    "test:homepage": "node --test test/homepage/*.spec.js",
     "server": "nodemon server.js",
     "start": "node server.js",
     "workers": "node workers/index.js",

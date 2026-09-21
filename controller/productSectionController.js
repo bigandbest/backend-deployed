@@ -10,7 +10,12 @@ import prisma from '../config/prisma.js';
 import cartAvailabilityDAO from '../dao/cart-availability.dao.js';
 import productDAO from '../dao/product.dao.js';
 import redis from '../config/redis.js';
+import { describeTypes } from '../services/homepage/registry/index.js';
+import { createSectionService, SectionValidationError } from '../services/homepage/SectionService.js';
 import { SECTION_CACHE_KEYS as CACHE_KEYS, invalidateSectionCache } from '../lib/sectionCache.js';
+
+const sectionService = createSectionService({ prisma });
+const actorOf = (req) => ({ id: req.user?.id ?? req.user?.userId, role: req.user?.role });
 
 const SECTION_CACHE_TTL = parseInt(process.env.SECTION_CACHE_TTL || '300', 10);
 
@@ -58,23 +63,6 @@ export const getAllProductSections = async (req, res) => {
   }
 };
 
-// Get active product sections only
-export const getActiveProductSections = async (req, res) => {
-  try {
-    const cached = await redis.get(CACHE_KEYS.activeSections).catch(() => null);
-    if (cached) return res.status(200).json(JSON.parse(cached));
-
-    const data = await productSectionDao.list({ active: true });
-    const payload = { success: true, data };
-    redis.setex(CACHE_KEYS.activeSections, SECTION_CACHE_TTL, JSON.stringify(payload)).catch(() => {});
-    res.status(200).json(payload);
-  } catch (error) {
-    console.error("Error fetching active product sections:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-};
-
-// Get counts for all sections
 export const getSectionCounts = async (req, res) => {
   try {
     const data = await productSectionDao.getSectionCounts();
@@ -107,38 +95,14 @@ export const getProductSectionById = async (req, res) => {
   }
 };
 
-// Update product section
+// Update product section (allow-list + registry validation + audit; see services/homepage/SectionService.js)
 export const updateProductSection = async (req, res) => {
   try {
-    const { id } = req.params;
-    const updateData = req.body;
+    const id = parseInt(req.params.id);
+    const data = await sectionService.updateSection(id, req.body || {}, actorOf(req));
+    if (!data) return res.status(404).json({ error: "Product section not found" });
 
-    delete updateData.id;
-    delete updateData.created_at;
-
-    // Allowed fields for update
-    const allowedFields = [
-      'section_name',
-      'description',
-      'is_active',
-      'display_order',
-      'component_name',
-      'is_marketing',
-      'allow_group_mapping',
-      'allow_category_mapping'
-    ];
-
-    // Filter updateData to only include allowed fields
-    const filteredUpdateData = Object.keys(updateData)
-      .filter(key => allowedFields.includes(key))
-      .reduce((obj, key) => {
-        obj[key] = updateData[key];
-        return obj;
-      }, {});
-
-    const data = await productSectionDao.update(parseInt(id), filteredUpdateData);
-
-    invalidateSectionCache(parseInt(id));
+    invalidateSectionCache(id);
 
     res.status(200).json({
       success: true,
@@ -146,6 +110,9 @@ export const updateProductSection = async (req, res) => {
       message: "Product section updated successfully",
     });
   } catch (error) {
+    if (error instanceof SectionValidationError) {
+      return res.status(400).json({ success: false, error: { code: 'VALIDATION_FAILED', message: error.message, details: error.errors } });
+    }
     console.error("Error updating product section:", error);
     res.status(500).json({ error: "Internal server error" });
   }
@@ -165,6 +132,7 @@ export const toggleSectionStatus = async (req, res) => {
     const data = await productSectionDao.update(parseInt(id), { is_active: newStatus });
 
     invalidateSectionCache(parseInt(id));
+    sectionService.audit(parseInt(id), 'SECTION_TOGGLED', { is_active: { from: section.is_active, to: newStatus } }, actorOf(req));
 
     res.status(200).json({
       success: true,
@@ -190,6 +158,8 @@ export const updateSectionOrder = async (req, res) => {
       sections.map(section => productSectionDao.update(parseInt(section.id), { display_order: section.display_order }))
     );
 
+    sectionService.audit(null, 'SECTION_REORDERED', { order: sections.map((x) => ({ id: parseInt(x.id), display_order: x.display_order })) }, actorOf(req));
+
     // Order change affects the list caches; individual section content is unchanged
     redis.del(CACHE_KEYS.allSections).catch(() => {});
     redis.del(CACHE_KEYS.activeSections).catch(() => {});
@@ -200,6 +170,26 @@ export const updateSectionOrder = async (req, res) => {
     });
   } catch (error) {
     console.error("Error updating section order:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Registry metadata for the admin form (types, allowed mappings, config schema)
+export const getSectionTypes = (req, res) => {
+  res.status(200).json({ success: true, data: describeTypes() });
+};
+
+// Recent audit entries for one section
+export const getSectionAuditLog = async (req, res) => {
+  try {
+    const rows = await prisma.section_audit_log.findMany({
+      where: { section_id: parseInt(req.params.id) },
+      orderBy: { created_at: 'desc' },
+      take: Math.min(parseInt(req.query.limit) || 50, 200),
+    });
+    res.status(200).json({ success: true, data: rows.map((r) => ({ ...r, id: String(r.id) })) });
+  } catch (error) {
+    console.error("Error fetching section audit log:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

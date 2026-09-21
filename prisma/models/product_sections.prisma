@@ -4,6 +4,9 @@ model product_sections {
   section_name   String    @db.VarChar
   is_active      Boolean?  @default(true)
   display_order  Int?      @default(0)
+  // DEPRECATED: identity + behavior used to be collapsed here. New code reads
+  // `section_type` (contract) and `config` (options). Still written for old
+  // clients that read /homepage/bootstrap and /product-sections/*.
   component_name String    @db.VarChar
   description    String?
   created_at     DateTime? @default(now()) @db.Timestamp
@@ -12,10 +15,32 @@ model product_sections {
   allow_group_mapping        Boolean?                       @default(false)
   allow_category_mapping     Boolean?                       @default(false)
 
+  // ── Homepage feed v2 (additive; see services/homepage/registry) ──────────
+  // Contract selector. NULL = not deliverable via the feed (no renderer / global strip).
+  section_type      String?  @db.VarChar(50)
+  // Typed per-type options (limit, layout, source, theme…). Never holds IDs.
+  config            Json     @default("{}") @db.JsonB
+  config_version    Int      @default(1)
+  platforms         String[] @default(["web", "mobile"])
+  // AUTO | INITIAL | DEFERRED  (CHECK constraint in migration)
+  load_mode         String   @default("AUTO") @db.VarChar(10)
+  show_on_home      Boolean  @default(true)
+  // left/right children of a pair section (DualDeals / DiscountCorner)
+  parent_section_id Int?
+  slot              String?  @db.VarChar(20)
+  updated_by        String?  @db.VarChar(64)
+
   // Relations
+  parent               product_sections?  @relation("SectionChildren", fields: [parent_section_id], references: [id], onDelete: Cascade)
+  children             product_sections[] @relation("SectionChildren")
   section_products     product_section_products[]
   subcategory_mappings section_subcategory_mappings[]
   product_section_categories product_section_categories[]
   product_section_groups     product_section_groups[]
   store_section_mappings     store_section_mappings[]
+  audit_logs                 section_audit_log[]
+
+  @@unique([parent_section_id, slot], map: "uq_product_sections_parent_slot")
+  @@index([is_active, show_on_home, display_order, id], map: "idx_product_sections_feed")
+  @@index([parent_section_id], map: "idx_product_sections_parent")
 }

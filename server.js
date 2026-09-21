@@ -66,6 +66,7 @@ import videoCardRoutes from "./routes/videoCardRoutes.js";
 import shopByStoreRoutes from "./routes/shopByStoreRoutes.js";
 import productSectionRoutes from "./routes/productSectionRoutes.js";
 import homepageRoutes from "./routes/homepageRoutes.js";
+import { invalidateHomepageOnWrite as hpInvalidate } from "./middleware/homepageInvalidate.js";
 import zoneRoutes from "./routes/zoneRoutes.js";
 import promoBannerRoutes from "./routes/promoBannerRoutes.js";
 import bulkWholesaleRoutes from "./routes/bulkWholesaleRoutes.js";
@@ -233,13 +234,13 @@ const createApp = () => {
   // app.use("/api/b&b-group", bnbGroupRoutes);
   // app.use("/api/b&b-group-product", bnbGroupProductRoutes);
 
-  app.use("/api/daily-deals", dailyDealsRoutes);
-  app.use("/api/daily-deals-product", dailyDealsProductRoutes);
-  app.use("/api/brands", brandRoutes);
+  app.use("/api/daily-deals", hpInvalidate("DAILY_DEAL_UPDATED"), dailyDealsRoutes);
+  app.use("/api/daily-deals-product", hpInvalidate("DAILY_DEAL_UPDATED"), dailyDealsProductRoutes);
+  app.use("/api/brands", hpInvalidate("BRAND_UPDATED"), brandRoutes);
 
   app.use("/api/product-brand", brandProductsRoutes);
-  app.use("/api/recommended-stores", recommendedStoreRoutes);
-  app.use("/api/product-recommended-stores", productRecommendedStoreRoutes);
+  app.use("/api/recommended-stores", hpInvalidate("STORE_UPDATED"), recommendedStoreRoutes);
+  app.use("/api/product-recommended-stores", hpInvalidate("STORE_UPDATED"), productRecommendedStoreRoutes);
   app.use("/api/quick-pick", quickPickRoutes);
   app.use("/api/quick-pick-group", quickPickGroupRoutes);
   app.use("/api/quick-pick-group-product", quickPickGroupProductRoutes);
@@ -249,8 +250,8 @@ const createApp = () => {
   app.use("/api/stores", storeRoutes);
   app.use("/api/sub-stores", subStoreRoutes);
   app.use("/api/you-may-like-products", YouMayLikeProductRoutes);
-  app.use("/api/add-banner", addBannerRoutes);
-  app.use("/api/banner", addBannerRoutes);
+  app.use("/api/add-banner", hpInvalidate("BANNER_UPDATED"), addBannerRoutes);
+  app.use("/api/banner", hpInvalidate("BANNER_UPDATED"), addBannerRoutes);
   // app.use("/api/banner-groups", addBannerGroupRoutes);
   // app.use("/api/banner-group-products", addBannerGroupProductRoutes);
   app.use("/api/unique-sections", uniqueSectionRoutes);
@@ -261,19 +262,19 @@ const createApp = () => {
   app.use("/api/debug", debugRoutes);
   app.use("/api/quick-fix", quickFixRoutes);
   app.use("/api/tracking", trackingRoutes);
-  app.use("/api/categories", categoryRoutes);
+  app.use("/api/categories", hpInvalidate("CATEGORY_UPDATED"), categoryRoutes);
   app.use("/api/bulk-orders", bulkOrderRoutes);
   app.use("/api/bulk-products", bulkProductRoutes);
   app.use("/api/location", locationRoutes);
-  app.use("/api/variants", variantRoutes);
+  app.use("/api/variants", hpInvalidate("PRODUCT_UPDATED", { idFrom: "product" }), variantRoutes);
   app.use("/api/inventory", inventoryRoutes);
-  app.use("/api/video-cards", videoCardRoutes);
+  app.use("/api/video-cards", hpInvalidate("VIDEO_UPDATED"), videoCardRoutes);
   app.use("/api/shop-by-stores", shopByStoreRoutes);
-  app.use("/api/product-sections", productSectionRoutes);
+  app.use("/api/product-sections", hpInvalidate("SECTION_CHANGED", { idFrom: "section" }), productSectionRoutes);
   app.use("/api/homepage", homepageRoutes);
-  app.use("/api/promo-banner", promoBannerRoutes);
-  app.use("/api/store-section-mappings", subStoreRoutes);
-  app.use("/api/small-promo-cards", smallPromoCardRoutes);
+  app.use("/api/promo-banner", hpInvalidate("BANNER_UPDATED"), promoBannerRoutes);
+  app.use("/api/store-section-mappings", hpInvalidate("SECTION_CHANGED"), subStoreRoutes);
+  app.use("/api/small-promo-cards", hpInvalidate("PROMO_CARD_UPDATED"), smallPromoCardRoutes);
   app.use("/api/bulk-wholesale", bulkWholesaleRoutes);
 
   /*
@@ -300,8 +301,8 @@ const createApp = () => {
   app.use("/api/upload", uploadRoutes);
   // bulkPriceRoutes must be mounted first: adminProductRoutes has GET /products/:productId, which would otherwise
   // capture /products/bulk-price-export as a product id.
-  app.use("/api/admin/products", bulkPriceRoutes);
-  app.use("/api/admin", adminProductRoutes);
+  app.use("/api/admin/products", hpInvalidate("PRODUCT_UPDATED", { idFrom: "product" }), bulkPriceRoutes);
+  app.use("/api/admin", hpInvalidate("PRODUCT_UPDATED", { idFrom: "product", pathMatches: /^\/(products|variants)/ }), adminProductRoutes);
   app.use("/api/admin/users", adminUserRoutes);
   app.use("/api/admin/sellers", adminSellerRoutes);
 
@@ -332,11 +333,11 @@ const createApp = () => {
   app.use("/api/admin/notification-templates", notificationTemplateRoutes);
   app.use("/api/user/addresses", userAddressRoutes);
   app.use("/api/reviews", reviewRoutes);
-  app.use("/api/customer-testimonials", customerTestimonialRoutes);
+  app.use("/api/customer-testimonials", hpInvalidate("TESTIMONIAL_UPDATED"), customerTestimonialRoutes);
   app.use("/api/enquiry-messages", enquiryMessagesRoutes);
   app.use("/api/bids", bidRoutes);
   app.use("/api/search", searchRoutes);
-  app.use("/api/section-mappings", sectionMappingRoutes);
+  app.use("/api/section-mappings", hpInvalidate("SECTION_CHANGED", { idFrom: "section" }), sectionMappingRoutes);
   app.use("/api/partners", partnerRoutes);
   app.use("/api/business-partner-inquiries", businessPartnerInquiryRoutes);
   app.use("/api/certifications", certificationRoutes);

@@ -3,6 +3,7 @@ model product_section_groups {
   section_id  Int
   group_id    String    @db.Uuid
   is_active   Boolean?  @default(true)
+  display_order Int?    @default(0)
   created_at  DateTime? @default(now()) @db.Timestamptz(6)
   
   // Relations
