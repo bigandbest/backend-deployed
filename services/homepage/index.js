@@ -10,7 +10,7 @@ import { selectProducts } from './entities/ProductSelectionBatch.js';
 import { hydrateProducts } from './entities/EntityHydrator.js';
 import { RESOLVERS, makeCategoryLoader } from './resolvers/index.js';
 import { createAvailabilityOverlay } from './AvailabilityOverlay.js';
-import { cachedLoadPlan, cachedSelectProducts, cachedHydrateProducts, cachedResolver, createRedisStore } from './cache/cachedDeps.js';
+import { cachedLoadPlan, cachedSelectProducts, cachedHydrateProducts, cachedResolver, cachedCategoryLoader, createRedisStore } from './cache/cachedDeps.js';
 import { redisDel } from '../../lib/redis.js';
 import { createHomepageInvalidator } from './cache/HomepageInvalidator.js';
 
@@ -25,7 +25,7 @@ export const homepageFeedService = createHomepageFeedService({
   selectProducts: cachedSelectProducts((specs) => selectProducts(prisma, specs), { store }),
   hydrateProducts: cachedHydrateProducts((ids, opts) => hydrateProducts({ prisma, inventoryDAO }, ids, opts), { store }),
   resolvers,
-  makeCategoryLoader: () => makeCategoryLoader(prisma),
+  makeCategoryLoader: cachedCategoryLoader(() => makeCategoryLoader(prisma), { store }),
   applyAvailability: createAvailabilityOverlay(cartAvailabilityDAO),
   initialCount: HOMEPAGE_INITIAL_COUNT,
 });

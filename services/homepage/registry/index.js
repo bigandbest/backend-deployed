@@ -10,7 +10,7 @@ export const getDefinition = (type) =>
 
 export const listTypes = () => Object.keys(SECTION_DEFINITIONS);
 
-/** Registry metadata for the admin UI (drives which mapping tabs / config inputs are shown). */
+/** Registry metadata for the admin UI (drives which mapping tabs / config inputs / contract text are shown). */
 export const describeTypes = () =>
   Object.values(SECTION_DEFINITIONS).map((d) => ({
     type: d.type,
@@ -20,8 +20,66 @@ export const describeTypes = () =>
     platforms: d.platforms,
     isParent: d.isParent,
     usesProducts: d.usesProducts,
+    usesCategories: d.usesCategories,
+    supportsPagination: d.supportsPagination,
+    renderer: d.renderer,
+    emptyBehavior: d.emptyBehavior,
+    errorBehavior: d.errorBehavior,
+    availability: d.availability,
+    source: d.source,
+    selection: d.selection,
+    ordering: d.ordering,
     config: describeSchema(d.configSchema),
   }));
+
+/**
+ * The ONE definition of "can this section appear on the homepage?". The feed's SQL filter (PlanLoader: is_active,
+ * show_on_home, section_type NOT NULL) and platform filter (HomepageFeedService.prepare) implement exactly these rules;
+ * the admin list uses this function so the UI can never call a section "visible" when the feed would not render it.
+ *
+ * Reasons (all that apply): HIDDEN (is_active=false), NOT_ON_HOME (show_on_home=false), NO_SECTION_TYPE, UNKNOWN_TYPE,
+ * NO_SUPPORTED_PLATFORM, PARENT_NOT_ELIGIBLE (pair child whose parent cannot render).
+ *
+ * @param {{ is_active?: boolean|null, show_on_home?: boolean|null, section_type?: string|null, platforms?: string[]|null }} section
+ * @param {{ parent?: object|null }} [opts] the parent row when `section` is a pair child
+ * @returns {{ eligible: boolean, reasons: string[], platforms: string[] }} platforms = where it can actually render
+ */
+export function homepageEligibility(section, { parent = null } = {}) {
+  const reasons = [];
+  if (section.is_active !== true) reasons.push('HIDDEN');
+  if (section.show_on_home !== true) reasons.push('NOT_ON_HOME');
+  const def = section.section_type ? getDefinition(section.section_type) : null;
+  if (!section.section_type) reasons.push('NO_SECTION_TYPE');
+  else if (!def) reasons.push('UNKNOWN_TYPE');
+  const platforms = def ? PLATFORMS.filter((p) => def.platforms.includes(p) && (section.platforms || []).includes(p)) : [];
+  if (def && platforms.length === 0) reasons.push('NO_SUPPORTED_PLATFORM');
+  if (parent) {
+    const p = homepageEligibility(parent);
+    if (!p.eligible) reasons.push('PARENT_NOT_ELIGIBLE');
+  }
+  return { eligible: reasons.length === 0, reasons, platforms: reasons.length === 0 ? platforms : [] };
+}
+
+/**
+ * Guard for the mapping write endpoints (products/categories/groups/subcategories). The admin UI disables the buttons
+ * from the same definition; this makes the backend refuse what the UI would not offer.
+ * @param {{ section_type?: string|null, parent_section_id?: number|null, config?: object|null }} section
+ * @param {'PRODUCT'|'CATEGORY'|'GROUP'|'SUBCATEGORY'} kind
+ * @returns {{ ok: boolean, error?: string }}
+ */
+export function assertMappingAllowed(section, kind) {
+  const def = section.section_type ? getDefinition(section.section_type) : null;
+  if (!def) return { ok: false, error: 'this section has no supported section_type, so it cannot have mappings' };
+  if (def.isParent && section.parent_section_id == null) {
+    return { ok: false, error: `${def.type} parent rows carry no mappings; map the left/right child sections instead` };
+  }
+  if (!def.mappings.includes(kind)) return { ok: false, error: `${def.type} does not allow ${kind} mappings` };
+  if (def.type === 'PRODUCT_CAROUSEL') {
+    const source = validateConfig(def.configSchema, section.config).value?.source;
+    if (source !== 'MAPPED') return { ok: false, error: `source ${source} does not use mappings; set source to MAPPED first` };
+  }
+  return { ok: true };
+}
 
 /**
  * Validate a section write against its type's capabilities. Used by every admin write path —

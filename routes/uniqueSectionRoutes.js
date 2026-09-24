@@ -15,8 +15,12 @@ import {
   getProductsForUniqueSection,
   bulkMapUniqueSectionByNames
 } from '../controller/uniqueSectionController.js';
+import { adminWritesOnly } from "../middleware/adminWrites.js";
 
 const router = express.Router();
+
+// Every write on this router is admin-only (authenticateToken + requireAdmin); GETs stay public.
+router.use(adminWritesOnly);
 // Configure multer to store files in memory for processing
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });

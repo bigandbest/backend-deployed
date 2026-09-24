@@ -34,7 +34,7 @@ test('keys: required, <= 8, key-pattern only, de-duplicated', () => {
   assert.deepEqual(parseKeys(req({ keys: 'quick_picks, daily_deals ,quick_picks' })).keys, ['quick_picks', 'daily_deals']);
 });
 
-test('kill switch defaults OFF; cache headers never share pincode-specific responses', () => {
+test('feed defaults ON (kill switch is explicit opt-out); cache headers never share pincode-specific responses', () => {
   assert.equal(feedEnabled({}), true, 'enabled by default: the feed is the only homepage path');
   assert.equal(feedEnabled({ HOMEPAGE_FEED_ENABLED: 'true' }), true);
   assert.equal(feedEnabled({ HOMEPAGE_FEED_ENABLED: 'no' }), false);

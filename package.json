@@ -9,6 +9,7 @@
     "test:wallet": "jest wallet.test.js --testTimeout=30000",
     "test:watch": "jest --watch",
     "test:homepage": "node --test test/homepage/*.spec.js",
+    "test:homepage:int": "node --test --test-force-exit --test-concurrency=1 test/homepage/int/*.int.spec.js",
     "server": "nodemon server.js",
     "start": "node server.js",
     "workers": "node workers/index.js",

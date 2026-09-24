@@ -5,6 +5,16 @@
 // PARITY NOTE (decided): group -> products keeps today's semantics — every active product in the group's SUBCATEGORY
 // (productSectionController.computeAndCacheSectionContent step 3) — not products.group_id. Revisit separately.
 // Deliberate improvement over today: results are ORDERED (created_at DESC, id) so selection is deterministic.
+//
+// THIS IS THE ONLY PRODUCT-SELECTION ALGORITHM. The homepage feed (HomepageFeedService) and the admin/See-All list
+// (GET /product-sections/:id/products via selectForSection) both call it — there is no second implementation and no
+// fallback: nothing mapped => an empty list. Only ACTIVE products with at least one ACTIVE variant are ever selected,
+// and that filter is applied INSIDE the query (pins included) so inactive pins never consume the limit.
+//
+// GROUP SEMANTICS (documented + tested): group -> group.subcategory_id -> all active products of that subcategory.
+// Groups that share a subcategory therefore select the SAME product set (DISTINCT (section, subcategory) below keeps
+// them from repeating each product once per group). products.group_id is intentionally NOT used (owner decision
+// 2026-09-21, parity first). If group membership is wanted later it is a one-line change of the JOIN below.
 
 const dedupe = (ids) => [...new Set(ids)];
 
@@ -29,12 +39,13 @@ export async function selectProducts(prisma, specs) {
     const cap = Math.max(...mapped.map((s) => s.limit));
 
     tasks.push(
-      prisma.product_section_products
-        .findMany({
-          where: { section_id: { in: ids } },
-          select: { section_id: true, product_id: true },
-          orderBy: [{ display_order: 'asc' }, { id: 'asc' }],
-        })
+      prisma.$queryRaw`
+        SELECT m.section_id AS section_id, m.product_id::text AS product_id
+        FROM product_section_products m
+        JOIN products p ON p.id = m.product_id AND p.active = true
+        WHERE m.section_id = ANY(${ids}::int[])
+          AND EXISTS (SELECT 1 FROM product_variants v WHERE v.product_id = p.id AND v.active = true)
+        ORDER BY m.section_id, m.display_order ASC NULLS LAST, m.id ASC`
         .then((rows) => { parts.pins = rows; }),
     );
 
@@ -124,6 +135,19 @@ export async function selectProducts(prisma, specs) {
   for (const s of newArrivals) result.set(s.id, parts.newArrivals.slice(0, s.limit));
 
   return result;
+}
+
+/** Upper bound for a single section's full (See-All / admin) selection. */
+export const MAX_SECTION_SELECTION = 1000;
+
+/**
+ * Full ordered selection for ONE section — what the admin panel and "See All" show. Same algorithm as the feed;
+ * only the limit differs (the feed truncates to config.limit, this returns everything up to MAX_SECTION_SELECTION).
+ * @returns {Promise<string[]>}
+ */
+export async function selectForSection(prisma, { id, source = 'MAPPED' }) {
+  const map = await selectProducts(prisma, [{ id, source, limit: MAX_SECTION_SELECTION }]);
+  return map.get(id) || [];
 }
 
 // Exported for tests: the pure merge/precedence rule.

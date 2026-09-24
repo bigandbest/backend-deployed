@@ -42,6 +42,12 @@ class CouponDAO {
         return { items, total, page, limit };
     }
 
+    // Coupon counts per status across ALL coupons (for the admin summary cards), one grouped query
+    async countByStatus() {
+        const rows = await prisma.coupons.groupBy({ by: ['status'], _count: { _all: true } });
+        return Object.fromEntries(rows.map((r) => [r.status, r._count._all]));
+    }
+
     async update(id, data) {
         return await prisma.coupons.update({
             where: { id },

@@ -14,7 +14,7 @@ class CategoryDAO {
       include: {
         subcategories: {
           where: activeOnly ? { active: true } : {},
-          orderBy: { sort_order: "asc" },
+          orderBy: [{ sort_order: "asc" }, { id: "asc" }],
         },
       },
     });
@@ -73,7 +73,7 @@ class CategoryDAO {
   async getSubcategoriesByCategoryId(categoryId) {
     return await prisma.subcategories.findMany({
       where: { category_id: categoryId },
-      orderBy: { sort_order: "asc" },
+      orderBy: [{ sort_order: "asc" }, { id: "asc" }],
     });
   }
 

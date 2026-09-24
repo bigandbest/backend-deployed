@@ -67,4 +67,5 @@ model products {
   @@index([active])
   @@index([category_id])
   @@index([vertical])
+  @@index([created_at, id])
 }

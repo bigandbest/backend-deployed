@@ -29,21 +29,26 @@ const STOCK_CHUNK = 1000; // inventoryDAO.getStockByVariantIds silently truncate
  * One product query + chunked inventory queries for the UNION of every section's product ids.
  * @returns {Promise<Map<string, object>>} productId -> HomepageProduct (only active products with a variant)
  */
-export async function hydrateProducts({ prisma, inventoryDAO }, ids, { warehouseId = null } = {}) {
+export async function hydrateProducts({ prisma, inventoryDAO }, ids, { warehouseId = null, timings = null } = {}) {
   const out = new Map();
   if (!ids || ids.length === 0) return out;
 
+  // `timings` (optional) receives productQueryMs / inventoryMs so the feed log can split hydrate into its two waves.
+  const t0 = process.hrtime.bigint();
   const rows = await prisma.products.findMany({
     where: { id: { in: ids }, active: true },
     select: PRODUCT_SELECT,
   });
+  if (timings) timings.productQueryMs = Number((process.hrtime.bigint() - t0) / 1000000n);
 
   const variantIds = rows.flatMap((r) => r.variants.map((v) => v.id));
   const stockMap = new Map();
+  const t1 = process.hrtime.bigint();
   for (let i = 0; i < variantIds.length; i += STOCK_CHUNK) {
     const part = await inventoryDAO.getStockByVariantIds(variantIds.slice(i, i + STOCK_CHUNK), warehouseId);
     for (const [k, v] of part) stockMap.set(k, v);
   }
+  if (timings) timings.inventoryMs = Number((process.hrtime.bigint() - t1) / 1000000n);
 
   for (const row of rows) {
     const p = toHomepageProduct(row, stockMap);

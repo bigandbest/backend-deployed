@@ -194,7 +194,6 @@ class ProductDAO {
                         select: { url: true, media_type: true },
                         orderBy: { sort_order: "asc" },
                     },
-                    _count: { select: { media: true } },
                 },
                 orderBy,
             }),

@@ -2,6 +2,7 @@
 // Parsing/validation lives in services/homepage/requestContext.js; all logic lives in services/homepage.
 
 import { homepageFeedService } from '../services/homepage/index.js';
+import { timingOf } from '../services/homepage/HomepageFeedService.js';
 import { feedEnabled, parseContext, parseKeys, cacheControlFor } from '../services/homepage/requestContext.js';
 import { logEvent } from '../services/homepage/observability.js';
 
@@ -13,7 +14,17 @@ const send = (res, body, pincode) => {
   res.set('Vary', 'x-user-pincode');
   // Shared responses are edge-cacheable only when they carry no per-request availability.
   res.set('Cache-Control', cacheControlFor(pincode));
-  return res.status(200).json(body);
+  // Serialization is timed here (the service cannot see it). Total = build durationMs + serialization.
+  const t = process.hrtime.bigint();
+  const payload = JSON.stringify(body);
+  const serializationMs = Number((process.hrtime.bigint() - t) / 1000000n);
+  const timing = timingOf.get(body);
+  if (timing) {
+    const totalMs = timing.durationMs + serializationMs;
+    res.set('Server-Timing', `build;dur=${timing.durationMs}, serialize;dur=${serializationMs}, total;dur=${totalMs}`);
+    logEvent(timing.keys ? 'homepage.sections.timing' : 'homepage.feed.timing', { buildMs: timing.durationMs, serializationMs, totalMs, bytes: payload.length });
+  }
+  return res.status(200).type('application/json').send(payload);
 };
 
 export async function getHomepageFeed(req, res) {

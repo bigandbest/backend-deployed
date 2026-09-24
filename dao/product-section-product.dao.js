@@ -11,24 +11,18 @@ class ProductSectionProductDAO {
         });
     }
 
+    // Valid since @@unique([section_id, product_id]) exists (migration 20260923100000); one transaction, all-or-nothing.
+    // Controllers use PinService (services/homepage/PinService.js); this stays for scripts/legacy callers.
     async upsertMany(assignments) {
-        // Handle multiple assignments with upsert
-        const results = [];
-        for (const assignment of assignments) {
-            const { section_id, product_id, display_order } = assignment;
-            const result = await prisma.product_section_products.upsert({
-                where: {
-                    section_id_product_id: {
-                        section_id,
-                        product_id
-                    }
-                },
-                update: { display_order },
-                create: { section_id, product_id, display_order }
-            });
-            results.push(result);
-        }
-        return results;
+        return await prisma.$transaction(
+            assignments.map(({ section_id, product_id, display_order }) =>
+                prisma.product_section_products.upsert({
+                    where: { section_id_product_id: { section_id, product_id } },
+                    update: { display_order },
+                    create: { section_id, product_id, display_order },
+                }),
+            ),
+        );
     }
 
     async deleteBySectionAndProduct(sectionId, productId) {

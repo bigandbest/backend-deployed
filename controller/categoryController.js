@@ -967,7 +967,7 @@ export const getCategoriesForSection = async (req, res) => {
       }),
       prisma.subcategories.findMany({
         where: { active: true },
-        orderBy: { sort_order: "asc" },
+        orderBy: [{ sort_order: "asc" }, { id: "asc" }],
       }),
     ]);
 

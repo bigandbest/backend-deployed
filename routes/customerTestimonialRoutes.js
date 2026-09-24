@@ -7,8 +7,12 @@ import {
     deleteTestimonial,
     toggleTestimonialStatus,
 } from "../controller/customerTestimonialController.js";
+import { adminWritesOnly } from "../middleware/adminWrites.js";
 
 const router = express.Router();
+
+// Writes are admin-only; GETs stay public (storefront + mobile read them)
+router.use(adminWritesOnly);
 
 // Get all testimonials (admin)
 router.get("/list", getAllTestimonials);

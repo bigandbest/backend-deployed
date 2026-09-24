@@ -1,5 +1,8 @@
 import contactQueryDAO from "../dao/contact-query.dao.js";
 
+const QUERY_STATUSES = ["Pending", "Contacted", "Resolved"];
+const MAX_PAGE_SIZE = 100;
+
 // Submit a new contact query
 export const submitQuery = async (req, res) => {
     try {
@@ -39,12 +42,15 @@ export const submitQuery = async (req, res) => {
 // Get all queries (Admin)
 export const getAllQueries = async (req, res) => {
     try {
-        const { page = 1, limit = 10, status } = req.query;
-        
-        const result = await contactQueryDAO.list(
-            { status },
-            { page: parseInt(page), limit: parseInt(limit) }
-        );
+        const { status } = req.query;
+        const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+        const limit = Math.min(MAX_PAGE_SIZE, Math.max(1, parseInt(req.query.limit, 10) || 10));
+
+        if (status && !QUERY_STATUSES.includes(status)) {
+            return res.status(400).json({ success: false, message: "Invalid status filter" });
+        }
+
+        const result = await contactQueryDAO.list({ status }, { page, limit });
 
         res.status(200).json({
             success: true,
@@ -72,10 +78,10 @@ export const updateQueryStatus = async (req, res) => {
         const { id } = req.params;
         const { status } = req.body;
 
-        if (!status) {
+        if (!QUERY_STATUSES.includes(status)) {
             return res.status(400).json({
                 success: false,
-                message: "Status is required"
+                message: `Status must be one of: ${QUERY_STATUSES.join(", ")}`
             });
         }
 
@@ -95,6 +101,9 @@ export const updateQueryStatus = async (req, res) => {
         });
 
     } catch (error) {
+        if (error.code === "P2025") {
+            return res.status(404).json({ success: false, message: "Query not found" });
+        }
         console.error("Error in updateQueryStatus:", error);
         res.status(500).json({
             success: false,
@@ -116,6 +125,9 @@ export const deleteQuery = async (req, res) => {
         });
 
     } catch (error) {
+        if (error.code === "P2025") {
+            return res.status(404).json({ success: false, message: "Query not found" });
+        }
         console.error("Unexpected error in deleteQuery:", error);
         res.status(500).json({
             success: false,

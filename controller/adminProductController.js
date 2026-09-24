@@ -376,10 +376,8 @@ export const getAllProductsForAdmin = async (req, res) => {
           ? p.product_recommended_store[0].recommended_store
           : null;
 
-      const { _count, ...rest } = p;
       return {
-        ...rest,
-        media_count: _count?.media ?? 0,
+        ...p,
         brand_id: brandObj?.id || null,
         brand_name: brandObj?.name || null,
         variants:
@@ -616,6 +614,7 @@ export const getProductForAdmin = async (req, res) => {
 
     const flattenedProduct = {
       ...product,
+      media_count: product.media?.length ?? 0,
       brand_id: brandObj ? brandObj.id : null,
       brand_name: brandObj ? brandObj.name : null,
       store_id: storeObj ? storeObj.id : null,

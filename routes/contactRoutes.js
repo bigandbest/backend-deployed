@@ -1,4 +1,6 @@
 import express from "express";
+import { authenticateToken } from "../middleware/authenticate.js";
+import { requireAdmin } from "../middleware/authorize.js";
 import { submitQuery, getAllQueries, deleteQuery, updateQueryStatus } from "../controller/contactController.js";
 
 const router = express.Router();
@@ -6,9 +8,10 @@ const router = express.Router();
 // Public route to submit query
 router.post("/", submitQuery);
 
-// Admin routes (should be protected in production, assuming auth middleware will be added if needed or globally applied)
-router.get("/", getAllQueries);
-router.patch("/:id/status", updateQueryStatus);
-router.delete("/:id", deleteQuery);
+// Admin routes: queries contain customer PII, so reads and writes both require an admin token
+const adminOnly = [authenticateToken, requireAdmin];
+router.get("/", ...adminOnly, getAllQueries);
+router.patch("/:id/status", ...adminOnly, updateQueryStatus);
+router.delete("/:id", ...adminOnly, deleteQuery);
 
 export default router;

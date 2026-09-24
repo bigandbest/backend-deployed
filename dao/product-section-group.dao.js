@@ -19,10 +19,15 @@ class ProductSectionGroupDAO {
 
     async listAll() {
         return await prisma.product_section_groups.findMany({
-            include: {
-                groups: true,
-                product_sections: true
-            }
+            select: {
+                id: true,
+                section_id: true,
+                group_id: true,
+                is_active: true,
+                groups: { select: { id: true, name: true, image_url: true } },
+                product_sections: { select: { id: true, section_name: true, section_key: true } }
+            },
+            orderBy: [{ section_id: 'asc' }, { display_order: 'asc' }, { id: 'asc' }]
         });
     }
 
@@ -33,18 +38,37 @@ class ProductSectionGroupDAO {
     }
 
     async createMany(mappings) {
-        // Upsert logic for multiple mappings
-        const results = [];
-        for (const m of mappings) {
-            const result = await prisma.$queryRaw`
-               INSERT INTO product_section_groups (section_id, group_id, is_active)
-               VALUES (${m.section_id}, ${m.group_id}::uuid, true)
-               ON CONFLICT (section_id, group_id) DO NOTHING
-               RETURNING *
-           `;
-            if (result.length) results.push(result[0]);
-        }
-        return results;
+        // Single batched insert (returns only newly created rows); the (section_id, group_id) unique key makes it idempotent
+        return await prisma.product_section_groups.createManyAndReturn({
+            data: mappings.map((m) => ({
+                section_id: Number(m.section_id),
+                group_id: m.group_id
+            })),
+            skipDuplicates: true
+        });
+    }
+
+    // Make the section's groups exactly `groupIds` in one transaction.
+    // Groups that stay mapped keep their is_active / display_order.
+    async syncBySection(sectionId, groupIds) {
+        const section_id = Number(sectionId);
+        return await prisma.$transaction(async (tx) => {
+            const removed = await tx.product_section_groups.deleteMany({
+                where: { section_id, group_id: { notIn: groupIds } }
+            });
+            const added = await tx.product_section_groups.createMany({
+                data: groupIds.map((group_id) => ({ section_id, group_id })),
+                skipDuplicates: true
+            });
+            return { removed: removed.count, added: added.count };
+        });
+    }
+
+    async updateStatusBySection(sectionId, is_active) {
+        return await prisma.product_section_groups.updateMany({
+            where: { section_id: Number(sectionId) },
+            data: { is_active }
+        });
     }
 
     async delete(id) {

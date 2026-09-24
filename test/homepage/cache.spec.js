@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { cachedLoadPlan, cachedSelectProducts, cachedHydrateProducts, cachedResolver, cacheEnabled } from '../../services/homepage/cache/cachedDeps.js';
 import { createHomepageInvalidator } from '../../services/homepage/cache/HomepageInvalidator.js';
-import { homepagePlanKey, homepageSelectionKey, homepageProductKey, homepageSectionViewKey } from '../../lib/cacheKeys.js';
+import { homepagePlanKey, homepageSelectionKey, homepageProductKey, homepageSectionViewKey, homepageCategoriesKey } from '../../lib/cacheKeys.js';
 
 const origLog = console.log;
 test.before(() => { console.log = () => {}; });
@@ -142,10 +142,13 @@ test('product event: that product in wh0 + every warehouse, plus product-section
   assert.ok(!deleted.includes(homepageSectionViewKey(3)), 'a product edit never drops banner views');
 });
 
-test('category / group events drop plan + product-section selections only', async () => {
+test('category / group events drop plan + category hierarchy (hp:cats) + product-section selections', async () => {
   const { i, deleted } = inv();
   await i.emit('CATEGORY_UPDATED');
-  assert.deepEqual(deleted.sort(), [homepagePlanKey(), homepageSelectionKey(1), homepageSelectionKey(2)].sort());
+  assert.deepEqual(deleted.sort(), [homepagePlanKey(), homepageCategoriesKey(), homepageSelectionKey(1), homepageSelectionKey(2)].sort());
+  const g = inv();
+  await g.i.emit('GROUP_UPDATED');
+  assert.ok(g.deleted.includes(homepageCategoriesKey()), 'GROUP_UPDATED also clears hp:cats');
 });
 
 test('invalidator never throws (DB or Redis failure)', async () => {

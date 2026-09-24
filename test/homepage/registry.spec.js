@@ -4,10 +4,11 @@ import assert from 'node:assert/strict';
 import { getDefinition, listTypes, validateSection, resolveLoad, describeTypes } from '../../services/homepage/registry/index.js';
 import { validateConfig } from '../../services/homepage/registry/schema.js';
 
-test('registry exposes every type used by the backfill migration', () => {
+test('registry exposes every supported section type', () => {
   const expected = [
     'HERO_CAROUSEL', 'CATEGORY_GRID', 'DUAL_CATEGORY_PAIR', 'PRODUCT_CAROUSEL', 'DEAL_CARDS', 'BRAND_GRID',
     'STORE_GRID', 'VIDEO_CARDS', 'BANNER_STRIP', 'PROMO_CARDS', 'MOBILE_BANNERS', 'TABBED_PRODUCTS', 'TESTIMONIALS',
+    'BRAND_PARTNERS',
   ];
   for (const t of expected) assert.ok(getDefinition(t), `missing definition ${t}`);
   assert.deepEqual([...listTypes()].sort(), [...expected].sort());

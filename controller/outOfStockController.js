@@ -117,19 +117,38 @@ export const getNotifyStatus = async (req, res) => {
 
 // ─── ADMIN ──────────────────────────────────────────────────────────────────
 
+const MAX_PAGE_SIZE = 200;
+const parsePaging = (query) => {
+  const page = Math.max(1, parseInt(query.page, 10) || 1);
+  const limit = Math.min(MAX_PAGE_SIZE, Math.max(1, parseInt(query.limit, 10) || 50));
+  return { page, limit, skip: (page - 1) * limit };
+};
+
 /**
  * GET /api/out-of-stock/enquiries
  * Admin: list all out-of-stock enquiries.
  */
 export const getEnquiries = async (req, res) => {
   try {
-    const enquiries = await prisma.product_enquiries.findMany({
-      where: { company_name: 'OUT_OF_STOCK_ENQUIRY' },
-      include: {
-        products: { select: { id: true, name: true } },
-      },
-      orderBy: { created_at: 'desc' },
-    });
+    const { page, limit, skip } = parsePaging(req.query);
+    // Admins see every enquiry; any other signed-in user only sees their own
+    const where = {
+      company_name: 'OUT_OF_STOCK_ENQUIRY',
+      ...(req.user?.role === 'ADMIN' ? {} : { user_id: req.user.id }),
+    };
+
+    const [enquiries, total] = await Promise.all([
+      prisma.product_enquiries.findMany({
+        where,
+        include: {
+          products: { select: { id: true, name: true } },
+        },
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.product_enquiries.count({ where }),
+    ]);
 
     // Fetch user info separately (no Prisma relation defined on product_enquiries)
     const userIds = [...new Set(enquiries.map((e) => e.user_id).filter(Boolean))];
@@ -143,7 +162,7 @@ export const getEnquiries = async (req, res) => {
     const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
     const enriched = enquiries.map((e) => ({ ...e, users: userMap[e.user_id] || null }));
 
-    return res.json({ success: true, enquiries: enriched });
+    return res.json({ success: true, enquiries: enriched, total, page, limit });
   } catch (err) {
     console.error('getEnquiries error:', err);
     return res.status(500).json({ success: false, error: 'Internal server error' });
@@ -152,18 +171,24 @@ export const getEnquiries = async (req, res) => {
 
 /**
  * GET /api/out-of-stock/notify-requests
- * Admin: list all notify-when-in-stock requests.
+ * Admin: list notify-when-in-stock requests (paginated).
  */
 export const getNotifyRequests = async (req, res) => {
   try {
-    const requests = await prisma.stock_notify_requests.findMany({
-      include: {
-        products: { select: { id: true, name: true } },
-        users: { select: { id: true, email: true, name: true, phone: true } },
-      },
-      orderBy: { created_at: 'desc' },
-    });
-    return res.json({ success: true, requests });
+    const { page, limit, skip } = parsePaging(req.query);
+    const [requests, total] = await Promise.all([
+      prisma.stock_notify_requests.findMany({
+        include: {
+          products: { select: { id: true, name: true } },
+          users: { select: { id: true, email: true, name: true, phone: true } },
+        },
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.stock_notify_requests.count(),
+    ]);
+    return res.json({ success: true, requests, total, page, limit });
   } catch (err) {
     console.error('getNotifyRequests error:', err);
     return res.status(500).json({ success: false, error: 'Internal server error' });

@@ -176,17 +176,24 @@ export const toggleCouponStatus = async (req, res) => {
  */
 export const getAllCoupons = async (req, res) => {
     try {
-        const { status, page = 1, limit = 20 } = req.query;
-        const offset = (page - 1) * limit;
+        const { status } = req.query;
+        const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
 
-        const result = await couponDAO.list(
-            { status },
-            { page: parseInt(page), limit: parseInt(limit) }
-        );
+        const [result, statusCounts] = await Promise.all([
+            couponDAO.list({ status }, { page, limit }),
+            couponDAO.countByStatus(),
+        ]);
 
         res.status(200).json({
             success: true,
             data: result.items,
+            stats: {
+                total: Object.values(statusCounts).reduce((a, b) => a + b, 0),
+                active: statusCounts.ACTIVE || 0,
+                disabled: statusCounts.DISABLED || 0,
+                expired: statusCounts.EXPIRED || 0,
+            },
             pagination: {
                 total: result.total,
                 page: result.page,

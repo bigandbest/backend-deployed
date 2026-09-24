@@ -10,11 +10,26 @@ import prisma from '../config/prisma.js';
 import cartAvailabilityDAO from '../dao/cart-availability.dao.js';
 import productDAO from '../dao/product.dao.js';
 import redis from '../config/redis.js';
-import { describeTypes } from '../services/homepage/registry/index.js';
+import { describeTypes, getDefinition, homepageEligibility } from '../services/homepage/registry/index.js';
+import { validateConfig } from '../services/homepage/registry/schema.js';
+import { selectForSection, selectProducts, MAX_SECTION_SELECTION } from '../services/homepage/entities/ProductSelectionBatch.js';
+import { createPinService } from '../services/homepage/PinService.js';
+import { createSectionOrderService } from '../services/homepage/SectionOrderService.js';
+import { loadMappableSection, assertIdsExist, assertUuid, parseSectionId } from '../services/homepage/MappingGuard.js';
+import { isMappingRequestError, errorBody } from '../services/homepage/errors.js';
 import { createSectionService, SectionValidationError } from '../services/homepage/SectionService.js';
 import { SECTION_CACHE_KEYS as CACHE_KEYS, invalidateSectionCache } from '../lib/sectionCache.js';
 
 const sectionService = createSectionService({ prisma });
+const pinService = createPinService({ prisma });
+const sectionOrderService = createSectionOrderService({ prisma });
+
+// Typed errors -> deterministic 4xx; anything else is a genuine 500.
+const fail = (res, error, label) => {
+  if (isMappingRequestError(error)) return res.status(error.status).json(errorBody(error));
+  console.error(`Error ${label}:`, error);
+  return res.status(500).json({ error: "Internal server error" });
+};
 const actorOf = (req) => ({ id: req.user?.id ?? req.user?.userId, role: req.user?.role });
 
 const SECTION_CACHE_TTL = parseInt(process.env.SECTION_CACHE_TTL || '300', 10);
@@ -47,16 +62,24 @@ export const createProductSection = async (req, res) => {
   }
 };
 
-// Get all product sections
+// Get all product sections. Each row carries `homepage` = { eligible, reasons, platforms }: the SAME rule the feed applies
+// (registry/homepageEligibility), so the admin never shows a section as visible when the homepage would not render it.
 export const getAllProductSections = async (req, res) => {
   try {
-    const cached = await redis.get(CACHE_KEYS.allSections).catch(() => null);
-    if (cached) return res.status(200).json(JSON.parse(cached));
-
-    const data = await productSectionDao.list({ active: undefined });
-    const payload = { success: true, data };
-    redis.setex(CACHE_KEYS.allSections, SECTION_CACHE_TTL, JSON.stringify(payload)).catch(() => {});
-    res.status(200).json(payload);
+    const cacheKey = CACHE_KEYS.allSections;
+    let sections;
+    const cached = await redis.get(cacheKey).catch(() => null);
+    if (cached) sections = JSON.parse(cached);
+    else {
+      sections = await productSectionDao.list();
+      redis.setex(cacheKey, SECTION_CACHE_TTL, JSON.stringify(sections)).catch(() => {});
+    }
+    const byId = new Map(sections.map((s) => [s.id, s]));
+    const data = sections.map((s) => ({
+      ...s,
+      homepage: homepageEligibility(s, { parent: s.parent_section_id != null ? byId.get(s.parent_section_id) : null }),
+    }));
+    res.status(200).json({ success: true, data, total: data.length });
   } catch (error) {
     console.error("Error fetching product sections:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -66,6 +89,13 @@ export const getAllProductSections = async (req, res) => {
 export const getSectionCounts = async (req, res) => {
   try {
     const data = await productSectionDao.getSectionCounts();
+    // Live products = what shoppers actually see. A mapped group expands to every active product of its subcategory,
+    // so pins + group-mapping rows badly understate it. Same selector as the feed / See-All (one batched pass).
+    const mappedIds = [...new Set([
+      ...Object.keys(data.products), ...Object.keys(data.groups), ...Object.keys(data.categories),
+    ])].map(Number);
+    const selected = await selectProducts(prisma, mappedIds.map((id) => ({ id, source: 'MAPPED', limit: MAX_SECTION_SELECTION })));
+    data.live = Object.fromEntries([...selected].map(([id, ids]) => [id, ids.length]));
     res.status(200).json({ success: true, data });
   } catch (error) {
     console.error("Error fetching section counts:", error);
@@ -122,7 +152,7 @@ export const updateProductSection = async (req, res) => {
 export const toggleSectionStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const section = await productSectionDao.getById(parseInt(id));
+    const section = await productSectionDao.getStatusById(parseInt(id));
 
     if (!section) {
       return res.status(404).json({ error: "Product section not found" });
@@ -145,32 +175,17 @@ export const toggleSectionStatus = async (req, res) => {
   }
 };
 
-// Update display order for multiple sections
+// Reorder sections. Body: { sections: [{ id, display_order? }] } (ids in the desired order, or with positions).
+// Validated (unknown/duplicate ids -> 400), atomic (single transaction), slot-preserving so rows the client did not
+// send (e.g. hidden ones) keep their place, and always leaves a dense 1..N order. Response carries the full new order.
 export const updateSectionOrder = async (req, res) => {
   try {
-    const { sections } = req.body;
-
-    if (!sections || !Array.isArray(sections)) {
-      return res.status(400).json({ error: "sections array is required" });
-    }
-
-    await Promise.all(
-      sections.map(section => productSectionDao.update(parseInt(section.id), { display_order: section.display_order }))
-    );
-
-    sectionService.audit(null, 'SECTION_REORDERED', { order: sections.map((x) => ({ id: parseInt(x.id), display_order: x.display_order })) }, actorOf(req));
-
-    // Order change affects the list caches; individual section content is unchanged
+    const order = await sectionOrderService.reorderSections(req.body?.sections, actorOf(req));
     redis.del(CACHE_KEYS.allSections).catch(() => {});
     redis.del(CACHE_KEYS.activeSections).catch(() => {});
-
-    res.status(200).json({
-      success: true,
-      message: "Section order updated successfully",
-    });
+    res.status(200).json({ success: true, message: "Section order updated successfully", data: order });
   } catch (error) {
-    console.error("Error updating section order:", error);
-    res.status(500).json({ error: "Internal server error" });
+    fail(res, error, "updating section order");
   }
 };
 
@@ -196,57 +211,37 @@ export const getSectionAuditLog = async (req, res) => {
 
 // ========== PRODUCT-SECTION ASSIGNMENT FUNCTIONS ==========
 
-// Add products to a section
+// Pin products to a section (idempotent; already pinned products keep their position).
 export const addProductsToSection = async (req, res) => {
   try {
-    const { id } = req.params; // section_id
-    const { product_ids } = req.body;
-
-    if (!product_ids || !Array.isArray(product_ids) || product_ids.length === 0) {
-      return res.status(400).json({ error: "product_ids array is required and must not be empty" });
-    }
-
-    const section = await productSectionDao.getById(parseInt(id));
-    if (!section) return res.status(404).json({ error: "Product section not found" });
-
-    let nextOrder = (await productSectionProductDao.getMaxOrder(parseInt(id))) + 1;
-
-    const assignments = product_ids.map((product_id) => ({
-      product_id,
-      section_id: parseInt(id),
-      display_order: nextOrder++,
-    }));
-
-    const data = await productSectionProductDao.upsertMany(assignments);
-
-    invalidateSectionCache(parseInt(id)).catch(() => {});
-
+    const section = await loadMappableSection(prisma, req.params.id, 'PRODUCT');
+    const { data, added, alreadyMapped } = await pinService.pin(section.id, req.body?.product_ids);
+    invalidateSectionCache(section.id).catch(() => {});
     res.status(200).json({
       success: true,
       data,
-      message: `${product_ids.length} product(s) added to section successfully`,
+      added: added.length,
+      already_mapped: alreadyMapped.length,
+      message: `${added.length} product(s) added to section successfully`,
     });
   } catch (error) {
-    console.error("Error adding products to section:", error);
-    res.status(500).json({ error: "Internal server error" });
+    fail(res, error, "adding products to section");
   }
 };
 
-// Remove a product from a section
+// Unpin a product. Idempotent and deterministic: 200 with removed = 1 (was pinned) or 0 (was not pinned).
 export const removeProductFromSection = async (req, res) => {
   try {
-    const { id, productId } = req.params;
-    await productSectionProductDao.deleteBySectionAndProduct(parseInt(id), productId);
-
-    invalidateSectionCache(parseInt(id)).catch(() => {});
-
+    const sectionId = parseSectionId(req.params.id);
+    const { removed } = await pinService.unpin(sectionId, req.params.productId);
+    invalidateSectionCache(sectionId).catch(() => {});
     res.status(200).json({
       success: true,
-      message: "Product removed from section successfully",
+      removed,
+      message: removed ? "Product removed from section successfully" : "Product was not mapped to this section",
     });
   } catch (error) {
-    console.error("Error removing product from section:", error);
-    res.status(500).json({ error: "Internal server error" });
+    fail(res, error, "removing product from section");
   }
 };
 
@@ -265,30 +260,41 @@ const computeStockFromVariants = (variants = []) => {
     }, 0);
 };
 
-// Get all products in a section
+// Products of a section — used by the admin "Manage products" panel and by storefront "See All".
+// The list comes from the SAME selection service as the homepage feed (entities/ProductSelectionBatch.selectForSection):
+// pins -> group products -> category products (MAPPED), or the section's global source (SUPER_SAVER / NEW_ARRIVALS).
+// There is NO fallback: nothing mapped => an empty list, exactly like the feed. `meta.homepageLimit` is how many the
+// homepage shows; this endpoint returns the whole selection (paginated) so admin/See-All can see the rest.
+// With no `sort`, the selection order is kept; `sort`/price/brand filters are applied by the database on the selected ids.
 export const getProductsInSection = async (req, res) => {
   try {
     const { id } = req.params;
-    const { page = 1, limit = 24, warehouse_id, sort, minPrice, maxPrice, brand } = req.query;
-
-    // Accept numeric ID or string section_key
-    let sectionId = parseInt(id);
-    if (isNaN(sectionId)) {
-      const section = await prisma.product_sections.findUnique({
-        where: { section_key: id },
-        select: { id: true },
-      });
-      if (!section) {
-        return res.status(200).json({ success: true, data: [], pagination: { page: 1, limit: parseInt(limit), total: 0, totalPages: 0 } });
-      }
-      sectionId = section.id;
-    }
-
-    const pageInt  = Math.max(1, parseInt(page)  || 1);
+    const { page = 1, limit = 24, sort, minPrice, maxPrice, brand } = req.query;
+    const pageInt = Math.max(1, parseInt(page) || 1);
     const limitInt = Math.min(100, Math.max(1, parseInt(limit) || 24));
     const offset = (pageInt - 1) * limitInt;
+    const emptyPayload = (meta = {}) => ({
+      success: true, data: [], pagination: { page: pageInt, limit: limitInt, total: 0, totalPages: 0, isLastPage: true }, meta,
+    });
 
-    // Build filter WHERE from query params
+    // Accept numeric ID or string section_key
+    const numeric = /^\d+$/.test(String(id));
+    const section = await prisma.product_sections.findUnique({
+      where: numeric ? { id: parseSectionId(id) } : { section_key: String(id) },
+      select: { id: true, section_key: true, section_type: true, config: true },
+    });
+    if (!section) {
+      if (numeric) return res.status(404).json({ success: false, error: { code: 'SECTION_NOT_FOUND', message: 'Product section not found' } });
+      return res.status(200).json(emptyPayload());
+    }
+
+    const def = section.section_type ? getDefinition(section.section_type) : null;
+    if (!def || !def.usesProducts) {
+      return res.status(200).json(emptyPayload({ reason: 'SECTION_DOES_NOT_USE_PRODUCTS', sectionType: section.section_type }));
+    }
+    const cfg = validateConfig(def.configSchema, section.config).value ?? {};
+    const meta = { source: cfg.source, homepageLimit: cfg.limit };
+
     const priceFilter = {};
     const minPriceF = minPrice ? parseFloat(minPrice) : NaN;
     const maxPriceF = maxPrice ? parseFloat(maxPrice) : NaN;
@@ -298,39 +304,23 @@ export const getProductsInSection = async (req, res) => {
       ...(Object.keys(priceFilter).length > 0 && { price: priceFilter }),
       ...(brand && { brand_name: brand }),
     };
-
-    // Build orderBy from sort param
     const orderByMap = {
       lowest_price:   { price: 'asc' },
       highest_price:  { price: 'desc' },
       highest_rating: { rating: 'desc' },
       newest:         { created_at: 'desc' },
     };
-    const orderBy = orderByMap[sort] || { created_at: 'desc' };
+    const dbOrder = sort && orderByMap[sort] ? orderByMap[sort] : null;
+    const useDb = Object.keys(extraWhere).length > 0 || !!dbOrder;
 
-    // Cache key includes filter params (skip cache when filters active for fresh results)
-    const hasFilters = Object.keys(extraWhere).length > 0 || (sort && sort !== 'newest');
-    const cacheKey = hasFilters
-      ? null
-      : `${CACHE_KEYS.sectionProducts(sectionId)}:p${pageInt}:l${limitInt}`;
-
+    const cacheKey = useDb ? null : `${CACHE_KEYS.sectionProducts(section.id)}:p${pageInt}:l${limitInt}`;
     if (cacheKey) {
       const cachedRaw = await redis.get(cacheKey).catch(() => null);
       if (cachedRaw) return res.status(200).json(JSON.parse(cachedRaw));
     }
 
-    // 1. Fetch category mappings and determine mode in parallel
-    const [mappedCategories, directCount, groupMappings] = await Promise.all([
-      productSectionCategoryDao.listBySection(sectionId),
-      productSectionProductDao.countBySection(sectionId, {}),
-      productSectionGroupDao.listBySection(sectionId),
-    ]);
-    const categoryIds = mappedCategories.length > 0 ? mappedCategories.map(mc => mc.category_id) : null;
+    const selectedIds = await selectForSection(prisma, { id: section.id, source: cfg.source });
 
-    let products = [];
-    let total = 0;
-
-    // Minimal include — inventory already loaded, no extra enrichment needed
     const productInclude = {
       variants: {
         where: { active: true },
@@ -347,52 +337,32 @@ export const getProductsInSection = async (req, res) => {
       category: { select: { id: true, name: true } },
     };
 
-    if (directCount > 0) {
-      // Mode A: Directly assigned products — reuse directCount when no category filter active
-      const [data, dataTotal] = await Promise.all([
-        productSectionProductDao.listBySection(sectionId, { offset, limit: limitInt, categoryIds }),
-        categoryIds ? productSectionProductDao.countBySection(sectionId, { categoryIds }) : Promise.resolve(directCount),
-      ]);
-      products = data.map(item => ({ ...item.product }));
-      total = dataTotal;
-    } else if (categoryIds && categoryIds.length > 0) {
-      // Mode B: Category-mapped products
-      const where = { category_id: { in: categoryIds }, active: true, variants: { some: { active: true } }, ...extraWhere };
-      const [categoryProds, categoryTotal] = await Promise.all([
-        prisma.products.findMany({ where, include: productInclude, skip: offset, take: limitInt, orderBy }),
-        prisma.products.count({ where }),
-      ]);
-      products = categoryProds;
-      total = categoryTotal;
-    } else if (groupMappings && groupMappings.length > 0) {
-      // Mode C: Group-mapped products
-      const groupIds = groupMappings.map(m => m.group_id);
-      const groups = await prisma.groups.findMany({
-        where: { id: { in: groupIds } },
-        select: { subcategory_id: true },
-      });
-      const subcategoryIds = groups.map(g => g.subcategory_id).filter(Boolean);
-      if (subcategoryIds.length > 0) {
-        const where = { subcategory_id: { in: subcategoryIds }, active: true, variants: { some: { active: true } }, ...extraWhere };
-        const [groupProds, groupTotal] = await Promise.all([
-          prisma.products.findMany({ where, include: productInclude, skip: offset, take: limitInt, orderBy }),
+    let products = [];
+    let total = selectedIds.length;
+    if (selectedIds.length > 0) {
+      if (useDb) {
+        const where = { id: { in: selectedIds }, ...extraWhere };
+        const [rows, count] = await Promise.all([
+          prisma.products.findMany({ where, include: productInclude, skip: offset, take: limitInt, orderBy: dbOrder || { created_at: 'desc' } }),
           prisma.products.count({ where }),
         ]);
-        products = groupProds;
-        total = groupTotal;
+        products = rows;
+        total = count;
+      } else {
+        const pageIds = selectedIds.slice(offset, offset + limitInt);
+        if (pageIds.length) {
+          const rows = await prisma.products.findMany({ where: { id: { in: pageIds } }, include: productInclude });
+          const byId = new Map(rows.map((r) => [r.id, r]));
+          products = pageIds.map((pid) => byId.get(pid)).filter(Boolean); // keep the selection order
+        }
       }
     }
 
-    // Mode D: No explicit mappings — fall back to newest active products (e.g. new_arrivals)
-    if (products.length === 0 && total === 0 && directCount === 0 && !categoryIds && (!groupMappings || groupMappings.length === 0)) {
-      const fallbackWhere = { active: true, variants: { some: { active: true } }, ...extraWhere };
-      const [fallbackProds, fallbackTotal] = await Promise.all([
-        prisma.products.findMany({ where: fallbackWhere, include: productInclude, skip: offset, take: limitInt, orderBy: { created_at: 'desc' } }),
-        prisma.products.count({ where: fallbackWhere }),
-      ]);
-      products = fallbackProds;
-      total = fallbackTotal;
-    }
+    // Which of these are direct pins (removable in the admin panel) vs derived from a group/category/global source.
+    const pinnedRows = products.length
+      ? await prisma.product_section_products.findMany({ where: { section_id: section.id, product_id: { in: products.map((p) => p.id) } }, select: { product_id: true } })
+      : [];
+    const pinnedIds = new Set(pinnedRows.map((r) => r.product_id));
 
     // Compute stock inline — no extra DB call needed
     const baseProducts = products.map(p => {
@@ -401,6 +371,7 @@ export const getProductsInSection = async (req, res) => {
       const priceVariant = activeVariants.find(v => v.is_default === true) || activeVariants[0];
       return {
         id: p.id,
+        pinned: pinnedIds.has(p.id),
         name: p.name,
         price: p.price ?? priceVariant?.price ?? null,
         old_price: p.old_price ?? priceVariant?.old_price ?? null,
@@ -425,43 +396,25 @@ export const getProductsInSection = async (req, res) => {
       success: true,
       data: baseProducts,
       pagination: { page: pageInt, limit: limitInt, total, totalPages, isLastPage: pageInt >= totalPages },
+      meta,
     };
 
     if (cacheKey) redis.setex(cacheKey, SECTION_CACHE_TTL, JSON.stringify(payload)).catch(() => {});
     res.status(200).json(payload);
   } catch (error) {
-    console.error("Error fetching products in section:", error);
-    res.status(500).json({ error: "Internal server error" });
+    fail(res, error, "fetching products in section");
   }
 };
 
-// Update product order within a section
+// Reorder pinned products. Body: { products: [{ product_id, display_order? }] } — atomic, validated, dense 1..N.
 export const updateProductOrderInSection = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { products } = req.body;
-
-    if (!products || !Array.isArray(products)) {
-      return res.status(400).json({ error: "products array is required" });
-    }
-
-    await productSectionProductDao.upsertMany(
-      products.map(product => ({
-        section_id: parseInt(id),
-        product_id: product.product_id,
-        display_order: product.display_order,
-      }))
-    );
-
-    invalidateSectionCache(parseInt(id));
-
-    res.status(200).json({
-      success: true,
-      message: "Product order updated successfully",
-    });
+    const sectionId = parseSectionId(req.params.id);
+    const order = await pinService.reorder(sectionId, req.body?.products);
+    invalidateSectionCache(sectionId).catch(() => {});
+    res.status(200).json({ success: true, message: "Product order updated successfully", data: order });
   } catch (error) {
-    console.error("Error updating product order:", error);
-    res.status(500).json({ error: "Internal server error" });
+    fail(res, error, "updating product order");
   }
 };
 
@@ -486,75 +439,48 @@ export const getSectionsForProduct = async (req, res) => {
 
 // ========== CATEGORY-SECTION MAPPING FUNCTIONS ==========
 
-// Sync categories for a section (Replace all)
+// Sync categories for a section (replace all). An empty array clears the mapping.
 export const syncCategoriesInSection = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { category_ids } = req.body;
-
-    if (!Array.isArray(category_ids)) {
-      return res.status(400).json({ error: "category_ids array is required" });
-    }
-
-    await productSectionCategoryDao.sync(parseInt(id), category_ids);
-
-    invalidateSectionCache(parseInt(id)).catch(() => {});
-
-    res.status(200).json({
-      success: true,
-      message: `Section categories synced successfully. ${category_ids.length} categories mapped.`,
-    });
+    const { category_ids } = req.body || {};
+    if (!Array.isArray(category_ids)) return res.status(400).json({ success: false, error: { code: 'INVALID_REQUEST', message: 'category_ids array is required' } });
+    const section = await loadMappableSection(prisma, req.params.id, 'CATEGORY');
+    const ids = category_ids.length ? await assertIdsExist(prisma, 'categories', category_ids, 'category_ids') : [];
+    await productSectionCategoryDao.sync(section.id, ids);
+    invalidateSectionCache(section.id).catch(() => {});
+    res.status(200).json({ success: true, message: `Section categories synced successfully. ${ids.length} categories mapped.` });
   } catch (error) {
-    console.error("Error syncing categories to section:", error);
-    res.status(500).json({ error: "Internal server error" });
+    fail(res, error, "syncing categories to section");
   }
 };
 
-// Add categories to a section
+// Add categories to a section (idempotent).
 export const addCategoriesToSection = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { category_ids } = req.body;
-
-    if (!category_ids || !Array.isArray(category_ids) || category_ids.length === 0) {
-      return res.status(400).json({ error: "category_ids array is required and must not be empty" });
-    }
-
-    const mappings = category_ids.map((category_id) => ({
-      section_id: parseInt(id),
-      category_id: category_id,
-    }));
-
-    const data = await productSectionCategoryDao.addMany(mappings);
-
-    invalidateSectionCache(parseInt(id));
-
+    const section = await loadMappableSection(prisma, req.params.id, 'CATEGORY');
+    const ids = await assertIdsExist(prisma, 'categories', req.body?.category_ids, 'category_ids');
+    const data = await productSectionCategoryDao.addMany(ids.map((category_id) => ({ section_id: section.id, category_id })));
+    invalidateSectionCache(section.id).catch(() => {});
     res.status(200).json({
       success: true,
       data,
-      message: `${category_ids.length} category/categories mapped to section successfully`,
+      message: `${data.length} category/categories mapped to section successfully`,
     });
   } catch (error) {
-    console.error("Error adding categories to section:", error);
-    res.status(500).json({ error: "Internal server error" });
+    fail(res, error, "adding categories to section");
   }
 };
 
-// Remove a category from a section
+// Remove a category from a section (idempotent).
 export const removeCategoryFromSection = async (req, res) => {
   try {
-    const { id, categoryId } = req.params;
-    await productSectionCategoryDao.remove(parseInt(id), categoryId);
-
-    invalidateSectionCache(parseInt(id));
-
-    res.status(200).json({
-      success: true,
-      message: "Category removed from section successfully",
-    });
+    const sectionId = parseSectionId(req.params.id);
+    const categoryId = assertUuid(req.params.categoryId, 'categoryId');
+    const r = await productSectionCategoryDao.remove(sectionId, categoryId);
+    invalidateSectionCache(sectionId).catch(() => {});
+    res.status(200).json({ success: true, removed: r.count, message: "Category removed from section successfully" });
   } catch (error) {
-    console.error("Error removing category from section:", error);
-    res.status(500).json({ error: "Internal server error" });
+    fail(res, error, "removing category from section");
   }
 };
 
@@ -568,6 +494,54 @@ export const getCategoriesInSection = async (req, res) => {
   } catch (error) {
     console.error("Error fetching categories in section:", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// ========== GROUP-SECTION MAPPING (product_section_groups — feeds MAPPED PRODUCT_CAROUSEL sections
+// alongside direct product pins: every active product in the group's subcategory) ==========
+
+// Get all groups mapped to a section
+export const getGroupsInSection = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = await productSectionGroupDao.listBySection(parseInt(id));
+
+    res.status(200).json({ success: true, data, total: data.length });
+  } catch (error) {
+    console.error("Error fetching groups in section:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Add groups to a section (idempotent). Group semantics: a mapped group contributes ALL active products of the group's
+// SUBCATEGORY (see entities/ProductSelectionBatch.js) — groups sharing a subcategory select the same set.
+export const addGroupsToSection = async (req, res) => {
+  try {
+    const section = await loadMappableSection(prisma, req.params.id, 'GROUP');
+    const ids = await assertIdsExist(prisma, 'groups', req.body?.group_ids, 'group_ids');
+    const data = await productSectionGroupDao.createMany(ids.map((group_id) => ({ section_id: section.id, group_id })));
+    invalidateSectionCache(section.id).catch(() => {});
+    res.status(200).json({
+      success: true,
+      data,
+      message: `${data.length} group(s) mapped to section successfully`,
+    });
+  } catch (error) {
+    fail(res, error, "adding groups to section");
+  }
+};
+
+// Remove a group from a section (idempotent).
+export const removeGroupFromSection = async (req, res) => {
+  try {
+    const sectionId = parseSectionId(req.params.id);
+    const groupId = assertUuid(req.params.groupId, 'groupId');
+    const existing = await productSectionGroupDao.findBySectionAndGroup(sectionId, groupId);
+    if (existing) await productSectionGroupDao.delete(existing.id);
+    invalidateSectionCache(sectionId).catch(() => {});
+    res.status(200).json({ success: true, removed: existing ? 1 : 0, message: "Group removed from section successfully" });
+  } catch (error) {
+    fail(res, error, "removing group from section");
   }
 };
 

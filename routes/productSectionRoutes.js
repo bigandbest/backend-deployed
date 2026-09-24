@@ -18,6 +18,9 @@ import {
   removeCategoryFromSection,
   getCategoriesInSection,
   getSectionsForCategory,
+  addGroupsToSection,
+  removeGroupFromSection,
+  getGroupsInSection,
   getProductGridSettings,
   updateProductGridSettings,
   getSectionWithContent,
@@ -34,8 +37,11 @@ const router = express.Router();
 const adminOnly = [authenticateToken, requireAdmin];
 
 // Section ids are integers; anything else (e.g. the removed "/active" route) is a plain 404, not a DB error.
+// Exception: the public GET /:id/products also accepts a section_key — storefront "See All" links use keys
+// (?section=quick_picks); the controller resolves it and answers an unknown key with an empty list.
 router.param("id", (req, res, next, id) => {
-  if (!/^\d+$/.test(id)) return res.status(404).json({ success: false, error: "Not found" });
+  const keyAllowed = req.method === "GET" && req.route?.path === "/:id/products" && /^[a-z0-9_]+$/i.test(id);
+  if (!keyAllowed && !/^\d+$/.test(id)) return res.status(404).json({ success: false, error: "Not found" });
   next();
 });
 
@@ -104,7 +110,15 @@ router.delete("/:id/categories/:categoryId", ...adminOnly, removeCategoryFromSec
 // Get sections for a specific category
 router.get("/categories/:categoryId/sections", getSectionsForCategory);
 
+// ========== GROUP-SECTION MAPPING ROUTES ==========
 
+// Add groups to a section
+router.post("/:id/groups", ...adminOnly, addGroupsToSection);
 
+// Get all groups mapped to a section
+router.get("/:id/groups", getGroupsInSection);
+
+// Remove a group from a section
+router.delete("/:id/groups/:groupId", ...adminOnly, removeGroupFromSection);
 
 export default router;

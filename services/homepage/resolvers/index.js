@@ -2,6 +2,10 @@
 // shared reads (categories, banners of one type) happen once. Resolvers do IO only through `deps`; they never
 // touch the cache layer, HTTP, ordering, platform filtering or availability (the assembler owns those).
 //
+// makeCategoryLoader below is a plain DB query with no cache awareness by design (this module must stay
+// importable in tests without opening a Redis connection — see cache/cachedDeps.js's own note on that). The
+// composition root (index.js) wraps it with cachedCategoryLoader for cross-request Redis caching.
+//
 // Contract:  resolver({ ctx, sections, plan, deps }) -> Promise<Map<sectionId, { data: object|null, empty?: boolean }>>
 //   sections : registry-normalised rows ({ id, section_key, config (validated+defaulted), children? ... })
 //   deps     : { prisma, store: EntityStore, selection: Map<sectionId,string[]>, products: Map<id,HomepageProduct>, getCategories }
@@ -31,35 +35,32 @@ const bannersByType = (prisma, type) =>
   });
 
 async function heroCarousel({ sections, deps }) {
-  let rows = await bannersByType(deps.prisma, 'hero');
-  if (rows.length === 0) {
-    // Same fallback the web/mobile clients perform today (/banner/all), now server-side.
-    rows = await deps.prisma.add_banner.findMany({
-      where: NOT_INACTIVE,
-      select: { id: true, name: true, description: true, banner_type: true, image_url: true, link: true, position: true },
-      orderBy: [{ updated_at: 'desc' }, { id: 'asc' }],
-    });
-  }
+  // Contract: hero banners only. No fallback to other banner types — none configured means EMPTY (section omitted).
+  const rows = await bannersByType(deps.prisma, 'hero');
   const list = rows.map(banner);
   return forAll(sections, (s) => wrap({ list: list.slice(0, s.config.limit ?? 20), data: { banners: list } }));
 }
 
 async function bannerStrip({ sections, deps }) {
-  const out = new Map();
-  for (const s of sections) {
-    let list;
-    if (s.config.bannerType === 'mega_sale') {
-      const rows = await deps.prisma.promo_banners.findMany({
+  // Batched like every other resolver here: at most one query per distinct bannerType,
+  // never one per section, so N sections sharing a type never repeat the same query.
+  const megaSections = sections.filter((s) => s.config.bannerType === 'mega_sale');
+  const promoSections = sections.filter((s) => s.config.bannerType !== 'mega_sale');
+
+  const [megaList, promoList] = await Promise.all([
+    megaSections.length
+      ? deps.prisma.promo_banners.findMany({
         where: { active: true },
         select: { id: true, title: true, subtitle: true, discount: true, description: true, button_text: true, bg_color: true, accent_color: true, icon: true, link: true },
         orderBy: [{ display_order: 'asc' }, { id: 'asc' }],
-      });
-      list = rows.map((r) => ({ id: r.id, title: r.title, subtitle: r.subtitle, discount: r.discount, description: r.description, buttonText: r.button_text, bgColor: r.bg_color, accentColor: r.accent_color, icon: r.icon, link: r.link }));
-    } else {
-      list = (await bannersByType(deps.prisma, 'promo')).map(banner);
-    }
-    out.set(s.id, wrap({ list, data: { banners: list } }));
-  }
+      }).then((rows) => rows.map((r) => ({ id: r.id, title: r.title, subtitle: r.subtitle, discount: r.discount, description: r.description, buttonText: r.button_text, bgColor: r.bg_color, accentColor: r.accent_color, icon: r.icon, link: r.link })))
+      : [],
+    promoSections.length ? bannersByType(deps.prisma, 'promo').then((rows) => rows.map(banner)) : [],
+  ]);
+
+  const out = new Map();
+  for (const s of megaSections) out.set(s.id, wrap({ list: megaList, data: { banners: megaList } }));
+  for (const s of promoSections) out.set(s.id, wrap({ list: promoList, data: { banners: promoList } }));
   return out;
 }
 
@@ -122,6 +123,18 @@ async function brandGrid({ sections, deps }) {
   return forAll(sections, (s) => wrap({ list, data: { brands: list.slice(0, s.config.limit) } }));
 }
 
+async function brandPartners({ sections, deps }) {
+  const max = Math.max(...sections.map((s) => s.config.limit));
+  const rows = await deps.prisma.partners.findMany({
+    where: { active: true },
+    select: { id: true, name: true, image_url: true },
+    orderBy: [{ sort_order: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+    take: max,
+  });
+  const list = rows.map((r) => ({ id: r.id, name: r.name, imageUrl: r.image_url }));
+  return forAll(sections, (s) => wrap({ list, data: { partners: list.slice(0, s.config.limit) } }));
+}
+
 async function storeGrid({ sections, deps }) {
   const rows = await deps.prisma.recommended_store.findMany({
     where: { is_active: true },
@@ -143,12 +156,24 @@ async function testimonials({ sections, deps }) {
 }
 
 // ── categories (shared hierarchy, loaded once per request) ─────────────────
-async function categoryGrid({ sections, deps }) {
+async function categoryGrid({ sections, plan, deps }) {
+  // Contract (owner decision 2026-09-23): ONLY mapped subcategories (section_subcategory_mappings, is_active) and the
+  // active categories that own them. Nothing mapped => EMPTY. Categories by name; subcategories by sort_order, name.
   const cats = await deps.getCategories();
   return forAll(sections, (s) => {
-    const list = [...cats.values()].slice(0, s.config.limit);
-    list.forEach((c) => deps.store.addCategory(c));
-    return wrap({ list, data: { categoryIds: list.map((c) => c.id) } });
+    const mapped = new Set(plan.mappings[s.id]?.SUBCATEGORY ?? []);
+    const list = [];
+    const subcategoryIds = [];
+    for (const c of cats.values()) {
+      const subs = c.subcategories.filter((x) => mapped.has(x.id));
+      if (subs.length === 0) continue;
+      list.push(c);
+      subs.forEach((x) => subcategoryIds.push(x.id));
+    }
+    const limited = list.slice(0, s.config.limit);
+    limited.forEach((c) => deps.store.addCategory(c));
+    const keep = new Set(limited.flatMap((c) => c.subcategories.map((x) => x.id)));
+    return wrap({ list: limited, data: { categoryIds: limited.map((c) => c.id), subcategoryIds: subcategoryIds.filter((id) => keep.has(id)) } });
   });
 }
 
@@ -205,6 +230,7 @@ export const RESOLVERS = {
   VIDEO_CARDS: videoCards,
   DEAL_CARDS: dealCards,
   BRAND_GRID: brandGrid,
+  BRAND_PARTNERS: brandPartners,
   STORE_GRID: storeGrid,
   TESTIMONIALS: testimonials,
   CATEGORY_GRID: categoryGrid,

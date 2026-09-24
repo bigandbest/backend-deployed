@@ -3,8 +3,9 @@
 import { validateSection } from './registry/index.js';
 
 // Legacy fields the admin UI already sends; kept so existing screens keep working (component_name stays writable
-// until the legacy retirement phase — it is NOT read by the feed).
-const LEGACY_FIELDS = ['section_name', 'description', 'is_active', 'display_order', 'component_name', 'is_marketing', 'allow_group_mapping', 'allow_category_mapping'];
+// until the legacy retirement phase — it is NOT read by the feed). display_order is deliberately NOT writable here:
+// PATCH /product-sections/order (SectionOrderService) is the single writer of section order.
+const LEGACY_FIELDS = ['section_name', 'description', 'is_active', 'component_name', 'is_marketing', 'allow_group_mapping', 'allow_category_mapping'];
 // New, registry-validated fields. section_key and section_type are immutable after creation and never accepted here.
 const HOMEPAGE_FIELDS = ['config', 'platforms', 'load_mode', 'show_on_home'];
 

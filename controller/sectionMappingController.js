@@ -6,6 +6,8 @@ import { CATEGORY_SECTION_CACHE_TTL } from "../lib/categoryCache.js";
 // ========== SUBCATEGORY-SECTION MAPPING FUNCTIONS ==========
 
 // Add subcategories to a section
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const addSubcategoriesToSection = async (req, res) => {
   try {
     const { sectionId } = req.params;
@@ -142,40 +144,42 @@ export const updateSubcategoryMappings = async (req, res) => {
       return res.status(404).json({ error: "Product section not found" });
     }
 
-    // Transaction to ensure atomicity
+    // Validate + dedupe by subcategory_id before touching the DB
+    const uniqueMappingsMap = new Map();
+    for (const mapping of mappings) {
+      const subId = mapping?.subcategory_id;
+      if (subId && subId !== "undefined" && subId !== "null") {
+        if (typeof subId !== "string" || !UUID_RE.test(subId)) {
+          return res.status(400).json({ error: `Invalid subcategory_id: ${subId}` });
+        }
+        const order = Number.parseInt(mapping.display_order, 10);
+        uniqueMappingsMap.set(subId, {
+          section_id: parseInt(sectionId),
+          subcategory_id: subId,
+          display_order: Number.isFinite(order) && order >= 0 ? order : 0,
+          is_active: mapping.is_active !== undefined ? mapping.is_active : true,
+        });
+      }
+    }
+    const newMappings = Array.from(uniqueMappingsMap.values());
+
+    // One batched existence check instead of failing on a FK violation mid-transaction
+    if (newMappings.length > 0) {
+      const found = await prisma.subcategories.count({
+        where: { id: { in: newMappings.map((m) => m.subcategory_id) } },
+      });
+      if (found !== newMappings.length) {
+        return res.status(400).json({ error: "One or more subcategories do not exist" });
+      }
+    }
+
+    // Transaction to ensure atomicity: replace the section's mappings
     await prisma.$transaction(async (tx) => {
-      // First, delete all existing mappings for this section
       await tx.section_subcategory_mappings.deleteMany({
         where: { section_id: parseInt(sectionId) },
       });
-
-      // If mappings array is empty, we're done
-      if (mappings.length === 0) {
-        return;
-      }
-
-      // Filter invalid IDs and deduplicate by subcategory_id
-      const uniqueMappingsMap = new Map();
-
-      mappings.forEach((mapping) => {
-        const subId = mapping.subcategory_id;
-        if (subId && subId !== "undefined" && subId !== "null") {
-          uniqueMappingsMap.set(subId, {
-            section_id: parseInt(sectionId),
-            subcategory_id: subId,
-            display_order: mapping.display_order || 0,
-            is_active:
-              mapping.is_active !== undefined ? mapping.is_active : true,
-          });
-        }
-      });
-
-      const newMappings = Array.from(uniqueMappingsMap.values());
-
       if (newMappings.length > 0) {
-        await tx.section_subcategory_mappings.createMany({
-          data: newMappings,
-        });
+        await tx.section_subcategory_mappings.createMany({ data: newMappings });
       }
     });
 

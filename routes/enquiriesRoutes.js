@@ -13,8 +13,13 @@ import {
   markAsRead,
   getUnreadCount
 } from "../controller/enquiryController.js";
+import { authenticateToken } from "../middleware/authenticate.js";
+import { requireAdmin } from "../middleware/authorize.js";
 
 const router = express.Router();
+
+// Admin-only endpoints (customer flows still identify themselves via request params)
+const adminOnly = [authenticateToken, requireAdmin];
 
 // --- Product Enquiry Routes ---
 
@@ -23,7 +28,7 @@ router.post("/", createEnquiry);
 router.get("/my", getUserEnquiries);
 
 // Admin routes
-router.get("/admin/all", getAllEnquiries);
+router.get("/admin/all", ...adminOnly, getAllEnquiries);
 
 // Legacy route
 router.get("/count", getEnquiriesCount);
@@ -31,7 +36,7 @@ router.get("/count", getEnquiriesCount);
 // Parameterized routes
 router.get("/:id", getEnquiryDetails);
 router.post("/:id/accept-bid", acceptBid);
-router.put("/:id/status", updateEnquiryStatus);
+router.put("/:id/status", ...adminOnly, updateEnquiryStatus);
 router.post("/:id/close", closeEnquiry);
 
 // --- Enquiry Message Routes ---

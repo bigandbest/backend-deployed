@@ -9,4 +9,8 @@ model product_section_products {
   // Relations
   product              products         @relation(fields: [product_id], references: [id])
   product_sections     product_sections @relation(fields: [section_id], references: [id])
+
+  // One pin per (section, product); enables idempotent upsert and is the lookup key for reorder/delete.
+  @@unique([section_id, product_id])
+  @@index([section_id])
 }

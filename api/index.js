@@ -64,6 +64,7 @@ import inventoryRoutes from "../routes/inventoryRoutes.js";
 import shopByStoreRoutes from "../routes/shopByStoreRoutes.js";
 import videoCardRoutes from "../routes/videoCardRoutes.js";
 import productSectionRoutes from "../routes/productSectionRoutes.js";
+import { invalidateHomepageOnWrite as hpInvalidate } from "../middleware/homepageInvalidate.js";
 import promoBannerRoutes from "../routes/promoBannerRoutes.js";
 import bulkWholesaleRoutes from "../routes/bulkWholesaleRoutes.js";
 import codOrderRoutes from "../routes/codOrderRoutes.js";
@@ -166,9 +167,9 @@ app.use("/api/bnb", bnbRoutes);
 app.use("/api/bnb-group", bnbGroupRoutes);
 app.use("/api/bnb-group-product", bnbGroupProductRoutes);
 app.use("/api/bbm-dost", bbmDostRoutes);
-app.use("/api/brand", brandRoutes);
+app.use("/api/brand", hpInvalidate("BRAND_UPDATED"), brandRoutes);
 app.use("/api/product-brand", brandProductsRoutes);
-app.use("/api/recommended-stores", recommendedStoreRoutes);
+app.use("/api/recommended-stores", hpInvalidate("STORE_UPDATED"), recommendedStoreRoutes);
 app.use("/api/product-recommended-stores", productRecommendedStoreRoutes);
 app.use("/api/quick-pick", quickPickRoutes);
 app.use("/api/quick-pick-group", quickPickGroupRoutes);
@@ -179,7 +180,7 @@ app.use("/api/saving-zone-group-product", savingZoneRoutes);
 app.use("/api/stores", storeRoutes);
 app.use("/api/sub-stores", subStoreRoutes);
 app.use("/api/you-may-like-products", YouMayLikeProductRoutes);
-app.use("/api/banner", (req, res, next) => {
+app.use("/api/banner", hpInvalidate("BANNER_UPDATED"), (req, res, next) => {
   res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.header(
     "Access-Control-Allow-Methods",
@@ -193,7 +194,7 @@ app.use("/api/banner", (req, res, next) => {
   next();
 });
 
-app.use("/api/banner", addBannerRoutes);
+app.use("/api/banner", hpInvalidate("BANNER_UPDATED"), addBannerRoutes);
 app.use("/api/banner-groups", addBannerGroupRoutes);
 app.use("/api/banner-group-products", addBannerGroupProductRoutes);
 app.use("/api/unique-sections", uniqueSectionRoutes);
@@ -203,21 +204,21 @@ app.use("/api/session", sessionRoutes);
 app.use("/api/return-orders", returnOrderRoutes);
 app.use("/api/refund", refundRoutes);
 app.use("/api/debug", debugRoutes);
-app.use("/api/daily-deals", dailyDealsRoutes);
+app.use("/api/daily-deals", hpInvalidate("DAILY_DEAL_UPDATED"), dailyDealsRoutes);
 app.use("/api/daily-deals-product", dailyDealsProductRoutes);
 app.use("/api/quick", quickFixRoutes);
 app.use("/api/tracking", trackingRoutes);
-app.use("/api/categories", categoryRoutes);
+app.use("/api/categories", hpInvalidate("CATEGORY_UPDATED"), categoryRoutes);
 app.use("/api/bulk-orders", bulkOrderRoutes);
 app.use("/api/bulk-products", bulkProductRoutes);
 app.use("/api/product-variants", productVariantsRoutes);
-app.use("/api/variants", variantRoutes);
+app.use("/api/variants", hpInvalidate("PRODUCT_UPDATED", { idFrom: "product" }), variantRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/shop-by-stores", shopByStoreRoutes);
-app.use("/api/video-cards", videoCardRoutes);
-app.use("/api/product-sections", productSectionRoutes);
-app.use("/api/promo-banner", promoBannerRoutes);
-app.use("/api/store-section-mappings", (req, res, next) => {
+app.use("/api/video-cards", hpInvalidate("VIDEO_UPDATED"), videoCardRoutes);
+app.use("/api/product-sections", hpInvalidate("SECTION_CHANGED", { idFrom: "section" }), productSectionRoutes);
+app.use("/api/promo-banner", hpInvalidate("BANNER_UPDATED"), promoBannerRoutes);
+app.use("/api/store-section-mappings", hpInvalidate("SECTION_CHANGED"), (req, res, next) => {
   res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.header(
     "Access-Control-Allow-Methods",
@@ -231,7 +232,7 @@ app.use("/api/store-section-mappings", (req, res, next) => {
   next();
 });
 
-app.use("/api/store-section-mappings", subStoreRoutes);
+app.use("/api/store-section-mappings", hpInvalidate("SECTION_CHANGED"), subStoreRoutes);
 app.use("/api/bulk-wholesale", bulkWholesaleRoutes);
 app.use("/api/cod-orders", codOrderRoutes);
 app.use("/api/admin-auth", adminAuthRoutes);

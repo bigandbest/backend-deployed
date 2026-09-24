@@ -5,8 +5,8 @@
 // HOMEPAGE_CACHE=off bypasses every layer (kill switch / debugging).
 
 import {
-  HOMEPAGE_PLAN_TTL, HOMEPAGE_SELECTION_TTL, HOMEPAGE_PRODUCT_TTL,
-  homepagePlanKey, homepageSelectionKey, homepageProductKey, homepageSectionViewKey,
+  HOMEPAGE_PLAN_TTL, HOMEPAGE_SELECTION_TTL, HOMEPAGE_PRODUCT_TTL, HOMEPAGE_CATEGORIES_TTL,
+  homepagePlanKey, homepageSelectionKey, homepageProductKey, homepageSectionViewKey, homepageCategoriesKey,
 } from '../../../lib/cacheKeys.js';
 import { getDefinition } from '../registry/index.js';
 
@@ -103,6 +103,33 @@ export function cachedHydrateProducts(hydrateProducts, { store, enabled = cacheE
       await store.setMany(writes, HOMEPAGE_PRODUCT_TTL);
     }
     return out;
+  };
+}
+
+/**
+ * Wrap the category-hierarchy loader factory (resolvers/index.js `makeCategoryLoader`) with cross-request Redis
+ * caching. The wrapped loader keeps its own per-request memoization (one DB/Redis read shared by every resolver
+ * in one feed, e.g. CATEGORY_GRID + DUAL_CATEGORY_PAIR), on top of which this adds a shared Redis entry so
+ * consecutive requests don't repeat the DB round trip — a raw per-request query alone means every homepage load
+ * pays full DB latency, which on a remote/pooled Postgres can approach or exceed a resolver's timeout budget.
+ */
+export function cachedCategoryLoader(rawFactory, { store, enabled = cacheEnabled } = {}) {
+  return () => {
+    let cached;
+    return () => {
+      cached ??= (async () => {
+        if (!enabled()) return rawFactory()();
+        const key = homepageCategoriesKey();
+        const hit = await store.get(key);
+        if (hit) return new Map(hit);
+        return singleFlight(key, async () => {
+          const map = await rawFactory()();
+          await store.set(key, [...map.entries()], HOMEPAGE_CATEGORIES_TTL);
+          return map;
+        });
+      })();
+      return cached;
+    };
   };
 }
 

@@ -9,8 +9,12 @@ import {
     getSectionsForSubcategory,
     getCategoriesForSection,
 } from "../controller/sectionMappingController.js";
+import { adminWritesOnly } from "../middleware/adminWrites.js";
 
 const router = express.Router();
+
+// Every write on this router is admin-only (authenticateToken + requireAdmin); GETs stay public.
+router.use(adminWritesOnly);
 
 // Subcategory-Section mapping routes
 router.post("/:sectionId/subcategories", addSubcategoriesToSection);

@@ -25,6 +25,16 @@ class ProductSectionDAO {
         });
     }
 
+    // Lightweight read for callers that only need the row itself (e.g. toggling is_active) —
+    // getById's product/subcategory includes are expensive and unnecessary for those.
+    async getStatusById(id) {
+        if (id > 2147483647) return null;
+        return await prisma.product_sections.findUnique({
+            where: { id },
+            select: { id: true, section_name: true, is_active: true },
+        });
+    }
+
     async getByKey(key) {
         return await prisma.product_sections.findUnique({
             where: { section_key: key },
@@ -65,8 +75,18 @@ class ProductSectionDAO {
     }
 
     async getSectionCounts() {
-        // Get product counts
+        // Direct product pins (what the admin "Manage products" panel edits).
         const productCounts = await prisma.product_section_products.groupBy({
+            by: ['section_id'],
+            _count: {
+                id: true
+            }
+        });
+
+        // Group mappings (product_section_groups) also feed a MAPPED section's products — every active
+        // product in the mapped group's subcategory — but there is no admin UI to manage them yet, so we
+        // surface the count separately rather than silently folding it into "products" (see getProductsInSection).
+        const groupCounts = await prisma.product_section_groups.groupBy({
             by: ['section_id'],
             _count: {
                 id: true
@@ -83,6 +103,10 @@ class ProductSectionDAO {
         return {
             products: productCounts.reduce((acc, pc) => {
                 acc[pc.section_id] = pc._count.id;
+                return acc;
+            }, {}),
+            groups: groupCounts.reduce((acc, gc) => {
+                acc[gc.section_id] = gc._count.id;
                 return acc;
             }, {}),
             categories: categoryCounts.reduce((acc, cc) => {

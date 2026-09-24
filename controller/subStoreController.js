@@ -164,32 +164,51 @@ export async function createSectionProductMapping(req, res) {
     }
 }
 
-// Create section-group mapping
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Create section-group mapping (replace semantics: the section ends up with exactly group_ids)
 export async function createSectionGroupMapping(req, res) {
     try {
-        const { section_id, group_ids } = req.body;
+        const sectionId = Number(req.body?.section_id);
+        const rawIds = req.body?.group_ids;
 
-        // Create mappings for each group using new DAO
-        const mappings = group_ids.map((group_id) => ({
-            section_id: parseInt(section_id),
-            group_id: group_id, // UUID
-        }));
+        if (!Number.isInteger(sectionId) || sectionId <= 0) {
+            return res.status(400).json({ success: false, error: "section_id must be a positive integer" });
+        }
+        if (!Array.isArray(rawIds) || rawIds.length === 0 || rawIds.some((id) => typeof id !== "string" || !UUID_RE.test(id))) {
+            return res.status(400).json({ success: false, error: "group_ids must be a non-empty array of group UUIDs" });
+        }
+        const groupIds = [...new Set(rawIds)];
 
-        // Clear existing mappings for this section to ensure sync/replace behavior
-        await ProductSectionGroupDAO.deleteBySection(section_id);
+        // Two batched existence checks instead of failing later on a FK violation
+        const [section, groupCount] = await Promise.all([
+            prisma.product_sections.findUnique({ where: { id: sectionId }, select: { id: true } }),
+            prisma.groups.count({ where: { id: { in: groupIds } } }),
+        ]);
+        if (!section) {
+            return res.status(404).json({ success: false, error: "Section not found" });
+        }
+        if (groupCount !== groupIds.length) {
+            return res.status(400).json({ success: false, error: "One or more groups do not exist" });
+        }
 
-        const data = await ProductSectionGroupDAO.createMany(mappings);
+        // Delete-removed + insert-new run in one transaction, so a failure cannot leave the section empty
+        const result = await ProductSectionGroupDAO.syncBySection(sectionId, groupIds);
 
-        res.status(201).json({ success: true, mappings: data });
+        res.status(201).json({ success: true, ...result });
     } catch (err) {
+        console.error("Create section-group mapping error:", err);
         res.status(500).json({ success: false, error: err.message });
     }
 }
 
 // Get all mappings with related data
+// ?type=section-group returns only group mappings (skips the store/product queries the
+// Group-Section Mapping page never uses). No type keeps the legacy "everything" response.
 export async function getAllMappings(req, res) {
     try {
-        const rawMappings = await StoreSectionMappingDAO.listAll();
+        const onlyGroups = req.query.type === "section-group";
+        const rawMappings = onlyGroups ? [] : await StoreSectionMappingDAO.listAll();
 
         // Group mappings by type (simulating legacy logic)
         const storeSectionData = rawMappings.filter(m => m.mapping_type === "store_section");
@@ -263,8 +282,12 @@ export async function getAllMappings(req, res) {
                     section_name:
                         mapping.product_sections?.section_name || "Unknown Section",
                     groups: [],
-                    is_active: true,
+                    is_active: false,
                 };
+            }
+            // Section is active when any of its group mappings is active
+            if (mapping.is_active !== false) {
+                groupedSectionGroups[sectionId].is_active = true;
             }
             if (mapping.groups) {
                 groupedSectionGroups[sectionId].groups.push({
@@ -292,6 +315,20 @@ export async function updateMappingStatus(req, res) {
     try {
         const { id } = req.params;
         const { is_active } = req.body;
+
+        if (typeof is_active !== "boolean") {
+            return res.status(400).json({ success: false, error: "is_active must be a boolean" });
+        }
+
+        // Grouped row on the Group-Section Mapping page: toggles every group mapping of the section
+        if (typeof id === 'string' && id.startsWith("section_group_")) {
+            const sectionId = Number(id.replace("section_group_", ""));
+            if (!Number.isInteger(sectionId)) {
+                return res.status(400).json({ success: false, error: "Invalid mapping id" });
+            }
+            const result = await ProductSectionGroupDAO.updateStatusBySection(sectionId, is_active);
+            return res.json({ success: true, updated: result.count });
+        }
 
         // Check if it's a new table ID
         if (typeof id === 'string' && id.startsWith("psg_")) {

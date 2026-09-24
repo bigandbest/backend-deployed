@@ -4,11 +4,11 @@
 // | Event                                   | Deleted                                              |
 // |-----------------------------------------|------------------------------------------------------|
 // | SECTION_CHANGED {sectionId?}            | plan; sel+view of that section (all sections if id unknown) |
-// | CATEGORY_UPDATED / GROUP_UPDATED        | plan; every product-section selection                |
+// | CATEGORY_UPDATED / GROUP_UPDATED        | plan; category hierarchy (hp:cats); every product-section selection |
 // | PRODUCT_UPDATED {productId?}            | that product's card projection; every selection      |
 // | BANNER/DEAL/STORE/VIDEO/PROMO/TESTIMONIAL/BRAND_UPDATED | view of the affected section TYPES only |
 
-import { homepagePlanKey, homepageSelectionKey, homepageProductKey, homepageSectionViewKey } from '../../../lib/cacheKeys.js';
+import { homepagePlanKey, homepageSelectionKey, homepageProductKey, homepageSectionViewKey, homepageCategoriesKey } from '../../../lib/cacheKeys.js';
 import { logEvent } from '../observability.js';
 
 export const EVENT_SECTION_TYPES = {
@@ -46,7 +46,9 @@ export function createHomepageInvalidator({ prisma, del, log = logEvent }) {
       const ids = isId(payload.sectionId) ? [Number(payload.sectionId)] : await sectionIds({});
       for (const id of ids) keys.push(homepageSelectionKey(id), homepageSectionViewKey(id));
     } else if (event === 'CATEGORY_UPDATED' || event === 'GROUP_UPDATED') {
-      keys.push(homepagePlanKey());
+      // hp:cats:v1 holds the shared category/subcategory hierarchy (CATEGORY_GRID, DUAL_CATEGORY_PAIR) and was never
+      // invalidated before — a category/subcategory edit stayed invisible for the whole 300s TTL.
+      keys.push(homepagePlanKey(), homepageCategoriesKey());
       for (const id of await sectionIds({ section_type: 'PRODUCT_CAROUSEL' })) keys.push(homepageSelectionKey(id));
     } else if (event === 'PRODUCT_UPDATED') {
       for (const id of await sectionIds({ section_type: 'PRODUCT_CAROUSEL' })) keys.push(homepageSelectionKey(id));

@@ -9,6 +9,9 @@ import { logEvent, startTimer } from './observability.js';
 
 export const FEED_VERSION = 1;
 
+// Per-response timing (set by build(); read by the controller to add serialization + total to the log / Server-Timing).
+export const timingOf = new WeakMap();
+
 const withTimeout = (promise, ms, label) => {
   let t;
   const timeout = new Promise((_, reject) => {
@@ -64,8 +67,11 @@ export function createHomepageFeedService(deps) {
 
   async function build({ platform, warehouseId = null, pincode = null, keys = null }) {
     const elapsed = startTimer();
+    const phaseMs = {};
     const warnings = [];
+    let t = startTimer();
     const plan = await loadPlan();
+    phaseMs.loadPlan = t();
     const top = prepare(plan, platform, warnings);
 
     const ordered = top.map((s, i) => ({ ...s, position: i + 1, load: resolveLoad(s, i + 1, initialCount) }));
@@ -90,9 +96,17 @@ export function createHomepageFeedService(deps) {
     let products = new Map();
     if (productSections.length) {
       try {
+        t = startTimer();
         selection = await selectProducts(productSections.map((s) => ({ id: s.id, source: s.config.source, limit: s.config.limit })));
+        phaseMs.selectProducts = t();
         const union = [...new Set([...selection.values()].flat())];
-        products = await hydrateProducts(union, { warehouseId });
+        t = startTimer();
+        const hydrateTimings = {};
+        products = await hydrateProducts(union, { warehouseId, timings: hydrateTimings });
+        phaseMs.hydrateProducts = t();
+        // Split of hydrateProducts (absent on a Redis product-cache hit): the product query and the inventory waves.
+        if (hydrateTimings.productQueryMs !== undefined) phaseMs.productQuery = hydrateTimings.productQueryMs;
+        if (hydrateTimings.inventoryMs !== undefined) phaseMs.inventory = hydrateTimings.inventoryMs;
       } catch (err) {
         logEvent('homepage.resolver.error', { type: 'PRODUCT_BATCH', code: 'PRODUCT_BATCH_FAILED', message: err.message }, 'error');
         for (const s of productSections) outcome.set(s.id, { status: 'ERROR', error: { code: 'PRODUCT_BATCH_FAILED' } });
@@ -100,7 +114,9 @@ export function createHomepageFeedService(deps) {
     }
 
     // ── resolvers grouped by type, in parallel, isolated ──
+    t = startTimer();
     const getCategories = makeCategoryLoader();
+    phaseMs.makeCategoryLoader = t();
     const rdeps = { prisma, store, selection, products, getCategories };
     const byType = new Map();
     for (const s of targets) {
@@ -129,10 +145,11 @@ export function createHomepageFeedService(deps) {
     }));
 
     // ── views ──
+    t = startTimer();
     const view = (s) => {
       const o = outcome.get(s.id);
       const base = {
-        id: s.id, key: s.section_key, type: s.section_type, title: s.section_name, order: s.position, load: s.load, config: s.config,
+        id: s.id, key: s.section_key, type: s.section_type, renderer: s.def.renderer, title: s.section_name, order: s.position, load: s.load, config: s.config,
         // TEMPORARY compatibility bridge: shipped renderers dispatch on the legacy component_name. Remove with component_name (Phase 12).
         legacy: { componentName: s.component_name ?? null },
       };
@@ -142,15 +159,19 @@ export function createHomepageFeedService(deps) {
     const sections = keys
       ? [...targets.map(view), ...gone.map((key) => ({ key, status: 'GONE', data: null }))]
       : ordered.map(view);
+    phaseMs.views = t();
 
     // ── availability overlay (per request, never cached; failure never fails the feed) ──
     let availabilityApplied = false;
     if (pincode && applyAvailability && store.products.size > 0) {
+      t = startTimer();
       try {
         await applyAvailability(store.products, pincode);
         availabilityApplied = true;
       } catch (err) {
         logEvent('homepage.availability.error', { message: err.message }, 'warn');
+      } finally {
+        phaseMs.availability = t();
       }
     }
 
@@ -161,10 +182,12 @@ export function createHomepageFeedService(deps) {
       entities: store.toJSON(),
     };
 
+    const durationMs = elapsed();
+    timingOf.set(response, { durationMs, phaseMs, keys: !!keys });
     logEvent(keys ? 'homepage.sections' : 'homepage.feed', {
-      platform, warehouseId, durationMs: elapsed(), sectionCount: ordered.length,
+      platform, warehouseId, durationMs, sectionCount: ordered.length,
       resolved: targets.length, errorSectionCount: sections.filter((s) => s.status === 'ERROR').length,
-      productCount: store.products.size, resolverMs, availabilityApplied, hasPincode: !!pincode,
+      productCount: store.products.size, phaseMs, resolverMs, availabilityApplied, hasPincode: !!pincode,
       ...(warnings.length ? { warnings: warnings.length } : {}),
     });
     if (warnings.length) logEvent('homepage.plan.warning', { warnings }, 'warn');

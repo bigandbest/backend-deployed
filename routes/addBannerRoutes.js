@@ -12,8 +12,12 @@ import {
 import { cacheMiddleware } from "../utils/cache.js";
 import { invalidateCacheMiddleware } from "../utils/cacheInvalidation.js";
 import multer from "multer";
+import { adminWritesOnly } from "../middleware/adminWrites.js";
 
 const router = Router();
+
+// Writes are admin-only; GETs stay public (storefront + mobile read them)
+router.use(adminWritesOnly);
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
