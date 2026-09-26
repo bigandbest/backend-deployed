@@ -1,5 +1,6 @@
 // import "./config/loadEnv.js"; // nodemon restart trigger
 import cluster from "cluster";
+import { perfRequestMiddleware } from "./lib/perfMetrics.js";
 import os from "os";
 import express from "express";
 import cors from "cors";
@@ -162,6 +163,10 @@ const getSystemInfo = () => {
 // Create Express app
 const createApp = () => {
   const app = express();
+
+  // Opt-in per-route attribution for the perf instrumentation (PERF_METRICS / PERF_METRICS_FILE); nothing registered otherwise.
+  const perfMw = perfRequestMiddleware();
+  if (perfMw) app.use(perfMw);
 
   // Enable gzip compression for all responses
   app.use(
@@ -338,7 +343,7 @@ const createApp = () => {
   app.use("/api/bids", bidRoutes);
   app.use("/api/search", searchRoutes);
   app.use("/api/section-mappings", hpInvalidate("SECTION_CHANGED", { idFrom: "section" }), sectionMappingRoutes);
-  app.use("/api/partners", partnerRoutes);
+  app.use("/api/partners", hpInvalidate("PARTNER_UPDATED"), partnerRoutes);
   app.use("/api/business-partner-inquiries", businessPartnerInquiryRoutes);
   app.use("/api/certifications", certificationRoutes);
   app.use("/api/about-content", aboutContentRoutes);

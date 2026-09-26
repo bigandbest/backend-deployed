@@ -1,4 +1,5 @@
 // controllers/walletController.js
+import { validateOrderLines, validateOrderTotal, recordCouponUsage } from "../services/orderValidationService.js";
 import { supabase } from "../config/supabaseClient.js";
 import prisma from "../config/prisma.js";
 import WalletDAO from "../dao/wallet.dao.js";
@@ -844,9 +845,37 @@ export const createWalletOrder = async (req, res) => {
       });
     }
 
+    // Re-validate prices / active flags / totals / coupon against the DB before the wallet is charged.
+    if (orderItemsData.length === 0) {
+      return res.status(400).json({ success: false, error: "Order must contain at least one item" });
+    }
+    const isSingleProduct = !(items && items.length > 0);
+    if (isSingleProduct) {
+      // No per-item price from the client here: charge the live variant price, never total / quantity.
+      const v = await prisma.product_variants.findUnique({
+        where: { id: orderItemsData[0].variant_id },
+        select: { price: true },
+      }).catch(() => null);
+      if (v) orderItemsData[0].price = Number(v.price);
+    }
+    const lineCheck = await validateOrderLines({
+      userId: user_id,
+      lines: orderItemsData.map((o) => ({ variantId: o.variant_id, quantity: o.quantity, price: o.price })),
+      clientSubtotal: isSingleProduct ? undefined : bodySubtotal,
+    });
+    if (!lineCheck.ok) return res.status(lineCheck.status).json(lineCheck.body);
+    const totalCheck = await validateOrderTotal({
+      userId: user_id,
+      subtotal: lineCheck.computedSubtotal,
+      priced: lineCheck.priced,
+      couponCode: req.body.coupon_code,
+      clientTotal: totalPrice,
+    });
+    if (!totalCheck.ok) return res.status(totalCheck.status).json(totalCheck.body);
+
     const deliveryPincode = delivery_address?.pincode ? String(delivery_address.pincode).trim() : null;
 
-    const subtotalValue = bodySubtotal != null ? parseFloat(bodySubtotal) : totalPrice;
+    const subtotalValue = lineCheck.computedSubtotal;
 
     // Create order data with nested items - strictly matching schema
     const orderCreateData = {
@@ -856,10 +885,9 @@ export const createWalletOrder = async (req, res) => {
       status: 'pending',
       total: parseFloat(totalPrice),
       subtotal: subtotalValue,
-      shipping: parseFloat(shipping) || 0,
-      handling_charge: parseFloat(handling_charge) || 0,
-      surge_charge: parseFloat(surge_charge) || 0,
-      platform_charge: parseFloat(platform_charge) || 0,
+      ...totalCheck.charges,
+      coupon_code: totalCheck.couponId ? req.body.coupon_code : null,
+      coupon_discount: totalCheck.couponDiscount,
       receiver_name: user_name,
       mobile: mobile ? String(mobile) : null,
       delivery_pincode: deliveryPincode,
@@ -984,6 +1012,8 @@ export const createWalletOrder = async (req, res) => {
         null,
         idempotencyKey
       );
+
+      await recordCouponUsage({ totalCheck, userId: user_id, orderId: order.id });
 
       // Create sub-orders for fulfillment routing — awaited (not
       // fire-and-forget) so confirmReservation runs before responding, but

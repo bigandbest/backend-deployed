@@ -2,6 +2,7 @@ import { config } from "dotenv";
 config(); // Must run before PrismaClient is created so DATABASE_URL is available
 
 import { PrismaClient } from "@prisma/client";
+import { attachPrismaMetrics, startPerfReporter } from "../lib/perfMetrics.js";
 
 const globalForPrisma = global;
 
@@ -36,6 +37,10 @@ const prisma =
       },
     },
   });
+
+// Opt-in instrumentation (PERF_METRICS / PERF_METRICS_FILE); no-op otherwise.
+attachPrismaMetrics(prisma);
+startPerfReporter();
 
 // Configure query timeout and connection lifecycle
 prisma.$on('query', (e) => {

@@ -8,6 +8,7 @@ import {
   relatedProductsKey,
   availabilityKey,
   newArrivalsKey,
+  allProductsKey,
   superSaverKey,
   subcategoryProductsKey,
   PRODUCT_TTL,
@@ -15,7 +16,9 @@ import {
   AVAILABILITY_TTL,
   AVAILABILITY_NEGATIVE_TTL,
   PRODUCT_LIST_TTL,
+  ALL_PRODUCTS_TTL,
 } from "../lib/cacheKeys.js";
+import { readThrough } from "../lib/cacheReadThrough.js";
 import { findWarehouseForProducts } from "../services/allocationEngine.js";
 import productVariantDao from "../dao/product-variant.dao.js";
 import productWarehouseStockDao from "../dao/product-warehouse-stock.dao.js";
@@ -141,19 +144,27 @@ export const getAllProducts = async (req, res) => {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
 
-    const result = await productDao.listProducts(
-      { active: true },
-      { limit, page },
-    );
+    // Shared base payload (products + total), keyed by page/limit only — never by pincode; single-flight on a miss.
+    // Availability is a per-request overlay computed below from the caller's own x-user-pincode, exactly as in
+    // getNewArrivals. NOTE the base carries stock (stock/inStock/availableStock + raw inventory rows): staleness = ALL_PRODUCTS_TTL.
+    const base = await readThrough('allproducts', allProductsKey(limit, page), ALL_PRODUCTS_TTL, async () => {
+      const result = await productDao.listProducts(
+        { active: true },
+        { limit, page },
+      );
+      return {
+        products: (result.items || []).map((product) => transformProduct(product)),
+        total: result.total || 0,
+      };
+    });
 
-    let transformedProducts = (result.items || []).map((product) => transformProduct(product));
-    transformedProducts = await enrichWithAvailability(req, transformedProducts);
+    const transformedProducts = await enrichWithAvailability(req, base.products);
 
-    const totalPages = Math.ceil((result.total || 0) / limit);
+    const totalPages = Math.ceil(base.total / limit);
     res.status(200).json({
       success: true,
       products: transformedProducts,
-      total: result.total || 0,
+      total: base.total,
       page,
       limit,
       totalPages,

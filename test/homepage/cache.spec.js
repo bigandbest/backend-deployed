@@ -82,6 +82,74 @@ test('view cache is NOT applied to entity-sharing types (categories register int
   assert.equal(store.stats.mget, 0);
 });
 
+// ── single-flight on the per-key caches (cache-expiry stampede) ─────────────────────────────────────────
+const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
+
+test('hydrate: concurrent misses share ONE hydration; callers get equal but independent copies', async () => {
+  const store = fakeStore(); let calls = 0; const seen = [];
+  const h = cachedHydrateProducts(async (ids) => { calls++; seen.push([...ids]); await tick(); return new Map(ids.map((id) => [id, { id, name: 'p' + id, tags: ['x'] }])); }, { store });
+  const results = await Promise.all(Array.from({ length: 50 }, () => h(['a', 'b', 'c'], {})));
+  assert.equal(calls, 1, '50 concurrent feed requests, one hydrate');
+  assert.deepEqual(seen, [['a', 'b', 'c']]);
+  results.forEach((m) => assert.deepEqual([...m.keys()].sort(), ['a', 'b', 'c']));
+  results[1].get('a').tags.push('mutated'); results[1].get('a').name = 'changed';
+  assert.deepEqual(results[2].get('a'), { id: 'a', name: 'pa', tags: ['x'] }, 'a caller mutating its copy must not leak into another request');
+  await h(['a', 'b', 'c'], {});
+  assert.equal(calls, 1, 'afterwards served from the cache');
+});
+
+test('hydrate: overlapping id sets only hydrate each product once; different warehouses never share', async () => {
+  const store = fakeStore(); const seen = [];
+  const h = cachedHydrateProducts(async (ids, o) => { seen.push([o.warehouseId ?? null, [...ids].sort().join()]); await tick(); return new Map(ids.map((id) => [id, { id, wh: o.warehouseId ?? null }])); }, { store });
+  const [x, y, z] = await Promise.all([h(['a', 'b', 'c'], {}), h(['b', 'c', 'd'], {}), h(['a'], { warehouseId: 3 })]);
+  const flat = seen.filter(([wh]) => wh === null).flatMap(([, ids]) => ids.split(','));
+  assert.deepEqual(flat.sort(), ['a', 'b', 'c', 'd'], 'a,b,c,d each hydrated exactly once in warehouse 0');
+  assert.deepEqual([...x.keys()].sort(), ['a', 'b', 'c']); assert.deepEqual([...y.keys()].sort(), ['b', 'c', 'd']);
+  assert.equal(z.get('a').wh, 3, 'warehouse 3 is a separate flight/namespace');
+  assert.equal(seen.filter(([wh]) => wh === 3).length, 1);
+});
+
+test('hydrate: a product the hydrator does not return is absent for every waiting caller', async () => {
+  const store = fakeStore(); let calls = 0;
+  const h = cachedHydrateProducts(async (ids) => { calls++; await tick(); return new Map(ids.filter((i) => i !== 'gone').map((id) => [id, { id }])); }, { store });
+  const rs = await Promise.all([h(['a', 'gone'], {}), h(['a', 'gone'], {}), h(['gone'], {})]);
+  assert.equal(calls, 1);
+  assert.deepEqual([...rs[0].keys()], ['a']); assert.deepEqual([...rs[1].keys()], ['a']); assert.equal(rs[2].size, 0);
+});
+
+test('hydrate: owner failure rejects the owner (as before) and waiting callers recompute instead of failing', async () => {
+  const store = fakeStore(); let calls = 0;
+  const h = cachedHydrateProducts(async (ids) => { calls++; await tick(); if (calls === 1) throw new Error('db down'); return new Map(ids.map((id) => [id, { id }])); }, { store });
+  const [owner, waiter] = await Promise.allSettled([h(['a'], {}), h(['a'], {})]);
+  assert.equal(owner.status, 'rejected'); assert.match(owner.reason.message, /db down/);
+  assert.equal(waiter.status, 'fulfilled'); assert.deepEqual([...waiter.value.keys()], ['a']);
+  assert.equal(calls, 2, 'failure was not cached and not sticky');
+});
+
+test('select: concurrent misses share one selection; a different limit is a different flight', async () => {
+  const store = fakeStore(); const seen = [];
+  const sel = cachedSelectProducts(async (specs) => { seen.push(specs.map((s) => `${s.id}:${s.limit}`)); await tick(); return new Map(specs.map((s) => [s.id, ['p' + s.limit]])); }, { store });
+  const spec = { id: 5, source: 'MAPPED', limit: 12 };
+  const rs = await Promise.all([...Array.from({ length: 30 }, () => sel([spec])), sel([{ ...spec, limit: 20 }])]);
+  assert.equal(seen.filter((x) => x.includes('5:12')).length, 1, 'limit 12: one selection for 30 requests');
+  assert.equal(seen.filter((x) => x.includes('5:20')).length, 1);
+  assert.deepEqual(rs[0].get(5), ['p12']); assert.deepEqual(rs[30].get(5), ['p20']);
+  rs[0].get(5).push('leak'); assert.deepEqual(rs[1].get(5), ['p12'], 'copies are independent');
+});
+
+test('view cache: concurrent misses of one section share ONE resolver call (expiry / invalidation stampede)', async () => {
+  const store = fakeStore(); let calls = 0;
+  const inner = async ({ sections }) => { calls++; await tick(); return new Map(sections.map((s) => [s.id, { data: { partners: [{ id: 'p' }] } }])); };
+  const r = cachedResolver('BRAND_PARTNERS', inner, { store });
+  const sec = { id: 7, updated_at: '2026-09-25T10:00:00.000Z', config: {} };
+  const rs = await Promise.all(Array.from({ length: 40 }, () => r({ sections: [sec] })));
+  assert.equal(calls, 1);
+  rs[0].get(7).data.partners.push('leak'); assert.equal(rs[1].get(7).data.partners.length, 1);
+  await r({ sections: [sec] }); assert.equal(calls, 1, 'cached afterwards');
+  await Promise.all([r({ sections: [{ ...sec, updated_at: '2026-09-25T12:00:00.000Z' }] }), r({ sections: [{ ...sec, updated_at: '2026-09-25T12:00:00.000Z' }] })]);
+  assert.equal(calls, 2, 'a changed section stamp is its own flight');
+});
+
 test('HOMEPAGE_CACHE=off bypasses every layer', async () => {
   assert.equal(cacheEnabled({ HOMEPAGE_CACHE: 'off' }), false);
   assert.equal(cacheEnabled({}), true);
@@ -102,6 +170,7 @@ function fakePrisma() {
   const sections = [
     { id: 1, section_type: 'PRODUCT_CAROUSEL' }, { id: 2, section_type: 'PRODUCT_CAROUSEL' },
     { id: 3, section_type: 'HERO_CAROUSEL' }, { id: 4, section_type: 'BANNER_STRIP' }, { id: 5, section_type: 'DEAL_CARDS' }, { id: 6, section_type: 'STORE_GRID' },
+    { id: 7, section_type: 'BRAND_PARTNERS' },
   ];
   return {
     product_sections: { findMany: async ({ where }) => sections.filter((s) => !where || (where.section_type ? (where.section_type.in ? where.section_type.in.includes(s.section_type) : s.section_type === where.section_type) : true)).map((s) => ({ id: s.id })) },
@@ -131,6 +200,29 @@ test('banner / deal / store events delete ONLY the affected section types', asyn
   r = inv(); await r.i.emit('STORE_UPDATED');
   assert.deepEqual(r.deleted, [homepageSectionViewKey(6)]);
   assert.ok(!r.deleted.includes(homepagePlanKey()), 'small-table events never drop the plan');
+});
+
+test('partner events delete ONLY the BRAND_PARTNERS section views (never the plan or other types)', async () => {
+  const r = inv(); await r.i.emit('PARTNER_UPDATED');
+  assert.deepEqual(r.deleted, [homepageSectionViewKey(7)]);
+  assert.ok(!r.deleted.includes(homepagePlanKey()));
+  const b = inv(); await b.i.emit('BRAND_UPDATED');
+  assert.ok(!b.deleted.includes(homepageSectionViewKey(7)), 'a brand edit does not touch partner views');
+});
+
+test('BRAND_PARTNERS view is cached (one resolver call for repeated feeds) and follows the section updated_at stamp', async () => {
+  const store = fakeStore(); let calls = 0;
+  const inner = async ({ sections }) => { calls++; return new Map(sections.map((s) => [s.id, { data: { partners: [{ id: 'p', n: calls }] } }])); };
+  const r = cachedResolver('BRAND_PARTNERS', inner, { store });
+  const sec = { id: 7, updated_at: '2026-09-25T10:00:00.000Z', config: { limit: 12 } };
+  for (let i = 0; i < 5; i++) await r({ sections: [sec] });
+  assert.equal(calls, 1, 'five feed requests, one partners query');
+  assert.equal(store.ttls.get(homepageSectionViewKey(7)), 300, 'default view TTL is the fallback if an invalidation is ever missed');
+  await store.m.delete(homepageSectionViewKey(7)); // what PARTNER_UPDATED does
+  await r({ sections: [sec] });
+  assert.equal(calls, 2, 'after invalidation the next feed rebuilds it');
+  await r({ sections: [{ ...sec, updated_at: '2026-09-25T11:00:00.000Z' }] });
+  assert.equal(calls, 3, 'section edit (e.g. limit change) => recomputed');
 });
 
 test('product event: that product in wh0 + every warehouse, plus product-section selections (membership)', async () => {

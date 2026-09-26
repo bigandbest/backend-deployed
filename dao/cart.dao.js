@@ -37,49 +37,46 @@ class CartDAO {
         });
     }
 
-    async getCartItemById(id) {
-        return await prisma.cart_items.findUnique({
-            where: { id },
-            include: {
-                variant: {
-                    include: {
-                        product: true
-                    }
-                }
-            }
-        });
+    // Schema relation names are product_variants / products / product_media; callers use the
+    // shorter variant / product / media shape, so map it here once.
+    _withVariantShape(item) {
+        if (!item) return item;
+        const { product_variants: pv, ...rest } = item;
+        if (!pv) return { ...rest, variant: null };
+        const { products, product_media, ...variantRest } = pv;
+        return {
+            ...rest,
+            variant: {
+                ...variantRest,
+                product: products,
+                media: product_media || [],
+            },
+        };
     }
 
-    async hasBidProducts(userId) {
-        const count = await prisma.cart_items.count({
-            where: {
-                user_id: userId,
-                is_bid_product: true
-            }
+    async getCartItemById(id) {
+        const item = await prisma.cart_items.findUnique({
+            where: { id },
+            include: { product_variants: { include: { products: true } } }
         });
-        return count > 0;
+        return this._withVariantShape(item);
     }
 
     async getCartByUserId(userId) {
-        return await prisma.cart_items.findMany({
+        const rows = await prisma.cart_items.findMany({
             where: { user_id: userId },
             include: {
-                variant: {
+                product_variants: {
                     include: {
                         inventory: true,
-                        product: {
-                            include: {
-                                media: {
-                                    where: { is_primary: true },
-                                    take: 1
-                                }
-                            }
-                        }
+                        product_media: { take: 1 },
+                        products: { include: { media: { where: { is_primary: true }, take: 1 } } }
                     }
                 }
             },
             orderBy: { added_at: 'desc' }
         });
+        return rows.map((r) => this._withVariantShape(r));
     }
 
     async updateQuantity(cartItemId, quantity) {

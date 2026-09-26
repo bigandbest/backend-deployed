@@ -11,6 +11,8 @@ import orderDao from "../dao/order.dao.js";
 import orderItemDao from "../dao/order-item.dao.js";
 import productDao from "../dao/product.dao.js";
 import BulkPricingTiersDAO from "../dao/bulk-pricing-tiers.dao.js";
+import couponValidator from "../services/couponValidator.js";
+import { validateOrderLines, validateOrderTotal, recordCouponUsage } from "../services/orderValidationService.js";
 import cartDao from "../dao/cart.dao.js";
 import refundRequestDao from "../dao/refund-request.dao.js";
 import userControlDao from "../dao/user.dao.js";
@@ -465,6 +467,26 @@ export const placeOrder = async (req, res) => {
       warehouseInfo: warehouseResults[idx].warehouseInfo,
     }));
 
+    // Re-validate client-supplied prices / subtotal and active flags against the DB
+    // (price and active are not covered by reserveStock below).
+    const lineCheck = await validateOrderLines({
+      userId: user_id,
+      lines: preparedItems.map((p) => ({ variantId: p.variantId, quantity: p.quantity, price: p.item.price })),
+      clientSubtotal: subtotal,
+    });
+    if (!lineCheck.ok) return res.status(lineCheck.status).json(lineCheck.body);
+    const totalCheck = await validateOrderTotal({
+      userId: user_id,
+      subtotal: lineCheck.computedSubtotal,
+      priced: lineCheck.priced,
+      couponCode: coupon_code,
+      clientTotal: total,
+    });
+    if (!totalCheck.ok) return res.status(totalCheck.status).json(totalCheck.body);
+    // Store server-side figures, not the client's, for shipping / charges / coupon.
+    const { shipping: validatedShipping, ...validatedCharges } = totalCheck.charges;
+    finalChargeSettings = validatedCharges;
+
     // Stage 4 (fulfillment consolidation): reserve stock atomically before
     // creating the order. If any item is out of stock, fail fast — no order,
     // no cart clear, no wallet/payment side effects have happened yet at
@@ -501,14 +523,14 @@ export const placeOrder = async (req, res) => {
     const order = await orderDao.create({
       user_id,
       subtotal: parseFloat(subtotal),
-      shipping: parseFloat(shipping),
+      shipping: validatedShipping,
       total: parseFloat(total),
       address,
       delivery_pincode: deliverabilityValidation.pincode,
       payment_method,
       status: "pending",
-      coupon_code: coupon_code || null,
-      coupon_discount: coupon_discount ? parseFloat(coupon_discount) : 0,
+      coupon_code: totalCheck.couponId ? coupon_code : null,
+      coupon_discount: totalCheck.couponDiscount,
       mobile: resolvedMobile,
       receiver_name: resolvedReceiverName,
       delivery_otp: deliveryOtp, // ✅ Save OTP at parent order level
@@ -523,6 +545,8 @@ export const placeOrder = async (req, res) => {
       } : {}),
       ...finalChargeSettings
     });
+
+    await recordCouponUsage({ totalCheck, userId: user_id, orderId: order.id });
 
     // Process order items with warehouse assignment
     const orderItemsToInsert = [];
@@ -821,6 +845,26 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
     }));
     // ─────────────────────────────────────────────────────────────────────────
 
+    // Re-validate client-supplied prices / subtotal and active flags against the DB.
+    const lineCheck = await validateOrderLines({
+      userId: user_id,
+      lines: preparedItems.map((p) => ({ variantId: p.variantId, quantity: p.quantity, price: p.item.price })),
+      clientSubtotal: subtotal,
+      allowBulkTierPrice: true,
+    });
+    if (!lineCheck.ok) return res.status(lineCheck.status).json(lineCheck.body);
+    const totalCheck = await validateOrderTotal({
+      userId: user_id,
+      subtotal: lineCheck.computedSubtotal,
+      priced: lineCheck.priced,
+      couponCode: coupon_code,
+      clientTotal: total,
+    });
+    if (!totalCheck.ok) return res.status(totalCheck.status).json(totalCheck.body);
+    // Store server-side figures, not the client's, for shipping / charges / coupon.
+    const { shipping: validatedShipping, ...validatedCharges } = totalCheck.charges;
+    finalChargeSettings = validatedCharges;
+
     // ── Bulk pricing resolution (outside tx — requires external lookups) ────────
     const resolvedItems = [];
     let hasBulkOrder = false;
@@ -903,7 +947,7 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
         data: {
           user_id,
           subtotal: parseFloat(subtotal),
-          shipping: parseFloat(shipping),
+          shipping: validatedShipping,
           total: parseFloat(total),
           address: addressString,
           payment_method,
@@ -918,8 +962,8 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
           irn: identity.irn,
           orn: identity.orn,
           invoice_generated_at: identity.invoice_generated_at,
-          coupon_code: coupon_code || null,
-          coupon_discount: coupon_discount ? parseFloat(coupon_discount) : 0,
+          coupon_code: totalCheck.couponId ? coupon_code : null,
+          coupon_discount: totalCheck.couponDiscount,
           is_bulk_order: hasBulkOrder,
           ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
           ...finalChargeSettings,
@@ -971,6 +1015,7 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
 
     // Growth-program attribution, dispatched after commit like the other deferred side effects below.
     await onOrderCreated(order);
+    await recordCouponUsage({ totalCheck, userId: user_id, orderId: order.id });
 
     // Respond immediately — geocoding and fulfillment routing are queued below
     const response = res.status(201).json({
@@ -1036,6 +1081,8 @@ export const cancelOrder = async (req, res) => {
 
     // Update order status
     await orderDao.update(id, { status: "cancelled" });
+    // Release the coupon usage recorded at order time (no-op when the order had no coupon).
+    await couponValidator.cancelCouponUsage(id);
 
     // Get user details for notifications
     const userData = order.users || await userControlDao.getUserById(order.user_id);

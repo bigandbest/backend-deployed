@@ -6,7 +6,7 @@
 // | SECTION_CHANGED {sectionId?}            | plan; sel+view of that section (all sections if id unknown) |
 // | CATEGORY_UPDATED / GROUP_UPDATED        | plan; category hierarchy (hp:cats); every product-section selection |
 // | PRODUCT_UPDATED {productId?}            | that product's card projection; every selection      |
-// | BANNER/DEAL/STORE/VIDEO/PROMO/TESTIMONIAL/BRAND_UPDATED | view of the affected section TYPES only |
+// | BANNER/DEAL/STORE/VIDEO/PROMO/TESTIMONIAL/BRAND/PARTNER_UPDATED | view of the affected section TYPES only |
 
 import { homepagePlanKey, homepageSelectionKey, homepageProductKey, homepageSectionViewKey, homepageCategoriesKey } from '../../../lib/cacheKeys.js';
 import { logEvent } from '../observability.js';
@@ -19,6 +19,7 @@ export const EVENT_SECTION_TYPES = {
   PROMO_CARD_UPDATED: ['PROMO_CARDS'],
   TESTIMONIAL_UPDATED: ['TESTIMONIALS'],
   BRAND_UPDATED: ['BRAND_GRID'],
+  PARTNER_UPDATED: ['BRAND_PARTNERS'],
   TABS_UPDATED: ['TABBED_PRODUCTS'],
 };
 

@@ -1,3 +1,5 @@
+import prisma from "../config/prisma.js";
+import { validateOrderLines, validateOrderTotal, resolveOrderLines } from "../services/orderValidationService.js";
 import BulkOrderEnquiryDAO from "../dao/bulk-order-enquiry.dao.js";
 import WholesaleBulkOrderDAO from "../dao/wholesale-bulk-order.dao.js";
 import WholesaleBulkOrderItemDAO from "../dao/wholesale-bulk-order-item.dao.js";
@@ -155,6 +157,21 @@ export const createWholesaleBulkOrder = async (req, res) => {
       });
     }
 
+    // Re-validate client prices / active flags against the DB (bulk-tier prices are accepted) and make sure the quoted
+    // total is not below the sum of the validated lines.
+    const resolved = await resolveOrderLines(items);
+    if (resolved.error) return res.status(400).json({ success: false, error: resolved.error });
+    const lineCheck = await validateOrderLines({ userId: user_id, lines: resolved.lines, allowBulkTierPrice: true });
+    if (!lineCheck.ok) return res.status(lineCheck.status).json(lineCheck.body);
+    if (!(parseFloat(total_price) >= lineCheck.computedSubtotal - 1)) {
+      return res.status(409).json({
+        success: false,
+        code: "PRICE_CHANGED",
+        error: "Order total does not match current prices. Please review your cart and try again.",
+        expected_subtotal: Math.round(lineCheck.computedSubtotal * 100) / 100,
+      });
+    }
+
     const orderData = {
       user_id: user_id || null,
       total_price: parseFloat(total_price),
@@ -302,7 +319,10 @@ export const updateWholesaleBulkOrder = async (req, res) => {
   }
 };
 
-// Enhanced order creation with bulk support
+// Enhanced order creation with bulk support.
+// Accepts the payload the web client actually sends (wholesale shape: total_price / contact / shipping_address) as well
+// as the detailedAddress shape. Prices, totals and active flags are re-validated server-side; the order and its
+// items are written in one transaction, using only columns that exist on orders / order_items.
 export const createOrderWithBulkSupport = async (req, res) => {
   try {
     const {
@@ -311,96 +331,121 @@ export const createOrderWithBulkSupport = async (req, res) => {
       subtotal,
       shipping,
       total,
+      total_price,
       detailedAddress,
+      shipping_address,
+      contact,
       payment_method,
       company_name,
       gst_number,
       razorpay_order_id,
       razorpay_payment_id,
       razorpay_signature,
-      gpsLocation
     } = req.body;
 
-    // Check if any items are bulk orders
-    const hasBulkItems = items.some(item => item.is_bulk_order);
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, error: "Order must contain at least one item" });
+    }
 
-    // Create address string
-    const addressString = [
-      detailedAddress.houseNumber && detailedAddress.streetAddress
-        ? `${detailedAddress.houseNumber} ${detailedAddress.streetAddress}`
-        : detailedAddress.streetAddress,
-      detailedAddress.suiteUnitFloor,
-      detailedAddress.locality,
-      detailedAddress.area,
-      detailedAddress.city,
-      detailedAddress.state,
-      detailedAddress.postalCode,
-      detailedAddress.country || "India",
-      detailedAddress.landmark ? `Near ${detailedAddress.landmark}` : null,
-    ]
-      .filter(Boolean)
-      .join(", ");
+    const resolved = await resolveOrderLines(items);
+    if (resolved.error) return res.status(400).json({ success: false, error: resolved.error });
+    const lineCheck = await validateOrderLines({
+      userId: user_id,
+      lines: resolved.lines,
+      clientSubtotal: subtotal,
+      allowBulkTierPrice: true,
+    });
+    if (!lineCheck.ok) return res.status(lineCheck.status).json(lineCheck.body);
+
+    const hasBulkItems = items.some((item) => item.is_bulk_order);
+    const clientTotal = total ?? total_price;
+
+    // Bulk orders are quotes the team follows up on (no payment taken here), so only the item total is floored;
+    // regular orders get the full charges/delivery floor.
+    let storedShipping = 0;
+    let storedCharges = {};
+    if (hasBulkItems) {
+      if (!(parseFloat(clientTotal) >= lineCheck.computedSubtotal - 1)) {
+        return res.status(409).json({
+          success: false,
+          code: "PRICE_CHANGED",
+          error: "Order total does not match current prices. Please review your cart and try again.",
+          expected_subtotal: Math.round(lineCheck.computedSubtotal * 100) / 100,
+        });
+      }
+    } else {
+      const totalCheck = await validateOrderTotal({
+        userId: user_id,
+        subtotal: lineCheck.computedSubtotal,
+        priced: lineCheck.priced,
+        clientTotal,
+      });
+      if (!totalCheck.ok) return res.status(totalCheck.status).json(totalCheck.body);
+      const { shipping: sh, ...charges } = totalCheck.charges;
+      storedShipping = sh;
+      storedCharges = charges;
+    }
+
+    const d = detailedAddress || {};
+    const addressString = detailedAddress
+      ? [
+          d.houseNumber && d.streetAddress ? `${d.houseNumber} ${d.streetAddress}` : d.streetAddress,
+          d.suiteUnitFloor,
+          d.locality,
+          d.area,
+          d.city,
+          d.state,
+          d.postalCode,
+          d.country || "India",
+          d.landmark ? `Near ${d.landmark}` : null,
+        ].filter(Boolean).join(", ")
+      : shipping_address?.fullAddress || null;
+    const pincode = String(d.postalCode || shipping_address?.zipCode || "").trim();
 
     const orderData = {
-      user_id,
-      subtotal,
-      shipping,
-      total,
+      subtotal: lineCheck.computedSubtotal,
+      shipping: storedShipping,
+      total: Math.max(parseFloat(clientTotal) || 0, lineCheck.computedSubtotal),
       address: addressString,
-      payment_method: hasBulkItems ? 'bulk_order' : payment_method,
+      payment_method: hasBulkItems ? "bulk_order" : payment_method,
       is_bulk_order: hasBulkItems,
-      company_name,
-      gst_number,
-      shipping_house_number: detailedAddress.houseNumber,
-      shipping_street_address: detailedAddress.streetAddress,
-      shipping_suite_unit_floor: detailedAddress.suiteUnitFloor,
-      shipping_locality: detailedAddress.locality,
-      shipping_area: detailedAddress.area,
-      shipping_city: detailedAddress.city,
-      shipping_state: detailedAddress.state,
-      shipping_postal_code: detailedAddress.postalCode,
-      shipping_country: detailedAddress.country || "India",
-      shipping_landmark: detailedAddress.landmark,
-      shipping_latitude: gpsLocation?.latitude || null,
-      shipping_longitude: gpsLocation?.longitude || null,
-      shipping_gps_address: gpsLocation?.formatted_address || null,
+      company_name: company_name || null,
+      gst_number: gst_number || null,
+      mobile: contact ? String(contact) : null,
+      ...(/^\d{6}$/.test(pincode) ? { delivery_pincode: pincode } : {}),
+      ...storedCharges,
     };
-
-    // Add payment details only for non-bulk orders
+    if (user_id) orderData.users = { connect: { id: user_id } };
+    // Payment details only for non-bulk orders
     if (!hasBulkItems && razorpay_order_id) {
       orderData.razorpay_order_id = razorpay_order_id;
       orderData.razorpay_payment_id = razorpay_payment_id;
       orderData.razorpay_signature = razorpay_signature;
     }
 
-    // Create order using DAO
-    const order = await OrderDAO.create(orderData);
-
-    // Create order items using DAO
-    const orderItemsToInsert = items.map((item) => ({
-      order_id: order.id,
-      product_id: item.product_id || item.id,
-      quantity: item.quantity,
-      price: item.price,
-      is_bulk_order: item.is_bulk_order || false,
-      bulk_range: item.bulk_range || null,
-      original_price: item.original_price || null,
-    }));
-
-    for (const item of orderItemsToInsert) {
-      await OrderItemDAO.create(item);
-    }
-
-    // Clear cart
-    if (user_id) {
-      await CartDAO.clearCart(user_id);
-    }
+    const lineByIndex = resolved.lines;
+    const order = await prisma.$transaction(async (tx) => {
+      const created = await tx.orders.create({ data: orderData });
+      await tx.order_items.createMany({
+        data: items.map((item, idx) => ({
+          order_id: created.id,
+          variant_id: lineByIndex[idx].variantId,
+          quantity: lineByIndex[idx].quantity,
+          price: parseFloat(item.price),
+          is_bulk_order: item.is_bulk_order || false,
+          bulk_range: item.bulk_range || null,
+          original_price: item.original_price ? parseFloat(item.original_price) : null,
+        })),
+      });
+      if (user_id) await tx.cart_items.deleteMany({ where: { user_id } });
+      return created;
+    });
 
     return res.json({
       success: true,
       order,
       isBulkOrder: hasBulkItems,
-      message: hasBulkItems ? 'Bulk order created successfully. Our team will contact you soon.' : 'Order placed successfully'
+      message: hasBulkItems ? "Bulk order created successfully. Our team will contact you soon." : "Order placed successfully",
     });
   } catch (error) {
     return res.status(500).json({ success: false, error: error.message });

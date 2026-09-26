@@ -1,7 +1,42 @@
 import prisma from "../config/prisma.js";
 import redis from "../config/redis.js";
+import { trackAvailability, availabilityCache, availabilityNotServiceable, availabilityLookup, availabilityItemFlight, availabilityBatch } from "../lib/perfMetrics.js";
+import { createSingleFlight } from "../lib/singleFlight.js";
+import { availZoneLookupKey, availWarehousesLookupKey, AVAILABILITY_LOOKUP_TTL } from "../lib/cacheKeys.js";
 
 const AVAILABILITY_CACHE_TTL = parseInt(process.env.AVAILABILITY_CACHE_TTL || '60', 10);
+
+// Returned by the raw loaders when their DB read failed, so a failure is never written to the cache.
+const LOOKUP_FAILED = Symbol('lookup-failed');
+const lookupFlight = createSingleFlight();
+
+// In-flight per-item availability computations, keyed by (variant, zone, quantity): concurrent requests share one.
+const itemFlights = new Map();
+const STOCK_BATCH_CHUNK = 500; // variants per inventory read
+
+/**
+ * Cache-aside + single-flight for a per-pincode lookup. Cached values are wrapped as { v } so a legitimately
+ * empty/null result (unserviceable pincode, no zone) is distinguishable from a miss. Redis trouble = plain DB read.
+ * A failed DB read returns `fallback` (the value the loader returned on error before caching existed) and is NOT cached.
+ */
+async function cachedPincodeLookup(kind, key, load, fallback) {
+    try {
+        const raw = await redis.get(key);
+        if (raw) { availabilityLookup(kind, 'hit'); return JSON.parse(raw).v; }
+    } catch { /* Redis unavailable or bad JSON — fall through to the DB */ }
+
+    const { promise, joined } = lookupFlight(`${kind}:${key}`, async () => {
+        const value = await load();
+        if (value === LOOKUP_FAILED) return LOOKUP_FAILED;
+        // awaited (errors swallowed) so callers arriving right after this flight settles see the cached value
+        try { await redis.setex(key, AVAILABILITY_LOOKUP_TTL, JSON.stringify({ v: value })); } catch { /* cache write is best-effort */ }
+        return value;
+    });
+    const value = await promise;
+    if (value === LOOKUP_FAILED) { availabilityLookup(kind, 'failed'); return fallback; }
+    availabilityLookup(kind, joined ? 'joined' : 'miss');
+    return value;
+}
 
 class CartAvailabilityDAO {
     /**
@@ -10,6 +45,11 @@ class CartAvailabilityDAO {
      * @returns {Promise<Array>} Array of warehouses with pincode details
      */
     async getWarehousesByPincode(pincode) {
+        return cachedPincodeLookup('warehouses', availWarehousesLookupKey(pincode), () => this._loadWarehousesByPincode(pincode), []);
+    }
+
+    /** Raw DB read (uncached). Returns LOOKUP_FAILED instead of [] when the read throws so the wrapper does not cache it. */
+    async _loadWarehousesByPincode(pincode) {
         try {
             // Fetch direct mappings, zone pincodes, and nationwide zones in parallel
             const [directMappings, zoneMappings, nationwideZones] = await Promise.all([
@@ -91,7 +131,7 @@ class CartAvailabilityDAO {
             return uniqueWarehouses;
         } catch (error) {
             console.error('Error fetching warehouses by pincode:', error);
-            return [];
+            return LOOKUP_FAILED;
         }
     }
 
@@ -160,22 +200,34 @@ class CartAvailabilityDAO {
         }
 
         if (!variantId) {
-            return {
-                product_id: item.product_id,
-                product_name: item.product_name || 'Unknown Product',
-                variant_id: null,
-                available: false,
-                warehouse_type: null,
-                delivery_days: null,
-                delivery_message: 'Product variant not found',
-                available_quantity: 0,
-                requested_quantity: item.quantity || 1
-            };
+            return this._variantNotFound(item);
         }
 
         // Check stock across warehouses
         const stockData = await this.checkVariantStock(variantId, warehouseIds);
+        return this._availabilityFromStock(item, variantId, stockData, warehousePincodes);
+    }
 
+    /** Result for an item whose (default) variant cannot be resolved. Shared by the per-item and batched paths. */
+    _variantNotFound(item) {
+        return {
+            product_id: item.product_id,
+            product_name: item.product_name || 'Unknown Product',
+            variant_id: null,
+            available: false,
+            warehouse_type: null,
+            delivery_days: null,
+            delivery_message: 'Product variant not found',
+            available_quantity: 0,
+            requested_quantity: item.quantity || 1
+        };
+    }
+
+    /**
+     * Pure availability decision from already-loaded stock rows (no I/O). Body moved verbatim out of
+     * checkItemAvailability so the per-item and batched paths share exactly one implementation.
+     */
+    _availabilityFromStock(item, variantId, stockData, warehousePincodes) {
         if (!stockData || stockData.length === 0) {
             return {
                 product_id: item.product_id,
@@ -356,6 +408,11 @@ class CartAvailabilityDAO {
      * Get the zone ID for a given pincode (for cache key generation)
      */
     async getZoneForPincode(pincode) {
+        return cachedPincodeLookup('zone', availZoneLookupKey(pincode), () => this._loadZoneForPincode(pincode), null);
+    }
+
+    /** Raw DB read (uncached). Returns LOOKUP_FAILED instead of null when the read throws so the wrapper does not cache it. */
+    async _loadZoneForPincode(pincode) {
         try {
             const [zoneMapping, nationwide] = await Promise.all([
                 prisma.zone_pincodes.findFirst({
@@ -371,7 +428,7 @@ class CartAvailabilityDAO {
             return nationwide ? `nationwide_${nationwide.id}` : null;
         } catch (error) {
             console.error('Error getting zone for pincode:', error);
-            return null;
+            return LOOKUP_FAILED;
         }
     }
 
@@ -422,11 +479,17 @@ class CartAvailabilityDAO {
      */
     async checkBulkAvailability(items, pincode) {
         if (!items || items.length === 0) return {};
+        // Instrumentation wrapper only (lib/perfMetrics.js): pass-through unless PERF_METRICS is enabled.
+        return trackAvailability(items.length, () => this._checkBulkAvailability(items, pincode));
+    }
+
+    async _checkBulkAvailability(items, pincode) {
 
         const zoneId = await this.getZoneForPincode(pincode);
         const warehousePincodes = await this.getWarehousesByPincode(pincode);
 
         if (!warehousePincodes || warehousePincodes.length === 0) {
+            availabilityNotServiceable();
             // Not serviceable — return unavailable for all
             const results = {};
             items.forEach(item => {
@@ -472,31 +535,151 @@ class CartAvailabilityDAO {
             }
         });
 
-        // Fetch DB misses in parallel
+        availabilityCache(items.length - missItems.length, missItems.length);
+
+        // Compute the misses: one batched DB read for all of them (was: N per-item queries in parallel), and
+        // concurrent requests missing the same (variant, zone) share one computation (single-flight).
         if (missItems.length > 0) {
-            const dbResults = await Promise.all(
-                missItems.map(({ item }) => this.checkItemAvailability(item, warehousePincodes))
-            );
-
-            // Write back all misses in one pipeline (fire-and-forget)
-            if (zoneId) {
-                try {
-                    const pipeline = redis.pipeline();
-                    missItems.forEach(({ key }, idx) => {
-                        pipeline.setex(key, AVAILABILITY_CACHE_TTL, JSON.stringify(dbResults[idx]));
-                    });
-                    pipeline.exec().catch(() => {});
-                } catch {
-                    // Redis down — skip cache write
-                }
-            }
-
+            const dbResults = await this._resolveMisses(missItems, warehousePincodes, zoneId);
             missItems.forEach(({ item }, idx) => {
                 results[item.product_id] = dbResults[idx];
             });
         }
 
         return results;
+    }
+
+    /**
+     * Resolve cache misses; returns one availability result per miss, in order.
+     * - One batched DB read for all misses this call owns (was: N per-item queries in parallel).
+     * - Single-flight: concurrent requests missing the same (variant, zone) share one computation. Only when the zone is
+     *   known: the cache key is (variant, zone), so a shared result is exactly what a cache hit would have returned. With
+     *   no zone (key `...:null`) different pincodes can have different warehouse sets, so nothing is shared or cached
+     *   (unchanged from before).
+     * - A result derived from a FAILED stock read still answers this request as before ("Out of stock") but is not
+     *   written to the cache, so a transient overload error is not served for the next AVAILABILITY_CACHE_TTL seconds.
+     */
+    async _resolveMisses(missItems, warehousePincodes, zoneId) {
+        const out = new Array(missItems.length);
+        const owned = [];   // this call computes: { idx, item, key, flightKey, settle }
+        const joined = [];  // another in-flight call already computes: { idx, item, promise }
+
+        missItems.forEach(({ item, key }, idx) => {
+            if (!zoneId) { owned.push({ idx, item, key, flightKey: null, settle: null }); return; }
+            const flightKey = `${key}:q${item.quantity || 1}`;
+            const existing = itemFlights.get(flightKey);
+            if (existing) { joined.push({ idx, item, promise: existing }); return; }
+            let settle;
+            const promise = new Promise((resolve) => { settle = resolve; });
+            itemFlights.set(flightKey, promise);
+            owned.push({ idx, item, key, flightKey, settle });
+        });
+        availabilityItemFlight(owned.length, joined.length);
+
+        if (owned.length > 0) {
+            let batch;
+            try {
+                batch = await this._computeItemsBatch(owned.map((o) => o.item), warehousePincodes);
+            } catch (err) {
+                // Unexpected failure (same as the old Promise.all rejecting): release joiners so they recompute.
+                owned.forEach((o) => { if (o.flightKey) { itemFlights.delete(o.flightKey); o.settle(undefined); } });
+                throw err;
+            }
+            owned.forEach((o, i) => { out[o.idx] = batch.results[i]; });
+
+            // Write back in one pipeline (only zone-known, only results not derived from a failed read).
+            // Awaited so a request arriving right after the flight is released finds the cached value.
+            if (zoneId) {
+                try {
+                    const pipeline = redis.pipeline();
+                    owned.forEach((o, i) => {
+                        if (batch.ok[i]) pipeline.setex(o.key, AVAILABILITY_CACHE_TTL, JSON.stringify(batch.results[i]));
+                    });
+                    await pipeline.exec().catch(() => {});
+                } catch {
+                    // Redis down — skip cache write
+                }
+            }
+            // Cache written first, then the flight is released, then joiners are woken (each gets its own copy).
+            owned.forEach((o, i) => {
+                if (o.flightKey) { itemFlights.delete(o.flightKey); o.settle({ ...batch.results[i] }); }
+            });
+        }
+
+        // Owned promises are all settled above BEFORE waiting on anyone else's, so two requests can never wait on each other.
+        for (const j of joined) {
+            const shared = await j.promise;
+            out[j.idx] = shared !== undefined
+                ? { ...shared }
+                : (await this._computeItemsBatch([j.item], warehousePincodes)).results[0];
+        }
+        return out;
+    }
+
+    /**
+     * Availability for many items with a constant number of queries: at most one default-variant lookup (only for items
+     * without variant_id) and one inventory read for all variants — instead of one inventory read per item.
+     * Decisions come from the same _availabilityFromStock used by checkItemAvailability.
+     * @returns {Promise<{ results: object[], ok: boolean[] }>} ok[i] is false when the result came from a failed stock read
+     */
+    async _computeItemsBatch(items, warehousePincodes) {
+        availabilityBatch(items.length);
+        const warehouseIds = warehousePincodes.map((wp) => wp.warehouse_id);
+
+        // Variant ids: batched default-variant lookup for items that did not carry one (same rule as before:
+        // the product's default variant). A throw here propagates, exactly as it did per item.
+        const variantIds = items.map((i) => i.variant_id || null);
+        const needDefault = [...new Set(items.filter((i) => !i.variant_id).map((i) => i.product_id))];
+        if (needDefault.length > 0) {
+            const rows = await prisma.product_variants.findMany({
+                where: { product_id: { in: needDefault }, is_default: true },
+                select: { id: true, product_id: true },
+            });
+            const byProduct = new Map();
+            for (const r of rows) if (!byProduct.has(r.product_id)) byProduct.set(r.product_id, r.id);
+            items.forEach((item, idx) => { if (!item.variant_id) variantIds[idx] = byProduct.get(item.product_id) || null; });
+        }
+
+        // One stock read for every distinct variant (same select/include/mapping as checkVariantStock).
+        const stockByVariant = new Map();
+        let stockFailed = false;
+        const distinct = [...new Set(variantIds.filter(Boolean))];
+        if (distinct.length > 0) {
+            try {
+                for (let i = 0; i < distinct.length; i += STOCK_BATCH_CHUNK) {
+                    const rows = await prisma.inventory.findMany({
+                        where: { variant_id: { in: distinct.slice(i, i + STOCK_BATCH_CHUNK) }, warehouse_id: { in: warehouseIds } },
+                        include: {
+                            warehouses: {
+                                select: { id: true, name: true, type: true, location: true, parent_warehouse_id: true }
+                            }
+                        }
+                    });
+                    for (const row of rows) {
+                        if (!stockByVariant.has(row.variant_id)) stockByVariant.set(row.variant_id, []);
+                        stockByVariant.get(row.variant_id).push({
+                            ...row,
+                            warehouse: row.warehouses,
+                            available_stock: Math.max(0, (row.stock_qty || 0) - (row.reserved_qty || 0))
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking variant stock:', error);
+                stockFailed = true; // every item falls to the "Out of stock" answer, as checkVariantStock's null did
+            }
+        }
+
+        const results = [];
+        const ok = [];
+        items.forEach((item, idx) => {
+            const variantId = variantIds[idx];
+            if (!variantId) { results.push(this._variantNotFound(item)); ok.push(true); return; }
+            const stockData = stockFailed ? null : (stockByVariant.get(variantId) || []);
+            results.push(this._availabilityFromStock(item, variantId, stockData, warehousePincodes));
+            ok.push(!stockFailed);
+        });
+        return { results, ok };
     }
 
     async getProductsByIds(productIds) {
