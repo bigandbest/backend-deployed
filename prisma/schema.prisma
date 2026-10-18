@@ -1908,6 +1908,9 @@ model referral_rewards {
   // Relations
   profile                user_referral_profiles @relation(fields: [user_profile_id], references: [id])
   referral_reward_usages referral_reward_usages[]
+
+  // Idempotency guard added by 20260915120000_add_growth_program_idempotency_constraints.
+  @@unique([referral_transaction_id, reward_type], map: "referral_rewards_referral_transaction_id_reward_type_key")
 }
 
 

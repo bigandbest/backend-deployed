@@ -36,7 +36,10 @@
     "pm2:status": "pm2 status",
     "db:compile": "node scripts/compile-schema.js",
     "db:generate": "npm run db:compile && prisma generate",
-    "db:migrate": "npm run db:compile && prisma migrate dev"
+    "db:migrate": "npm run db:compile && prisma migrate dev",
+    "db:deploy": "npm run db:compile && prisma migrate deploy",
+    "db:status": "npm run db:compile && prisma migrate status",
+    "db:baseline": "bash scripts/baseline-migrations.sh"
   },
   "engines": {
     "node": ">=18.0.0"
