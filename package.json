@@ -36,10 +36,9 @@
     "pm2:status": "pm2 status",
     "db:compile": "node scripts/compile-schema.js",
     "db:generate": "npm run db:compile && prisma generate",
-    "db:migrate": "npm run db:compile && prisma migrate dev",
+    "db:migrate": "echo 'REFUSED: prisma migrate dev needs a shadow DB and can RESET this database. The migration history also has no CREATE TABLE for 62 models, so the shadow replay always fails with P3006. Use: npm run db:deploy (apply) or npm run db:status (check).' && exit 1",
     "db:deploy": "npm run db:compile && prisma migrate deploy",
-    "db:status": "npm run db:compile && prisma migrate status",
-    "db:baseline": "bash scripts/baseline-migrations.sh"
+    "db:status": "npm run db:compile && prisma migrate status"
   },
   "engines": {
     "node": ">=18.0.0"
