@@ -166,6 +166,10 @@ class AffiliateDAO {
     return prisma.affiliate_clicks.create({ data });
   }
 
+  async getClickById(id) {
+    return prisma.affiliate_clicks.findUnique({ where: { id } });
+  }
+
   async countClicksToday(affiliateId) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -184,10 +188,26 @@ class AffiliateDAO {
     });
   }
 
-  async markClickConverted(clickId, orderId) {
-    return prisma.affiliate_clicks.update({
-      where: { id: clickId },
-      data: { is_converted: true, converted_at: new Date(), order_id: orderId },
+  async finalizeClickAttribution(affiliateOrder) {
+    if (!affiliateOrder.click_id) return;
+    return prisma.$transaction(async (tx) => {
+      const click = await tx.affiliate_clicks.findUnique({ where: { id: affiliateOrder.click_id } });
+      if (!click || click.affiliate_id !== affiliateOrder.affiliate_id) return;
+
+      // A repeated /convert request must not add orders, revenue or commission twice.
+      const claimed = await tx.affiliate_clicks.updateMany({
+        where: { id: click.id, affiliate_id: affiliateOrder.affiliate_id, is_converted: false },
+        data: { is_converted: true, converted_at: new Date(), order_id: affiliateOrder.order_id },
+      });
+      if (!claimed.count || !click.link_id) return;
+      await tx.affiliate_links.updateMany({
+        where: { id: click.link_id, affiliate_id: affiliateOrder.affiliate_id },
+        data: {
+          total_orders: { increment: 1 },
+          total_revenue: { increment: Number(affiliateOrder.final_order_value) },
+          total_commission: { increment: Number(affiliateOrder.final_commission || 0) },
+        },
+      });
     });
   }
 

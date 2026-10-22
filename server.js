@@ -128,6 +128,7 @@ import affiliateAdminRoutes from "./routes/affiliateAdminRoutes.js";
 import adminDashboardRoutes from "./routes/adminDashboardRoutes.js";
 import membershipAdminRoutes from "./routes/membershipAdminRoutes.js";
 import campaignRoutes from "./routes/campaignRoutes.js";
+import growthRoutes from "./routes/growthRoutes.js";
 import notificationTemplateRoutes from "./routes/notificationTemplateRoutes.js";
 import bankAccountRoutes from "./routes/bankAccountRoutes.js";
 import fcmTokenRoutes from "./routes/fcmTokenRoutes.js";
@@ -213,6 +214,7 @@ const createApp = () => {
   app.use("/api/shopping-lists", shoppingListRoutes);
   app.use("/api/referral", referralRoutes);
   app.use("/api/affiliate", affiliateRoutes);
+  app.use("/api/growth", growthRoutes);
   app.use("/api/wallet", walletRoutes);
   app.use("/api/wishlist", wishlistRoutes);
   app.use("/api/seller-auth", sellerAuthRoutes);

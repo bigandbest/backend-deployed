@@ -73,14 +73,26 @@ export const trackClick = async (req, res) => {
 // POST /api/affiliate/record-click  - called by frontend when ?ref= param detected
 export const recordRefClick = async (req, res) => {
   try {
-    const { affiliate_code, destination_url } = req.body;
+    const { affiliate_code, destination_url, link_code } = req.body;
     if (!affiliate_code) {
       return res.json({ success: false, error: "affiliate_code required" });
     }
 
     const profile = await affiliateDAO.getProfileByCode(affiliate_code);
-    if (!profile || profile.status !== "ACTIVE") {
+    if (!profile || profile.status !== "ACTIVE" || profile.is_blocked) {
       return res.json({ success: false, error: "Invalid affiliate code" });
+    }
+
+    // Legacy ref-only URLs remain valid. A supplied link must belong to this affiliate.
+    let link = null;
+    if (link_code != null) {
+      if (typeof link_code !== "string" || !/^[a-z0-9]{1,64}$/i.test(link_code)) {
+        return res.status(400).json({ success: false, error: "Invalid affiliate link" });
+      }
+      link = await affiliateDAO.getLinkByCode(link_code);
+      if (!link || !link.is_active || link.affiliate_id !== profile.id) {
+        return res.status(400).json({ success: false, error: "Invalid affiliate link" });
+      }
     }
 
     const config = await affiliateDAO.getConfig();
@@ -90,12 +102,21 @@ export const recordRefClick = async (req, res) => {
     const click = await affiliateDAO.createClick({
       affiliate_id: profile.id,
       affiliate_code,
+      link_id: link?.id || null,
+      link_code: link?.link_code || null,
       user_id: req.user?.id || null,
       ip_address: req.ip,
       user_agent: req.headers["user-agent"] || "",
       destination_url: destination_url || "/",
       cookie_expires_at: cookieExpiry,
     });
+
+    if (link) {
+      await affiliateDAO.updateLink(link.id, {
+        total_clicks: { increment: 1 },
+        last_clicked_at: new Date(),
+      });
+    }
 
     await affiliateDAO.incrementProfileStats(profile.id, {
       total_clicks: { increment: 1 },
@@ -133,11 +154,6 @@ export const convertOrder = async (req, res) => {
 
     if (!result) {
       return res.json({ success: false, message: "Order not attributed" });
-    }
-
-    // Mark click as converted
-    if (click_id) {
-      await affiliateDAO.markClickConverted(click_id, order_id);
     }
 
     return res.json({ success: true, data: { affiliateOrderId: result.id } });

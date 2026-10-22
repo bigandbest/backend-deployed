@@ -148,8 +148,11 @@ export const generateLink = async (req, res) => {
     }
 
     const linkCode = await generateLinkCode();
-    const separator = destinationUrl.includes("?") ? "&" : "?";
-    const fullUrl = `${destinationUrl}${separator}ref=${profile.affiliate_code}`;
+    const shareUrl = new URL(destinationUrl);
+    shareUrl.searchParams.set("ref", profile.affiliate_code);
+    // Keep the affiliate ref for legacy clients and identify this product/campaign link.
+    shareUrl.searchParams.set("link_code", linkCode);
+    const fullUrl = shareUrl.toString();
 
     const link = await affiliateDAO.createLink({
       affiliate_id: profile.id,

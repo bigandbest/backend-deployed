@@ -159,10 +159,13 @@ export const processAffiliateOrder = async (orderId, affiliateCode, cookieData =
   try {
     // Check if already processed
     const existing = await affiliateDAO.getAffiliateOrderByOrderId(orderId);
-    if (existing) return existing;
+    if (existing) {
+      await affiliateDAO.finalizeClickAttribution(existing);
+      return existing;
+    }
 
     const profile = await affiliateDAO.getProfileByCode(affiliateCode);
-    if (!profile || profile.status !== "ACTIVE") return null;
+    if (!profile || profile.status !== "ACTIVE" || profile.is_blocked) return null;
 
     // Fetch the order from our orders table
     const order = await prisma.orders.findUnique({
@@ -170,6 +173,17 @@ export const processAffiliateOrder = async (orderId, affiliateCode, cookieData =
       include: { order_items: { include: { product_variants: { include: { products: true } } } } },
     });
     if (!order) return null;
+
+    // Bind a provided click to its affiliate and customer before using it for link statistics.
+    // Ref-only legacy attribution remains supported when the client has no click ID.
+    if (cookieData.clickId) {
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(cookieData.clickId))) return null;
+      const click = await affiliateDAO.getClickById(cookieData.clickId);
+      if (!click || click.affiliate_id !== profile.id
+        || (click.user_id && click.user_id !== order.user_id)
+        || click.is_converted
+        || (click.cookie_expires_at && new Date(click.cookie_expires_at) <= new Date())) return null;
+    }
 
     const config = await affiliateDAO.getConfig();
 
@@ -238,6 +252,8 @@ export const processAffiliateOrder = async (orderId, affiliateCode, cookieData =
 
     // Q1: this valid affiliate attribution takes precedence over any pending referral on this order.
     await supersedeByAffiliateAttribution(orderId);
+
+    await affiliateDAO.finalizeClickAttribution(affiliateOrder);
 
     return affiliateOrder;
   } catch (err) {
