@@ -118,8 +118,12 @@ export const generateLink = async (req, res) => {
 
     const { destination_type, product_id, category_id, search_query, campaign_name, sub_id } = req.body;
 
-    if (!destination_type) {
-      return res.status(400).json({ success: false, error: "destination_type is required" });
+    if (!["HOMEPAGE", "GENERAL", "PRODUCT", "CATEGORY", "SEARCH"].includes(destination_type)) {
+      return res.status(400).json({ success: false, error: "A valid destination_type is required" });
+    }
+    if ((destination_type === "PRODUCT" && !product_id) || (destination_type === "CATEGORY" && !category_id)
+      || (destination_type === "SEARCH" && (typeof search_query !== "string" || !search_query.trim()))) {
+      return res.status(400).json({ success: false, error: "Select a product, category or search term for this link" });
     }
 
     const frontendBase = process.env.FRONTEND_URL || "https://www.bigbestmart.com";

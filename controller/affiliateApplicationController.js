@@ -88,17 +88,18 @@ export const getApplicationStatus = async (req, res) => {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ success: false, error: "Auth required" });
 
+    const config = await affiliateDAO.getConfig();
+    const newApplicationsEnabled = config.is_enabled !== false && config.new_applications_enabled !== false;
     let application;
     try {
       application = await affiliateDAO.getApplicationByUserId(userId);
     } catch (dbErr) {
       // Table may not exist yet — treat as no application
       console.warn("getApplicationStatus: affiliate table unavailable:", dbErr.message);
-      return res.json({ success: true, data: null });
+      return res.json({ success: true, data: null, new_applications_enabled: newApplicationsEnabled });
     }
     if (!application) {
-      const config = await affiliateDAO.getConfig();
-      return res.json({ success: true, data: null, new_applications_enabled: config.is_enabled !== false && config.new_applications_enabled !== false });
+      return res.json({ success: true, data: null, new_applications_enabled: newApplicationsEnabled });
     }
 
     // If approved, also get profile info
@@ -116,6 +117,7 @@ export const getApplicationStatus = async (req, res) => {
 
     return res.json({
       success: true,
+      new_applications_enabled: newApplicationsEnabled,
       data: {
         applicationId: application.id,
         status: application.status,

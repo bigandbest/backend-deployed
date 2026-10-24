@@ -45,7 +45,7 @@ export function createGrowthPublicService({ prisma, now = () => new Date() }) {
         max_earning_per_user: numeric(referral?.max_earning_per_user, 1000),
         applicable_first_order: referral?.applicable_first_order !== false,
         tiered_rewards_enabled: referral?.tiered_rewards_enabled === true,
-        tiers: (Array.isArray(referral?.tiered_rewards_config) ? referral.tiered_rewards_config : []).map(tier => ({
+        tiers: (Array.isArray(referral?.tiered_rewards_config?.tiers) ? referral.tiered_rewards_config.tiers : []).map(tier => ({
           name: String(tier.name || ""), minReferrals: numeric(tier.minReferrals), reward: numeric(tier.reward),
         })),
       },
@@ -85,7 +85,7 @@ export function createGrowthPublicService({ prisma, now = () => new Date() }) {
     const rows = await prisma.campaigns.findMany({
       where: { is_active: true, starts_at: { lte: timestamp }, ends_at: { gt: timestamp }, ...(channel ? { channel } : {}) },
       select: {
-        id: true, name: true, description: true, channel: true, starts_at: true, ends_at: true,
+        id: true, name: true, channel: true, starts_at: true, ends_at: true,
         is_active: true, usage_limit: true, used_count: true,
         campaign_rule: { select: { scope_type: true, scope_id: true, reward_type: true,
           reward_value: true, max_reward_cap: true, min_order_value: true } },
