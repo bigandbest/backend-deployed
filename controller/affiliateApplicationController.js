@@ -1,3 +1,4 @@
+import { validateAffiliateApplication } from "../utils/growthValidation.js";
 import affiliateDAO from "../dao/affiliate.dao.js";
 import { generateAffiliateCode } from "../services/affiliateService.js";
 
@@ -23,18 +24,14 @@ export const applyForAffiliate = async (req, res) => {
       });
     }
 
+    const validation = validateAffiliateApplication(req.body);
+    if (!validation.valid) return res.status(400).json({ success: false, error: validation.error, fields: validation.errors });
     const {
-      full_name, email, phone, pan_number,
-      website_url, youtube_channel, instagram_handle, twitter_handle, facebook_page,
-      primary_platform, estimated_audience, niche_categories,
-      promotion_strategy, previous_experience,
-      payment_method, bank_name, bank_account_number, bank_ifsc_code,
-      account_holder_name, upi_id,
-    } = req.body;
-
-    if (!full_name || !phone || !primary_platform || !promotion_strategy) {
-      return res.status(400).json({ success: false, error: "Missing required fields" });
-    }
+      full_name, email, phone, pan_number, website_url, youtube_channel, instagram_handle,
+      twitter_handle, facebook_page, primary_platform, estimated_audience, niche_categories,
+      promotion_strategy, previous_experience, payment_method, bank_name, bank_account_number,
+      bank_ifsc_code, account_holder_name, upi_id,
+    } = validation.data;
 
     const application = await affiliateDAO.createApplication({
       user_id: userId,
@@ -48,7 +45,7 @@ export const applyForAffiliate = async (req, res) => {
       twitter_handle,
       facebook_page,
       primary_platform,
-      estimated_audience: estimated_audience ? parseInt(estimated_audience) : null,
+      estimated_audience,
       niche_categories: Array.isArray(niche_categories) ? niche_categories : [],
       promotion_strategy,
       previous_experience,

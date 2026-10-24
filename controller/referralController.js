@@ -1,4 +1,5 @@
 // controller/referralController.js
+import { validateWithdrawal } from "../utils/growthValidation.js";
 import prisma from "../config/prisma.js";
 import * as referralService from "../services/referralService.js";
 import * as membershipService from "../services/membershipService.js";
@@ -289,19 +290,9 @@ export const spendBalance = async (req, res) => {
 export const requestWithdrawal = async (req, res) => {
   try {
     const { user } = req;
-    const { amount, payment_method, bank_name, bank_account_number, bank_ifsc_code, account_holder_name, upi_id } = req.body;
-
-    if (!amount || !payment_method) {
-      return res.status(400).json({ success: false, error: "amount and payment_method are required" });
-    }
-
-    if (payment_method === "BANK_TRANSFER" && (!bank_account_number || !bank_ifsc_code || !account_holder_name)) {
-      return res.status(400).json({ success: false, error: "Bank details are required for bank transfer" });
-    }
-
-    if (payment_method === "UPI" && !upi_id) {
-      return res.status(400).json({ success: false, error: "UPI ID is required" });
-    }
+    const validation = validateWithdrawal(req.body);
+    if (!validation.valid) return res.status(400).json({ success: false, error: validation.error, fields: validation.errors });
+    const { amount, payment_method, bank_name, bank_account_number, bank_ifsc_code, account_holder_name, upi_id } = validation.data;
 
     const paymentDetails = { bank_name, bank_account_number, bank_ifsc_code, account_holder_name, upi_id };
     const withdrawal = await referralService.requestWithdrawal(user.id, parseFloat(amount), payment_method, paymentDetails);

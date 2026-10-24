@@ -1,3 +1,4 @@
+import { validateReferralInput } from "../utils/growthValidation.js";
 // services/referralService.js
 import prisma from "../config/prisma.js";
 import { matchReferralCampaign } from "./campaignEngine.js";
@@ -69,7 +70,9 @@ export const getOrCreateReferralProfile = async (userId, userName) => {
  * Validate a referral code before signup
  */
 export const validateReferralCode = async (code) => {
-  if (!code) return { valid: false, error: "Code is required" };
+  const input = validateReferralInput(code);
+  if (!input.valid) return { valid: false, error: input.error };
+  code = input.data.referral_code;
 
   const profile = await prisma.user_referral_profiles.findUnique({
     where: { referral_code: code.toUpperCase() },
@@ -99,6 +102,9 @@ export const applyReferralCode = async (refereeId, refereeData, referralCode, ip
     return { success: false, error: "New referral signups are temporarily paused" };
   }
 
+  const input = validateReferralInput(referralCode);
+  if (!input.valid) return { success: false, error: input.error };
+  referralCode = input.data.referral_code;
   const validation = await validateReferralCode(referralCode);
   if (!validation.valid) return { success: false, error: validation.error };
 

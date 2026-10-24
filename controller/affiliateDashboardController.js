@@ -1,3 +1,4 @@
+import { validateAffiliateLink, validatePaymentDetails } from "../utils/growthValidation.js";
 import affiliateDAO from "../dao/affiliate.dao.js";
 import prisma from "../config/prisma.js";
 import { generateLinkCode } from "../services/affiliateService.js";
@@ -35,6 +36,13 @@ export const updateAffiliateProfile = async (req, res) => {
       if (req.body[key] !== undefined) data[key] = req.body[key];
     }
 
+    const paymentFields = ["payment_method", "bank_name", "bank_account_number", "bank_ifsc_code", "account_holder_name", "upi_id"];
+    if (paymentFields.some(field => req.body[field] !== undefined)) {
+      const payment = validatePaymentDetails({ ...profile, ...data });
+      if (!payment.valid) return res.status(400).json({ success: false, error: payment.error, fields: payment.errors });
+      for (const field of paymentFields) delete data[field];
+      Object.assign(data, payment.data);
+    }
     const updated = await affiliateDAO.updateProfile(profile.id, data);
     return res.json({ success: true, data: updated });
   } catch (err) {
@@ -116,15 +124,9 @@ export const generateLink = async (req, res) => {
       return res.status(400).json({ success: false, error: "New affiliate link creation is temporarily paused" });
     }
 
-    const { destination_type, product_id, category_id, search_query, campaign_name, sub_id } = req.body;
-
-    if (!["HOMEPAGE", "GENERAL", "PRODUCT", "CATEGORY", "SEARCH"].includes(destination_type)) {
-      return res.status(400).json({ success: false, error: "A valid destination_type is required" });
-    }
-    if ((destination_type === "PRODUCT" && !product_id) || (destination_type === "CATEGORY" && !category_id)
-      || (destination_type === "SEARCH" && (typeof search_query !== "string" || !search_query.trim()))) {
-      return res.status(400).json({ success: false, error: "Select a product, category or search term for this link" });
-    }
+    const validation = validateAffiliateLink(req.body);
+    if (!validation.valid) return res.status(400).json({ success: false, error: validation.error, fields: validation.errors });
+    const { destination_type, product_id, category_id, search_query, campaign_name, sub_id } = validation.data;
 
     const frontendBase = process.env.FRONTEND_URL || "https://www.bigbestmart.com";
     let destinationUrl = frontendBase;
@@ -275,6 +277,8 @@ export const requestPayout = async (req, res) => {
       });
     }
 
+    const payment = validatePaymentDetails(profile);
+    if (!payment.valid) return res.status(400).json({ success: false, error: `Update your payout details: ${payment.error}`, fields: payment.errors });
     const { generatePayoutNumber } = await import("../services/affiliateService.js");
     const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -309,12 +313,12 @@ export const requestPayout = async (req, res) => {
               tds_amount: tdsAmount,
               net_amount: netAmount,
               commission_count: commissions.length,
-              payment_method: profile.payment_method,
-              bank_name: profile.bank_name,
-              bank_account_number: profile.bank_account_number,
-              bank_ifsc_code: profile.bank_ifsc_code,
-              account_holder_name: profile.account_holder_name,
-              upi_id: profile.upi_id,
+              payment_method: payment.data.payment_method,
+              bank_name: payment.data.bank_name,
+              bank_account_number: payment.data.bank_account_number,
+              bank_ifsc_code: payment.data.bank_ifsc_code,
+              account_holder_name: payment.data.account_holder_name,
+              upi_id: payment.data.upi_id,
               status: "PENDING",
             },
           });
