@@ -295,7 +295,7 @@ export const requestPayout = async (req, res) => {
           if (!commissions.length) throw Object.assign(new Error("No approved commissions available for payout"), { code: "NO_COMMISSIONS" });
 
           const claimed = await tx.affiliate_commissions.updateMany({
-            where: { id: { in: commissions.map((c) => c.id) }, status: "APPROVED", payout_id: null },
+            where: { OR: commissions.map(c => ({ id: c.id, final_amount: c.final_amount, gross_commission: c.gross_commission })), status: "APPROVED", payout_id: null },
             data: { status: "IN_PAYOUT" },
           });
           if (claimed.count !== commissions.length) throw Object.assign(new Error("Commissions were claimed by another payout"), { code: "NO_COMMISSIONS" });

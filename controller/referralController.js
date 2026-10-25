@@ -16,6 +16,7 @@ export const getPublicConfig = async (req, res) => {
       return res.json({
         success: true,
         config: {
+          applicable_first_order: true,
           is_enabled: true,
           referrer_reward_amount: 75,
           referee_reward_amount: 75,
@@ -32,6 +33,7 @@ export const getPublicConfig = async (req, res) => {
     res.json({
       success: true,
       config: {
+        applicable_first_order: config.applicable_first_order,
         is_enabled: config.is_enabled,
         referrer_reward_amount: parseFloat(config.referrer_reward_amount),
         referee_reward_amount: parseFloat(config.referee_reward_amount),
@@ -68,12 +70,14 @@ export const generateCode = async (req, res) => {
     const { user } = req;
     let profile = await prisma.user_referral_profiles.findUnique({ where: { user_id: user.id } });
 
+    if (profile?.is_blocked) return res.status(403).json({ success: false, error: "Referral access is blocked" });
+
     // The free-membership trial starts on the FIRST successful call here (and only here). ensureMembership is idempotent,
     // so it runs before the early return below: a profile/code that already exists (e.g. created by apply-code) must still
     // start the trial the first time the user explicitly generates their code, and repeat calls never restart it.
     // Blocked users never start a trial.
     const startTrial = async () => {
-      if (profile?.is_blocked) return null;
+      if (profile?.is_blocked) throw new Error("Referral access is blocked");
       await membershipService.ensureMembership(user.id);
       return membershipService.getMembershipSummary(user.id);
     };
@@ -411,15 +415,17 @@ export const getShareContent = async (req, res) => {
     const profile = await referralService.getOrCreateReferralProfile(user.id, user.name);
     const config = await referralService.getConfig();
 
-    res.json({
-      success: true,
-      share: {
-        referral_code: profile.referral_code,
-        title: `Join ${config.program_name || "Refer & Earn"} and get ₹${config.referee_reward_amount} off!`,
-        message: `Use my referral code ${profile.referral_code} while signing up and get ₹${config.referee_reward_amount} off your first order! I'll earn ₹${config.referrer_reward_amount} too!`,
-        short_message: `Use code ${profile.referral_code} to get ₹${config.referee_reward_amount} off!`,
-      },
-    });
+    const baseUrl = process.env.FRONTEND_URL || "https://bigbestmart.com";
+    const invitationUrl = new URL(`/ref/${encodeURIComponent(profile.referral_code)}`, baseUrl).toString();
+    const message = `Join BigBestMart with my referral code ${profile.referral_code}. After your qualifying order is delivered and the ${config.return_window_days}-day return window closes, you can earn ₹${config.referee_reward_amount} and I can earn ₹${config.referrer_reward_amount}, subject to program rules. ${invitationUrl}`;
+    res.json({ success: true, share: {
+      referral_code: profile.referral_code,
+      invitation_url: invitationUrl,
+      title: `Join ${config.program_name || "Refer & Earn"}`,
+      message,
+      short_message: `Join with code ${profile.referral_code}. Rewards follow a qualifying order and the return window. ${invitationUrl}`,
+    } });
+
   } catch (error) {
     console.error("Error in getShareContent:", error);
     res.status(500).json({ success: false, error: "Internal server error" });

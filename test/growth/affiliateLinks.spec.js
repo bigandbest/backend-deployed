@@ -8,7 +8,7 @@ const prisma = {
     update: async () => { stats.profileUpdates++; return profile; },
   },
   affiliate_configs: { findFirst: async () => config },
-  affiliate_applications: { findFirst: async () => application, create: async ({ data }) => { stats.applicationWrites++; return { id: "app-new", ...data }; } },
+  affiliate_applications: { findFirst: async () => { if (application instanceof Error) throw application; return application; }, create: async ({ data }) => { stats.applicationWrites++; return { id: "app-new", ...data }; } },
   products: { findUnique: async ({ where }) => where.id === '11111111-1111-4111-8111-111111111111' ? { id: '11111111-1111-4111-8111-111111111111', name: 'Soap' } : null },
   categories: { findUnique: async () => ({ id: '22222222-2222-4222-8222-222222222222', name: 'Skin Care' }) },
   affiliate_links: {
@@ -30,7 +30,7 @@ const prisma = {
 };
 mock.module('../../config/prisma.js', { defaultExport: prisma });
 mock.module('../../services/affiliateService.js', { namedExports: {
-  generateLinkCode: async () => 'TRACK123', generateAffiliateCode: async () => 'AFF1', processAffiliateOrder: async () => null,
+  generateLinkCode: async () => 'TRACK123', generateAffiliateCode: async () => 'AFF1', processAffiliateOrder: async () => null, onOrderDelivered: async () => {},
 } });
 const { generateLink, updateAffiliateProfile, requestPayout } = await import('../../controller/affiliateDashboardController.js');
 const { recordRefClick } = await import('../../controller/affiliateTrackingController.js');
@@ -142,4 +142,11 @@ test('payouts with invalid saved details fail before any commission transaction'
   const res = response(); await requestPayout(request({}), res);
   assert.equal(res.statusCode, 400); assert.ok(res.body.fields.upi_id);
   assert.equal(stats.transactions, 0);
+});
+
+test('application lookup failures are retryable errors, never a false new-applicant state', async () => {
+  application = new Error('Database unavailable');
+  const res = response(); await getApplicationStatus(request({}), res);
+  assert.equal(res.statusCode, 503); assert.equal(res.body.success, false);
+  assert.match(res.body.error, /try again/); assert.equal(stats.applicationWrites, 0);
 });

@@ -1,6 +1,7 @@
+import { normalizeAffiliateAttribution } from "../services/affiliateAttribution.js";
+import { Prisma } from "@prisma/client";
 import prisma from "../config/prisma.js";
 import affiliateDAO from "../dao/affiliate.dao.js";
-import { processAffiliateOrder } from "../services/affiliateService.js";
 
 // GET /api/affiliate/track/:linkCode  - redirect with cookie
 export const trackClick = async (req, res) => {
@@ -150,13 +151,14 @@ export const convertOrder = async (req, res) => {
       return res.status(403).json({ success: false, error: "Not your order" });
     }
 
-    const result = await processAffiliateOrder(order_id, affiliate_code, { clickId: click_id });
+    const attribution = normalizeAffiliateAttribution({ affiliate_code, click_id });
+    if (!attribution) return res.status(400).json({ success: false, error: "Invalid attribution" });
+    await prisma.orders.updateMany({
+      where: { id: order_id, user_id: req.user.id, affiliate_attribution: { equals: Prisma.DbNull } },
+      data: { affiliate_attribution: attribution },
+    });
+    return res.status(202).json({ success: true, queued: true });
 
-    if (!result) {
-      return res.json({ success: false, message: "Order not attributed" });
-    }
-
-    return res.json({ success: true, data: { affiliateOrderId: result.id } });
   } catch (err) {
     console.error("convertOrder error:", err);
     return res.status(500).json({ success: false, error: "Server error" });

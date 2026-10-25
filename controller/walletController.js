@@ -1,3 +1,5 @@
+import { onOrderCreated } from "../services/orderLifecycleHooks.js";
+import { normalizeAffiliateAttribution } from "../services/affiliateAttribution.js";
 // controllers/walletController.js
 import { validateOrderLines, validateOrderTotal, recordCouponUsage } from "../services/orderValidationService.js";
 import { supabase } from "../config/supabaseClient.js";
@@ -879,6 +881,7 @@ export const createWalletOrder = async (req, res) => {
 
     // Create order data with nested items - strictly matching schema
     const orderCreateData = {
+      ...(normalizeAffiliateAttribution(req.body.attribution) ? { affiliate_attribution: normalizeAffiliateAttribution(req.body.attribution) } : {}),
       user_id: String(user_id),
       address: String(user_address),
       payment_method: 'Prepaid (wallet)',
@@ -1013,6 +1016,7 @@ export const createWalletOrder = async (req, res) => {
         idempotencyKey
       );
 
+      await onOrderCreated(order);
       await recordCouponUsage({ totalCheck, userId: user_id, orderId: order.id });
 
       // Create sub-orders for fulfillment routing — awaited (not

@@ -1,5 +1,5 @@
 import prisma from "../config/prisma.js";
-import { onOrderCreated, onOrderStatusChanged } from "../services/orderLifecycleHooks.js";
+import { onOrderStatusChanged } from "../services/orderLifecycleHooks.js";
 
 class OrderDAO {
   async create(data) {
@@ -16,7 +16,6 @@ class OrderDAO {
       data: createData,
     });
 
-    await onOrderCreated(order);
     return order;
   }
 

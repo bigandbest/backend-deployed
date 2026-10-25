@@ -1,3 +1,4 @@
+import { normalizeAffiliateAttribution } from "../services/affiliateAttribution.js";
 import Razorpay from "razorpay";
 import crypto from "crypto";
 /*
@@ -521,6 +522,7 @@ export const placeOrder = async (req, res) => {
     const identity = await prisma.$transaction(async (tx) => generateInvoiceIdentity(tx, "QK"));
 
     const order = await orderDao.create({
+      ...(normalizeAffiliateAttribution(req.body.attribution) ? { affiliate_attribution: normalizeAffiliateAttribution(req.body.attribution) } : {}),
       user_id,
       subtotal: parseFloat(subtotal),
       shipping: validatedShipping,
@@ -569,6 +571,8 @@ export const placeOrder = async (req, res) => {
     if (orderItemsToInsert.length > 0) {
       await orderItemDao.createMany(orderItemsToInsert);
     }
+
+    await onOrderCreated(order);
 
     // Warehouse assignments are already stored in order_items.assigned_warehouse_id
 
@@ -945,6 +949,7 @@ export const placeOrderWithDetailedAddress = async (req, res) => {
 
       const newOrder = await tx.orders.create({
         data: {
+          ...(normalizeAffiliateAttribution(req.body.attribution) ? { affiliate_attribution: normalizeAffiliateAttribution(req.body.attribution) } : {}),
           user_id,
           subtotal: parseFloat(subtotal),
           shipping: validatedShipping,

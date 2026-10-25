@@ -276,6 +276,8 @@ export const updateReturnRequestStatus = async (req, res) => {
       return res.status(404).json({ success: false, error: "Return order not found" });
     }
 
+    if (existing.status === "completed" && status !== "completed") return res.status(409).json({ success: false, error: "Completed returns cannot be reopened" });
+
     const updateData = {
       status,
       admin_notes: admin_notes || existing.admin_notes,

@@ -1,3 +1,5 @@
+import { reconcileCompletedAffiliateReturns } from "./affiliateReturnService.js";
+import { reconcileAffiliateAttribution } from "./affiliateAttribution.js";
 import cron from "node-cron";
 import {
   processReturnWindowExpirations,
@@ -32,6 +34,8 @@ export const initializeGrowthCronJobs = () => {
     return;
   }
 
+  cron.schedule("* * * * *", runExclusive("affiliate completed-return reconciliation", reconcileCompletedAffiliateReturns));
+  cron.schedule("* * * * *", runExclusive("affiliate attribution reconciliation", reconcileAffiliateAttribution));
   cron.schedule("0 * * * *", runExclusive("referral return-window expiry", processReturnWindowExpirations));
   cron.schedule("0 * * * *", runExclusive("affiliate commission auto-approval", processCommissionAutoApproval));
   cron.schedule("0 * * * *", runExclusive("membership trial lapse", processMembershipLapses));

@@ -1,3 +1,5 @@
+import { calculateAffiliateReturnAdjustment } from "./affiliateReturnService.js";
+import { calculateEligibleOrderBase } from "./rewardCalculation.js";
 import { validateReferralInput } from "../utils/growthValidation.js";
 // services/referralService.js
 import prisma from "../config/prisma.js";
@@ -50,13 +52,20 @@ export const getOrCreateReferralProfile = async (userId, userName) => {
   });
 
   if (!profile) {
-    const code = await generateReferralCode(userName);
-    profile = await prisma.user_referral_profiles.create({
-      data: {
-        user_id: userId,
-        referral_code: code,
-      },
-    });
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = await generateReferralCode(userName);
+      try {
+        profile = await prisma.user_referral_profiles.upsert({
+          where: { user_id: userId }, update: {}, create: { user_id: userId, referral_code: code },
+        });
+        break;
+      } catch (error) {
+        if (error.code !== "P2002") throw error;
+        profile = await prisma.user_referral_profiles.findUnique({ where: { user_id: userId } });
+        if (profile) break;
+        if (attempt === 4) throw error;
+      }
+    }
   }
 
   return profile;
@@ -233,6 +242,14 @@ export const onOrderPlaced = async (refereeId, orderId, orderNumber, orderAmount
 
   if (!referralTx) return;
 
+  if (config.applicable_first_order) {
+    const priorOrder = await prisma.orders.findFirst({
+      where: { user_id: refereeId, id: { not: orderId }, status: { notIn: ["cancelled", "Cancelled", "CANCELLED", "failed", "FAILED"] } },
+      select: { id: true },
+    });
+    if (priorOrder) return;
+  }
+
   // Check minimum order value
   if (parseFloat(orderAmount) < parseFloat(config.min_order_value)) return;
 
@@ -334,6 +351,10 @@ export const processReturnWindowExpiry = async (referralTransactionId) => {
   });
 
   if (!referralTx || referralTx.status !== "RETURN_WINDOW_ACTIVE") return;
+  if (referralTx.order_id) {
+    const order = await prisma.orders.findUnique({ where: { id: referralTx.order_id }, select: { affiliate_attribution: true, affiliate_attribution_processed_at: true } });
+    if (order?.affiliate_attribution && !order.affiliate_attribution_processed_at) return;
+  }
 
   const config = await getConfig();
 
@@ -342,9 +363,6 @@ export const processReturnWindowExpiry = async (referralTransactionId) => {
   // signup bonus is unaffected either way; campaigns are a referrer-incentive tool, not a
   // referee-signup one, so it always comes from the flat config default.
   const refereeAmount = parseFloat(config.referee_reward_amount);
-  const referrerAmount = referralTx.campaign_id && referralTx.applied_reward_value != null
-    ? parseFloat(referralTx.applied_reward_value)
-    : (await calculateRewardAmounts(referralTx.referrer_profile, referralTx.order_amount, config)).referrerAmount;
 
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + config.reward_validity_days);
@@ -362,8 +380,18 @@ export const processReturnWindowExpiry = async (referralTransactionId) => {
     // The referee's signup bonus is unaffected by the referrer's membership.
     const referrerEligible = referralTx.membership_eligible !== false;
 
+    // Lock the profile before reading earnings: distinct referrals for the same referrer
+    // must share the remaining lifetime allowance, including campaign snapshots.
+    await tx.$queryRaw`SELECT id FROM user_referral_profiles WHERE id = ${referralTx.referrer_profile_id}::uuid FOR UPDATE`;
+    const currentProfile = await tx.user_referral_profiles.findUnique({ where: { id: referralTx.referrer_profile_id } });
+    const requestedAmount = referralTx.campaign_id && referralTx.applied_reward_value != null
+      ? Number(referralTx.applied_reward_value)
+      : (await calculateRewardAmounts(currentProfile, referralTx.order_amount, config)).referrerAmount;
+    const referrerAmount = Math.round(Math.max(0, Math.min(requestedAmount,
+      Number(config.max_earning_per_user) - Number(currentProfile.total_earnings))) * 100) / 100;
+
     // Credit referrer reward
-    const rr = referrerEligible ? await tx.referral_rewards.create({
+    const rr = referrerEligible && referrerAmount > 0 ? await tx.referral_rewards.create({
       data: {
         user_id: referralTx.referrer_id,
         user_profile_id: referralTx.referrer_profile_id,
@@ -466,8 +494,8 @@ export const processReturnWindowExpiry = async (referralTransactionId) => {
   // Send notifications
   if (referrerReward) {
     await createNotification(referralTx.referrer_id, "REWARD_CREDITED",
-      { amount: referrerAmount, validity_days: config.reward_validity_days },
-      { reward_id: referrerReward.id, amount: referrerAmount });
+      { amount: Number(referrerReward.amount), validity_days: config.reward_validity_days },
+      { reward_id: referrerReward.id, amount: Number(referrerReward.amount) });
   }
 
   if (refereeReward) {
@@ -512,19 +540,22 @@ export const onOrderReturned = async (orderId, returnType, returnAmount) => {
       data: { pending_referrals: { decrement: 1 }, failed_referrals: { increment: 1 } },
     });
   } else if (returnType === "PARTIAL") {
-    // Partial return: reduce order amount, let return window continue.
-    // Not idempotency-guarded against duplicate calls for the same physical return event —
-    // callers must only invoke this once per distinct partial-return approval.
-    await prisma.referral_transactions.update({
-      where: { id: referralTx.id },
-      data: {
-        is_returned: true,
-        return_type: "PARTIAL",
-        return_amount: returnAmount,
-        returned_at: new Date(),
-        order_amount: { decrement: parseFloat(returnAmount) },
-        status_history: [...history, { status: referralTx.status, timestamp: new Date(), note: `Partial return: ₹${returnAmount}` }],
-      },
+    // Recompute from completed return records instead of incrementing a request amount.
+    await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM referral_transactions WHERE id = ${referralTx.id}::uuid FOR UPDATE`;
+      const current = await tx.referral_transactions.findUnique({ where: { id: referralTx.id } });
+      if (!current || !["ORDER_PLACED", "RETURN_WINDOW_ACTIVE"].includes(current.status)) return;
+      const order = await tx.orders.findUnique({ where: { id: orderId }, include: { order_items: true } });
+      const returns = await tx.return_orders.findMany({ where: { order_id: orderId, status: "completed", return_type: { not: "cancellation" } }, include: { return_order_items: true } });
+      if (!order || !returns.length) return;
+      const adjustment = calculateAffiliateReturnAdjustment({ gross_order_value: order.subtotal, net_order_value: calculateEligibleOrderBase(order), commission_amount: 0 }, returns, order.order_items);
+      if (Number(current.return_amount) >= adjustment.returnAmount) return;
+      const currentHistory = Array.isArray(current.status_history) ? current.status_history : [];
+      await tx.referral_transactions.update({ where: { id: current.id }, data: {
+        is_returned: true, return_type: "PARTIAL", return_amount: adjustment.returnAmount,
+        returned_at: new Date(), order_amount: adjustment.finalOrderValue,
+        status_history: [...currentHistory, { status: current.status, timestamp: new Date(), note: `Completed partial returns: ₹${adjustment.returnAmount}` }],
+      } });
     });
   }
 };

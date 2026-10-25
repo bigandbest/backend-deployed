@@ -5,6 +5,9 @@ import prisma from "../config/prisma.js";
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const SPECIFICITY = { PRODUCT: 0, CATEGORY: 1, STORE_WIDE: 2 };
+export const compareCampaignRules = (a, b) => SPECIFICITY[a.scope_type] - SPECIFICITY[b.scope_type]
+  || new Date(a.campaigns?.created_at || 0) - new Date(b.campaigns?.created_at || 0)
+  || String(a.campaign_id).localeCompare(String(b.campaign_id));
 
 // Computes the reward/commission amount a rule produces for a base value, applying the cap (Q2).
 export const computeRuleAmount = (rule, baseValue) => {
@@ -19,8 +22,7 @@ export const computeRuleAmount = (rule, baseValue) => {
 // Loads every currently-active, in-window campaign rule for a channel in one query — matched
 // in memory per item/order rather than queried per item (rules.md 19.3 — avoid N+1).
 // Boundary is starts_at <= now < ends_at, per Q2's clarification.
-export const getActiveCampaignRules = async (channel) => {
-  const now = new Date();
+export const getActiveCampaignRules = async (channel, now = new Date()) => {
   return prisma.campaign_rules.findMany({
     where: {
       campaigns: { channel, is_active: true, starts_at: { lte: now }, ends_at: { gt: now } },
@@ -31,21 +33,21 @@ export const getActiveCampaignRules = async (channel) => {
 
 // Q4: PRODUCT > CATEGORY > STORE_WIDE. Returns the single best-specificity match, or null.
 // usage_limit is intentionally NOT checked here — that's enforced atomically at reservation time.
-export const matchRuleForItem = (rules, { productId, categoryId }) => {
+export const matchingRulesForItem = (rules, { productId, categoryId }) => {
   const candidates = rules.filter((r) => {
     if (r.scope_type === "PRODUCT") return productId && r.scope_id === productId;
     if (r.scope_type === "CATEGORY") return categoryId && r.scope_id === categoryId;
     return true; // STORE_WIDE
   });
-  if (candidates.length === 0) return null;
-  candidates.sort((a, b) => SPECIFICITY[a.scope_type] - SPECIFICITY[b.scope_type]);
-  return candidates[0];
+  return candidates.sort(compareCampaignRules);
 };
+
+export const matchRuleForItem = (rules, item) => matchingRulesForItem(rules, item)[0] || null;
 
 // Q12/Q13: atomic compare-and-swap on used_count + idempotency-guarded usage row.
 // Returns true if this order holds a reserved slot (freshly reserved, or already had one on a
 // retried call), false if the campaign has no usage left (caller falls back to the default).
-export const reserveCampaignUsage = async (campaignId, orderId, channel) => {
+export const reserveCampaignUsage = async (campaignId, orderId, channel, at = new Date()) => {
   try {
     return await prisma.$transaction(async (tx) => {
       const existing = await tx.campaign_usage.findUnique({
@@ -55,9 +57,9 @@ export const reserveCampaignUsage = async (campaignId, orderId, channel) => {
 
       const campaign = await tx.campaigns.findUnique({
         where: { id: campaignId },
-        select: { is_active: true, usage_limit: true },
+        select: { is_active: true, usage_limit: true, starts_at: true, ends_at: true },
       });
-      if (!campaign || !campaign.is_active) return false;
+      if (!campaign || !campaign.is_active || campaign.starts_at > at || campaign.ends_at <= at) return false;
 
       const where = { id: campaignId, is_active: true };
       if (campaign.usage_limit != null) where.used_count = { lt: campaign.usage_limit };
@@ -71,7 +73,7 @@ export const reserveCampaignUsage = async (campaignId, orderId, channel) => {
   } catch (err) {
     if (err.code === "P2002") return true; // concurrent call already inserted the usage row
     console.error(`[campaignEngine] reserveCampaignUsage failed for campaign ${campaignId}, order ${orderId}:`, err.message);
-    return false;
+    throw err;
   }
 };
 
@@ -84,17 +86,15 @@ export const matchReferralCampaign = async ({ orderId, items, eligibleBase }) =>
   const rules = await getActiveCampaignRules("REFERRAL");
   if (rules.length === 0) return null;
 
+  // Sort all scopes using the same deterministic priority used by affiliate matching.
+  const matched = new Set(items.flatMap(item => matchingRulesForItem(rules, item)));
+  const ranked = [...matched].sort(compareCampaignRules);
   let best = null;
-  for (const item of items) {
-    const match = matchRuleForItem(rules, item);
-    if (!match) continue;
-    if (!best || SPECIFICITY[match.scope_type] < SPECIFICITY[best.scope_type]) best = match;
+  for (const rule of ranked) {
+    if (rule.min_order_value != null && Number(eligibleBase) < Number(rule.min_order_value)) continue;
+    if (await reserveCampaignUsage(rule.campaign_id, orderId, "REFERRAL")) { best = rule; break; }
   }
   if (!best) return null;
-  if (best.min_order_value != null && Number(eligibleBase) < Number(best.min_order_value)) return null;
-
-  const reserved = await reserveCampaignUsage(best.campaign_id, orderId, "REFERRAL");
-  if (!reserved) return null; // exhausted — caller falls back to the flat config default
 
   return {
     campaign_id: best.campaign_id,

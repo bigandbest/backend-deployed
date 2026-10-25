@@ -38,9 +38,9 @@ export const DEFAULT_TEMPLATES = {
 };
 
 export const interpolate = (template, variables = {}) =>
-  String(template || "").replace(/\{\{(\w+)\}\}/g, (_, key) => (variables[key] != null ? String(variables[key]) : ""));
+  String(template || "").replace(/\{\{\s*(\w+)\s*\}\}/g, (_, key) => (variables[key] != null ? String(variables[key]) : ""));
 
-const extractVariableTokens = (text) => [...String(text || "").matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]);
+const extractVariableTokens = (text) => [...String(text || "").matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map((m) => m[1]);
 
 // Returns an error string, or null if valid. Checked against the registry, not against
 // whatever happens to be in DEFAULT_TEMPLATES, so a new supported variable can be registered

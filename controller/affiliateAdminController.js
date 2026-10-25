@@ -382,7 +382,7 @@ export const updatePayout = async (req, res) => {
     // Balance moves use net_amount — the same amount requestPayout moved from available to processing.
     const net = Number(payout.net_amount);
     const updated = await prisma.$transaction(async (tx) => {
-      const guard = await tx.affiliate_payouts.updateMany({ where: { id: payout.id, status: payout.status }, data: updateData });
+      const guard = await tx.affiliate_payouts.updateMany({ where: { id: payout.id, status: payout.status, net_amount: payout.net_amount }, data: updateData });
       if (guard.count === 0) return null;
 
       if (status === "COMPLETED") {

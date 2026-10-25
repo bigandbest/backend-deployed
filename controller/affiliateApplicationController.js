@@ -91,9 +91,9 @@ export const getApplicationStatus = async (req, res) => {
     try {
       application = await affiliateDAO.getApplicationByUserId(userId);
     } catch (dbErr) {
-      // Table may not exist yet — treat as no application
+      // A failed read must not send an existing applicant into a duplicate application.
       console.warn("getApplicationStatus: affiliate table unavailable:", dbErr.message);
-      return res.json({ success: true, data: null, new_applications_enabled: newApplicationsEnabled });
+      return res.status(503).json({ success: false, error: "Unable to check application status. Please try again." });
     }
     if (!application) {
       return res.json({ success: true, data: null, new_applications_enabled: newApplicationsEnabled });

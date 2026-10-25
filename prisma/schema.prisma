@@ -1149,6 +1149,12 @@ model orders {
   orn                    String?          @db.Uuid
   invoice_generated_at   DateTime?        @db.Timestamptz(6)
 
+  // Durable affiliate conversion input, written with the order; old clients may enqueue via /convert.
+  affiliate_attribution Json?
+  affiliate_attribution_processed_at DateTime? @db.Timestamptz(6)
+  affiliate_attribution_attempts Int @default(0)
+  affiliate_attribution_error String?
+
   // Relations — matching backup schema exactly
   coupon_usage         coupon_usage?
   order_items          order_items[]
@@ -1160,6 +1166,7 @@ model orders {
   rider_assignments    rider_assignments[]
   cod_collections      cod_collections?
 
+  @@index([affiliate_attribution_processed_at, created_at])
   @@index([user_id])
   @@index([status])
   @@index([created_at(sort: Desc)])
